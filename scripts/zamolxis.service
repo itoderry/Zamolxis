@@ -1,0 +1,29 @@
+# systemd unit template for Linux (user-level recommended so `claude login`
+# credentials in ~/.claude are available).
+#
+# User service (preferred):
+#   mkdir -p ~/.config/systemd/user
+#   cp scripts/zamolxis.service ~/.config/systemd/user/zamolxis.service
+#   # edit WorkingDirectory + ExecStart paths below, then:
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now zamolxis
+#   loginctl enable-linger "$USER"   # keep it running after logout
+#
+# System service: place in /etc/systemd/system/ and set User= to your account
+# (NOT root/LocalSystem, or the engine won't find your Claude credentials).
+
+[Unit]
+Description=Zamolxis agent daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/ABSOLUTE/PATH/TO/Zamolxis
+ExecStart=/usr/bin/node --enable-source-maps dist/index.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=default.target

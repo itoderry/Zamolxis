@@ -1,0 +1,62 @@
+{
+  "name": "zamolxis",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Zamolxis - self-hosted, multi-channel autonomous agent on the Claude Agent SDK (subscription-funded). An autonomous personal agent.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "zamolxis": "./bin/zamolxis.mjs"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node --enable-source-maps dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "cli": "tsx src/index.ts --channels=cli",
+    "web": "node --enable-source-maps dist/index.js --web",
+    "start:bg": "node bin/zamolxis.mjs start",
+    "stop": "node bin/zamolxis.mjs stop",
+    "restart": "node bin/zamolxis.mjs restart",
+    "status": "node bin/zamolxis.mjs status",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "setup": "powershell -ExecutionPolicy Bypass -File install.ps1",
+    "doctor": "node dist/index.js --doctor",
+    "service:install": "powershell -ExecutionPolicy Bypass -File scripts/service-install.ps1",
+    "service:uninstall": "powershell -ExecutionPolicy Bypass -File scripts/service-uninstall.ps1",
+    "service:start": "powershell -Command \"Start-ScheduledTask -TaskName Zamolxis\"",
+    "service:stop": "powershell -Command \"Stop-ScheduledTask -TaskName Zamolxis\"",
+    "service:status": "powershell -Command \"Get-ScheduledTask -TaskName Zamolxis | Format-List TaskName,State\"",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop zamolxis",
+    "pm2:logs": "pm2 logs zamolxis"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.156",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@slack/bolt": "^4.7.3",
+    "@whiskeysockets/baileys": "^7.0.0-rc13",
+    "croner": "^9.0.0",
+    "discord.js": "^14.26.4",
+    "dotenv": "^16.4.5",
+    "grammy": "^1.43.0",
+    "imapflow": "^1.3.4",
+    "mailparser": "^3.9.9",
+    "nodemailer": "^8.0.10",
+    "pino": "^9.5.0",
+    "pino-pretty": "^13.0.0",
+    "qrcode-terminal": "^0.12.0",
+    "ws": "^8.21.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^22.10.0",
+    "@types/nodemailer": "^8.0.0",
+    "@types/qrcode-terminal": "^0.12.2",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
