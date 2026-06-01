@@ -40,6 +40,8 @@ export interface ToolDeps {
   agentStore?: AgentStore;
   /** Run a named user-defined agent (late-bound to the engine). */
   runAgent?: (name: string, task?: string) => Promise<string>;
+  /** Deliver a message from an agent to another agent or the user (late-bound to the engine). */
+  sendAgentMessage?: (from: string, to: string, text: string) => Promise<string>;
 }
 
 const text = (s: string) => ({ content: [{ type: 'text' as const, text: s }] });
@@ -383,6 +385,16 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
       return text(`Scheduled agent "${args.name}" (${args.cron || args.at}). Cancel with cancel_scheduled and id ${job.id}.`);
     },
   );
+  const sendMessage = tool(
+    'send_message',
+    'Send a message to another agent (by name) or to the user. Agents use this to report results/progress, or to hand work to another agent.',
+    { to: z.string().describe('Recipient: an agent name, or "user"'), text: z.string().describe('The message') },
+    async (args) => {
+      if (!deps.sendAgentMessage) return text('Messaging is not available in this build.');
+      const from = ctx.conversationKey.startsWith('agent:') ? ctx.conversationKey.slice('agent:'.length) : 'assistant';
+      return text(await deps.sendAgentMessage(from, args.to, args.text));
+    },
+  );
 
   return {
     zamolxis: createSdkMcpServer({
@@ -393,6 +405,7 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
         listAgents,
         runAgentTool,
         scheduleAgent,
+        sendMessage,
         scheduleTask,
         listScheduled,
         cancelScheduled,

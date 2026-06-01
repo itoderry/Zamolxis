@@ -104,7 +104,16 @@ async function main(): Promise<void> {
     logger.warn({ err: String(err) }, 'skill seeding skipped');
   }
   const agentStore = new AgentStore(config.dataDir);
-  const engine = new Engine({ config, sessions, throttle, memory, sessionIndex, usage, skills, agentStore });
+  // In-memory log of agent messages (agent->agent and agent->user), polled by the web UI's
+  // Agents chat and mirrored into the active chat. Capped; also archived for search.
+  const agentMsgs: Array<{ from: string; to: string; text: string; ts: number }> = [];
+  const pushAgentMsg = (m: { from: string; to: string; text: string; ts: number }) => {
+    agentMsgs.push(m);
+    if (agentMsgs.length > 500) agentMsgs.shift();
+    try { sessionIndex.record('agents', m.from, `-> ${m.to}: ${m.text}`, m.ts); } catch { /* best-effort */ }
+    logger.info({ from: m.from, to: m.to }, 'agent message');
+  };
+  const engine = new Engine({ config, sessions, throttle, memory, sessionIndex, usage, skills, agentStore, onAgentMessage: pushAgentMsg });
   // Agent-managed dashboard tabs (web UI), with optional periodic refresh.
   const tabs = new TabsManager(config.dataDir);
   tabs.wire(engine);
@@ -123,7 +132,7 @@ async function main(): Promise<void> {
     const sandbox = new SandboxManager(config.sandbox);
     const settings = new SettingsManager(config, sandbox, config.dataDir, () => manager.runningNames(), memory);
     engine.buildMcpServers = (ctx) =>
-      buildToolServers(ctx, { scheduler, skills, sandbox, memory, sessionIndex, tabs, usage, localModel: config.localModel, dataDir: config.dataDir, skillsDir: config.skillsDir, agentStore, runAgent: (n, t) => engine.runAgent(n, t).then((r) => r.reply) });
+      buildToolServers(ctx, { scheduler, skills, sandbox, memory, sessionIndex, tabs, usage, localModel: config.localModel, dataDir: config.dataDir, skillsDir: config.skillsDir, agentStore, runAgent: (n, t) => engine.runAgent(n, t).then((r) => r.reply), sendAgentMessage: (f, t, x) => engine.sendAgentMessage(f, t, x) });
     logger.info({ sandbox: sandbox.listConfigured(), default: sandbox.defaultBackend }, 'sandbox ready');
 
     const factories: Array<[boolean, () => Channel]> = [
@@ -134,7 +143,7 @@ async function main(): Promise<void> {
       [config.channels.whatsapp, () => new WhatsAppChannel(config.dataDir)],
       [config.channels.signal, () => new SignalChannel()],
       [config.channels.email, () => new EmailChannel()],
-      [config.channels.web, () => new WebChannel(config, settings, reload, (key) => sessions.purge(key), tabs, usage, skills, memory, agentStore, (n, t) => engine.runAgent(n, t).then((r) => ({ reply: r.reply })))],
+      [config.channels.web, () => new WebChannel(config, settings, reload, (key) => sessions.purge(key), tabs, usage, skills, memory, agentStore, (n, t) => engine.runAgent(n, t).then((r) => ({ reply: r.reply })), agentMsgs)],
     ];
     for (const [enabled, make] of factories) {
       if (!enabled) continue;

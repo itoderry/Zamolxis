@@ -123,6 +123,8 @@ export class WebChannel implements Channel {
     private readonly memory?: MemoryManager,
     private readonly agentStore?: AgentStore,
     private readonly runAgent?: (name: string, task?: string) => Promise<{ reply: string }>,
+    /** Live agent-message log (agent->agent and agent->user), polled by the Agents chat. */
+    private readonly agentMsgs?: Array<{ from: string; to: string; text: string; ts: number }>,
   ) {
     const { bind, authToken } = config.web;
     if (!LOOPBACK.includes(bind) && !authToken) {
@@ -461,6 +463,11 @@ export class WebChannel implements Channel {
         });
         return;
       }
+    }
+    if (url.pathname === '/api/agentmsgs' && req.method === 'GET') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      const since = Number(url.searchParams.get('since') || 0) || 0;
+      return this.json(res, 200, (this.agentMsgs ?? []).filter((m) => m.ts > since).slice(-100));
     }
     if (url.pathname === '/api/skills') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
@@ -1048,6 +1055,9 @@ function renderSettings(s){var L=s.live,m=s.meta,h='';
   h+=sec('Claude subscription (login)');
   h+='<div style="font-size:12px;color:var(--mut);margin-bottom:6px">Zamolxis answers on your Claude Pro/Max subscription. On macOS the usual <code>claude login</code> stores the token in the Keychain, which the background engine cannot read - so paste a token here instead. In a terminal run <code>claude setup-token</code>, copy the line that starts with <code>sk-ant-oat01-</code>, and paste it below. Applies immediately on Save - no restart, no file editing.</div>';
   h+=credInputs('claude');
+  h+=sec('Agents');
+  h+='<label class="chk" style="font-size:13px;display:block"><input type="checkbox" id="mirroragents"> Mirror agent messages into the active chat (on by default)</label>';
+  h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">Create/run agents in the left rail (under Providers). Messages between agents and to you appear in the active chat when mirroring is on.</div>';
   h+=sec('Engine (applies on next message)');
   h+='<label>Agent name (shown everywhere)</label>'+inp('live_agentName',L.agentName);
   h+='<label>Model</label>'+sel('live_model',m.models,L.model);
@@ -1105,6 +1115,7 @@ function renderSettings(s){var L=s.live,m=s.meta,h='';
   h+='<button type="button" id="uninstallbtn" style="margin-top:6px;border-color:#a44;color:#e88">Uninstall '+esc(AGENT_NAME)+'</button>';
   el('settings').innerHTML=h;el('ro').innerHTML='Data dir: '+m.dataDir+'<br>'+m.restartNote;fetchUsage();
   var pkb=el('packbtn');if(pkb)pkb.onclick=doPack;
+  var ma=el('mirroragents');if(ma){ma.checked=(localStorage.zx_mirror!=='0');ma.onchange=function(){localStorage.zx_mirror=ma.checked?'1':'0'}}
   var unb=el('uninstallbtn');if(unb)unb.onclick=doUninstall;
   fetch('/api/install',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){var st=el('dockerstat');if(!st||!d)return;
     if(d.docker){st.innerHTML=dotHtml(C_OK,'installed')+'<span>Docker is installed.</span>'}
@@ -1190,6 +1201,11 @@ function fetchStatus(){fetch('/api/status',{headers:hdrs()}).then(function(r){re
     a.title='Subscription login is valid. The short-lived access token renews automatically (~'+t.toLocaleTimeString()+'); you only need to run claude login again if this shows expired.'}
 }).catch(function(){})}
 setInterval(tickClock,1000);fetchStatus();setInterval(fetchStatus,30000);
+// Agent messages (agent->agent / agent->user): poll and mirror into the active chat (default on).
+var agentSince=Date.now();
+function mirrorOn(){return localStorage.zx_mirror!=='0'}
+function pollAgentMsgs(){fetch('/api/agentmsgs?since='+agentSince,{headers:hdrs()}).then(function(r){return r.ok?r.json():[]}).then(function(ms){if(!ms||!ms.length)return;ms.forEach(function(m){if(m.ts>agentSince)agentSince=m.ts;if(mirrorOn()){switchView('chat');add('bot','\\uD83E\\uDD16 '+m.from+' \\u2192 '+m.to,m.text)}})}).catch(function(){})}
+setInterval(pollAgentMsgs,4000);
 function loadMemory(){fetch('/api/settings',{headers:hdrs()}).then(function(r){if(r.status===401)return null;return r.json()}).then(function(s){
     if(!s||!s.identity){el('memview').textContent='(memory unavailable)';return}
     var id=s.identity,mu=id.memoryUsage,h='';

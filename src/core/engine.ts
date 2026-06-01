@@ -45,6 +45,8 @@ export interface RunRequest {
   agentJob?: string;
   /** Agent run: restrict the tool-using tiers to only these tool names ([] / undefined = all). */
   agentTools?: string[];
+  /** Agent run: allow falling back to Claude (smartest) even on a fixed tier / chain without it. */
+  elevate?: boolean;
 }
 
 /** Builds per-turn in-process MCP servers, closing over the live conversation context. */
@@ -82,6 +84,8 @@ export interface EngineDeps {
   agents?: Record<string, AgentDefinition>;
   /** User-defined agents (named jobs that run on any tier). */
   agentStore?: AgentStore;
+  /** Sink for agent messages (to other agents or the user) - delivered to channels + logged. */
+  onAgentMessage?: (msg: { from: string; to: string; text: string; ts: number }) => void;
 }
 
 function buildPersona(name: string): string {
@@ -90,6 +94,10 @@ function buildPersona(name: string): string {
 
 const AUTH_EXPIRED_MSG =
   'My Claude subscription login has expired or is invalid. On the host machine, run `claude login`, then restart Zamolxis.';
+
+// Loop guard for agent->agent messaging: at most this many agent-triggered runs in flight at once.
+let AGENT_HOPS = 0;
+const MAX_AGENT_HOPS = 6;
 
 function sanitizeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
@@ -293,8 +301,31 @@ export class Engine {
       route,
       agentJob: def.job,
       agentTools: def.tools,
+      elevate: def.canElevate,
     });
     return { ...r, agent: def.name };
+  }
+
+  /** Deliver a message from an agent (or the assistant) to the user or another agent. To the user:
+   *  surfaced to the UI/CLI via onAgentMessage. To an agent: bounded follow-up run (loop guard). */
+  async sendAgentMessage(from: string, to: string, text: string): Promise<string> {
+    const t = (text || '').trim();
+    if (!t) return 'Nothing to send (empty message).';
+    const ts = Date.now();
+    if (/^user$/i.test(to)) {
+      this.deps.onAgentMessage?.({ from, to: 'user', text: t, ts });
+      return 'Delivered to the user.';
+    }
+    const target = this.deps.agentStore?.get(to);
+    if (!target) return `No agent named "${to}" (use "user" to message the user).`;
+    this.deps.onAgentMessage?.({ from, to: target.name, text: t, ts }); // surface inter-agent traffic too
+    if (AGENT_HOPS >= MAX_AGENT_HOPS) return `Loop guard: too many agent hops in flight, not running ${target.name}.`;
+    AGENT_HOPS++;
+    void this.runAgent(target.name, `Message from ${from}: ${t}`)
+      .then((r) => this.deps.onAgentMessage?.({ from: target.name, to: from, text: r.reply, ts: Date.now() }))
+      .catch((err) => logger.warn({ err: String(err) }, 'agent-to-agent run failed'))
+      .finally(() => { AGENT_HOPS = Math.max(0, AGENT_HOPS - 1); });
+    return `Sent to agent "${target.name}"; it will act on it.`;
   }
 
   async run(req: RunRequest): Promise<RunResult> {
@@ -596,13 +627,15 @@ export class Engine {
     const { config } = this.deps;
     const chain = config.routeChain;
     const claudeIn = chain.includes('claude');
+    // An agent with canElevate may fall back to Claude even on a fixed tier / chain without it.
+    const elev = !!req.elevate;
     // Drop 'local' if the user turned local routing off (keeps that toggle meaningful).
     const cloud = chain.filter((t) => t !== 'claude').filter((t) => !(t === 'local' && config.localRouting === 'off'));
     if (req.route === 'claude') return { tiers: [], claude: true }; // explicit → Claude
     if (req.escalated) return claudeIn ? { tiers: [], claude: true } : { tiers: cloud.slice(-1), claude: false };
-    if (req.route === 'local') return { tiers: cloud.includes('local') ? ['local'] : cloud.slice(0, 1), claude: false };
-    if (req.route === 'freecloud') return { tiers: ['freecloud'], claude: claudeIn }; // explicit → rotate free providers
-    if (req.route && req.route !== 'auto' && providerById(req.route)) return { tiers: [req.route], claude: claudeIn }; // explicit provider id
+    if (req.route === 'local') return { tiers: cloud.includes('local') ? ['local'] : cloud.slice(0, 1), claude: elev };
+    if (req.route === 'freecloud') return { tiers: ['freecloud'], claude: claudeIn || elev }; // explicit → rotate free providers
+    if (req.route && req.route !== 'auto' && providerById(req.route)) return { tiers: [req.route], claude: claudeIn || elev }; // explicit provider id
     if (this.hardClaudeOnly(req.text) && claudeIn) return { tiers: [], claude: true }; // needs Claude-only tools
     // Live/current-fact questions: the tiny local model mis-reasons even WHEN it searches
     // (grabs the wrong game, can't map "two nights ago", defaults the venue) — so skip
@@ -610,9 +643,9 @@ export class Engine {
     // free-cloud key this is free and accurate; it only falls to Claude if nothing else exists.
     if (needsCurrentInfo(req.text)) {
       const stronger = cloud.filter((t) => t !== 'local');
-      if (stronger.length || claudeIn) return { tiers: stronger, claude: claudeIn };
+      if (stronger.length || claudeIn) return { tiers: stronger, claude: claudeIn || elev };
     }
-    return { tiers: cloud, claude: claudeIn };
+    return { tiers: cloud, claude: claudeIn || elev };
   }
 
   private async runInner(req: RunRequest): Promise<RunResult> {
