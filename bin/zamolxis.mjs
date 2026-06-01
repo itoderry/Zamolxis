@@ -8,6 +8,7 @@
 //   zamolxis web                 foreground, web UI only
 //   zamolxis cli                 foreground, interactive CLI only
 //   zamolxis doctor              readiness check
+//   zamolxis uninstall           stop + remove service + unlink command (--purge also deletes data)
 // Any extra args are passed through to the daemon, e.g.  zamolxis run --channels=telegram,web
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -193,6 +194,131 @@ async function unpackCmd(file) {
   console.log(`Applied ${r.applied.join(' + ')} into ${dataDir}`);
 }
 
+// What did the installer add? It writes <dataDir>/install-manifest.json recording ONLY the
+// things it installed (vs what was already on the machine), so uninstall reverses exactly that.
+function readManifest() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dataDir, 'install-manifest.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+function run(cmd, args) {
+  try {
+    return spawnSync(cmd, args, { stdio: 'inherit', windowsHide: true, shell: process.platform === 'win32' }).status === 0;
+  } catch {
+    return false;
+  }
+}
+// Uninstall: stop the daemon, remove the auto-start service + global command, and reverse the
+// prerequisites the INSTALLER added (per the manifest) - model, Ollama, Claude Code, Node, git -
+// while leaving anything that was already on the machine. --purge also deletes the data dir.
+// The program folder is left for the user to delete (a process can't reliably delete its own dir).
+async function uninstallCmd() {
+  const flags = new Set(extra.map((a) => a.toLowerCase()));
+  const purge = flags.has('--purge') || flags.has('--data') || flags.has('--all');
+  const assumeYes = flags.has('--yes') || flags.has('-y');
+  const mf = readManifest();
+  const inst = (mf && mf.installed) || {};
+  const have = (k) => Boolean(inst[k]);
+
+  if (!assumeYes) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    console.log('Uninstall will STOP Zamolxis and remove what the installer added:');
+    console.log('  - auto-start service (if any) and the global `zamolxis` command');
+    if (have('model')) console.log(`  - local model: ${inst.model}`);
+    if (have('ollama')) console.log('  - Ollama');
+    if (have('claudeCode')) console.log('  - Claude Code CLI');
+    if (have('node')) console.log('  - Node.js');
+    if (have('git')) console.log('  - git');
+    if (!mf) console.log('  (no install manifest found - only the service + global command are treated as ours; Node/git/Ollama left in place)');
+    if (purge) console.log(`It will ALSO PERMANENTLY DELETE your data (skills, memory, learned facts, .env secrets):\n  ${dataDir}`);
+    else console.log(`Your data dir is KEPT:\n  ${dataDir}`);
+    const ok = await askYN(rl, purge ? 'Proceed and DELETE ALL DATA?' : 'Proceed?');
+    rl.close();
+    if (!ok) {
+      console.log('Uninstall cancelled.');
+      return;
+    }
+  }
+
+  await stop();
+
+  // Auto-start service.
+  if (process.platform === 'win32') {
+    try {
+      spawnSync('powershell', ['-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'scripts', 'service-uninstall.ps1')], { stdio: 'inherit' });
+    } catch {}
+  } else if (have('service')) {
+    try {
+      spawnSync('systemctl', ['--user', 'disable', '--now', 'zamolxis'], { stdio: 'ignore' });
+    } catch {}
+  }
+  try {
+    spawnSync(process.platform === 'win32' ? 'pm2.cmd' : 'pm2', ['delete', 'zamolxis'], { stdio: 'ignore', shell: process.platform === 'win32' });
+  } catch {}
+
+  // Global `zamolxis` command (no-op if never linked).
+  run(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['rm', '-g', 'zamolxis']);
+
+  // Local model + Ollama (only if WE installed them).
+  if (have('model')) {
+    console.log(`Removing local model ${inst.model}...`);
+    run('ollama', ['rm', String(inst.model)]);
+  }
+  if (have('ollama')) {
+    console.log('Removing Ollama...');
+    if (process.platform === 'win32') run('winget', ['uninstall', '-e', '--id', 'Ollama.Ollama', '--silent']);
+    else {
+      try {
+        spawnSync('sh', ['-c', 'sudo systemctl disable --now ollama 2>/dev/null; sudo rm -f "$(command -v ollama)"; sudo rm -rf /usr/share/ollama'], { stdio: 'inherit' });
+      } catch {}
+    }
+  }
+
+  // Claude Code CLI (only if WE installed it).
+  if (have('claudeCode')) {
+    console.log('Removing Claude Code CLI...');
+    run(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['rm', '-g', '@anthropic-ai/claude-code']);
+  }
+
+  // Read the manifest BEFORE this, so purging the data dir is safe to do now.
+  if (purge) {
+    try {
+      fs.rmSync(dataDir, { recursive: true, force: true });
+      console.log(`Deleted data dir: ${dataDir}`);
+    } catch (e) {
+      console.log(`Could not delete ${dataDir}: ${e.message}`);
+    }
+  } else {
+    console.log(`Kept your data: ${dataDir}  (delete it yourself to remove skills/memory/.env).`);
+  }
+
+  // Node + git are the runtime this very process uses - don't pull them out from under it.
+  // On Windows, schedule their removal AFTER this process exits (a detached PowerShell waits on
+  // our PID). On macOS/Linux, removing system packages needs sudo, so just print the commands.
+  const removeNode = have('node');
+  const removeGit = have('git');
+  if (removeNode || removeGit) {
+    if (process.platform === 'win32') {
+      let cmds = `Wait-Process -Id ${process.pid} -ErrorAction SilentlyContinue; `;
+      if (removeNode) cmds += 'winget uninstall -e --id OpenJS.NodeJS.LTS --silent; ';
+      if (removeGit) cmds += 'winget uninstall -e --id Git.Git --silent; ';
+      try {
+        spawn('powershell', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', cmds], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+        console.log(`Scheduled removal of ${[removeNode ? 'Node.js' : null, removeGit ? 'git' : null].filter(Boolean).join(' + ')} (runs after this process exits).`);
+      } catch {}
+    } else {
+      console.log('\nThe installer also added these - remove them manually if you no longer need them:');
+      if (removeNode) console.log('  - Node.js  (e.g. `brew uninstall node`, or your distro package manager)');
+      if (removeGit) console.log('  - git      (e.g. `brew uninstall git`,  or your distro package manager)');
+    }
+  }
+
+  console.log('\nZamolxis uninstalled.');
+  console.log(`To finish, delete the program folder:\n  ${root}`);
+}
+
 function usage() {
   console.log(`Zamolxis - self-hosted agent on your Claude subscription
 
@@ -208,6 +334,7 @@ Usage: zamolxis <command> [extra daemon args]
   doctor     readiness check (auth, build, channels, sandbox)
   pack       bundle this setup (all skills; asks about SOUL/USER/teachings) for a new install
   unpack     apply a pack file into this install:  zamolxis unpack <file.json>
+  uninstall  stop + remove service + unlink command (add --purge to also delete your data)
 
 Examples:
   zamolxis start
@@ -249,6 +376,9 @@ switch (cmd) {
     break;
   case 'unpack':
     await unpackCmd(extra[0]);
+    break;
+  case 'uninstall':
+    await uninstallCmd();
     break;
   default:
     usage();

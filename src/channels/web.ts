@@ -234,6 +234,34 @@ export class WebChannel implements Channel {
         return;
       }
     }
+    if (url.pathname === '/api/uninstall' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        let purge = false;
+        try {
+          purge = Boolean(JSON.parse(body || '{}').purge);
+        } catch {
+          /* default: keep data */
+        }
+        this.json(res, 200, { ok: true, uninstalling: true, purge });
+        // Detached `zamolxis uninstall --yes [--purge]`: stops this daemon, removes the service,
+        // unlinks the global command, and (only with --purge) deletes the data dir. Detached so
+        // it survives the stop it performs. The program folder is left for the user to delete.
+        try {
+          const bin = fileURLToPath(new URL('../../bin/zamolxis.mjs', import.meta.url));
+          const root = fileURLToPath(new URL('../../', import.meta.url));
+          const args = [bin, 'uninstall', '--yes', ...(purge ? ['--purge'] : [])];
+          logger.warn({ purge }, 'web-triggered uninstall');
+          const child = spawn(process.execPath, args, { cwd: root, detached: true, stdio: 'ignore', windowsHide: true });
+          child.unref();
+        } catch (err) {
+          logger.warn({ err: String(err) }, 'web uninstall spawn failed');
+        }
+      });
+      return;
+    }
     if (url.pathname === '/api/restart' && req.method === 'POST') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
       this.json(res, 200, { ok: true, restarting: true });
@@ -572,6 +600,15 @@ function doPack(){var btn=el('packbtn');if(btn){btn.disabled=true;btn.textConten
   var body={soul:!!(el('pk_soul')&&el('pk_soul').checked),user:!!(el('pk_user')&&el('pk_user').checked),learnings:!!(el('pk_learn')&&el('pk_learn').checked)};
   showToast('Building install pack...');
   fetch('/api/pack',{method:'POST',headers:hdrs(),body:JSON.stringify(body)}).then(function(r){if(!r.ok)throw new Error('pack failed');var dn=r.headers.get('content-disposition')||'';var mm=/filename="([^"]+)"/.exec(dn);var fn=mm?mm[1]:'zamolxis-pack.json';var sk=r.headers.get('x-pack-skills')||'?';return r.blob().then(function(b){return {b:b,fn:fn,sk:sk}})}).then(function(o){var u=URL.createObjectURL(o.b);var a=document.createElement('a');a.href=u;a.download=o.fn;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);showToast('Pack with '+o.sk+' skill(s) downloaded: '+o.fn+'. Seed a new install with: zamolxis unpack <file>');setTimeout(hideToast,5000)}).catch(function(){showToast('Pack failed.');setTimeout(hideToast,2500)}).then(function(){if(btn){btn.disabled=false;btn.textContent='Create install pack'}})}
+function doUninstall(){var purge=!!(el('un_purge')&&el('un_purge').checked);
+  var msg=purge
+    ?'PERMANENTLY DELETE everything?\\n\\nThis stops '+AGENT_NAME+', removes the auto-start service and the global command, AND deletes your data dir (skills, memory, learned facts, and .env secrets). This cannot be undone.'
+    :'Uninstall '+AGENT_NAME+'?\\n\\nStops it and removes the auto-start service + global command. Your data dir is KEPT, and the program folder stays for you to delete.';
+  if(!confirm(msg))return;
+  if(purge){var t=prompt('To confirm deleting ALL your data, type:  DELETE');if(t!=='DELETE'){showToast('Uninstall cancelled - confirmation text did not match.');setTimeout(hideToast,2500);return}}
+  var b=el('uninstallbtn');if(b){b.disabled=true;b.textContent='Uninstalling...'}
+  awaitingReload=true;showToast('Uninstalling '+AGENT_NAME+'... the server will stop shortly.');
+  fetch('/api/uninstall',{method:'POST',headers:hdrs(),body:JSON.stringify({purge:purge})}).catch(function(){});}
 var threads=[];try{threads=JSON.parse(localStorage.zx_threads||'[]')}catch(e){}
 if(!threads.length){threads=[{id:(localStorage.zx_cid||uuid()),label:'Chat 1'}]}
 var cid=localStorage.zx_thread||threads[0].id;
@@ -847,8 +884,13 @@ function renderSettings(s){var L=s.live,m=s.meta,h='';
   h+='<button type="button" id="packbtn" style="margin-top:6px">Create install pack</button>';
   h+=sec('Model usage');
   h+='<div id="usagebox" style="font-size:12px;color:var(--mut)">loading...</div>';
+  h+=sec('Danger zone');
+  h+='<div style="font-size:12px;color:var(--mut);margin-bottom:6px">Uninstall stops '+esc(AGENT_NAME)+', removes its auto-start service, and unlinks the global <code>zamolxis</code> command. Your data ('+esc(m.dataDir)+') is <b>kept</b> unless you tick the box below. The program folder is left in place for you to delete.</div>';
+  h+='<label class="chk" style="margin:2px 0;font-size:13px;color:#e88"><input type="checkbox" id="un_purge"> also permanently delete my data (skills, memory, learned facts, and .env secrets)</label>';
+  h+='<button type="button" id="uninstallbtn" style="margin-top:6px;border-color:#a44;color:#e88">Uninstall '+esc(AGENT_NAME)+'</button>';
   el('settings').innerHTML=h;el('ro').innerHTML='Data dir: '+m.dataDir+'<br>'+m.restartNote;fetchUsage();
   var pkb=el('packbtn');if(pkb)pkb.onclick=doPack;
+  var unb=el('uninstallbtn');if(unb)unb.onclick=doUninstall;
   fetch('/api/install',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){var st=el('dockerstat');if(!st||!d)return;
     if(d.docker){st.innerHTML=dotHtml(C_OK,'installed')+'<span>Docker is installed.</span>'}
     else{st.innerHTML=dotHtml(C_OFF,'not installed')+'<span>Docker not found on PATH.</span>';var b=el('dockerinst');if(b){b.style.display='';b.onclick=function(){doInstall('docker','instout_docker',b)}}}}).catch(function(){});
