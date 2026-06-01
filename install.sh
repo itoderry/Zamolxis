@@ -44,16 +44,66 @@ step() { printf '\n==> %s\n' "$1"; }
 warn() { printf '    ! %s\n' "$1"; }
 
 step "Checking prerequisites"
-command -v node >/dev/null 2>&1 || { echo "Node.js not found. Install Node 20+ and retry."; exit 1; }
+# Record what was already present, so we only auto-install (and later uninstall) what we add.
+GIT_WAS_ABSENT=0; command -v git >/dev/null 2>&1 || GIT_WAS_ABSENT=1
+NODE_WAS_ABSENT=0; command -v node >/dev/null 2>&1 || NODE_WAS_ABSENT=1
+CLAUDE_WAS_ABSENT=0; command -v claude >/dev/null 2>&1 || CLAUDE_WAS_ABSENT=1
+
+OSx=linux; [ "$(uname)" = "Darwin" ] && OSx=mac
+if command -v brew >/dev/null 2>&1; then PM=brew
+elif command -v apt-get >/dev/null 2>&1; then PM=apt
+elif command -v dnf >/dev/null 2>&1; then PM=dnf
+elif command -v yum >/dev/null 2>&1; then PM=yum
+elif command -v pacman >/dev/null 2>&1; then PM=pacman
+elif command -v zypper >/dev/null 2>&1; then PM=zypper
+else PM=none; fi
+SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
+pkg_install() {
+  case "$PM" in
+    brew) brew install "$@" ;;
+    apt) $SUDO apt-get update -y && $SUDO apt-get install -y "$@" ;;
+    dnf) $SUDO dnf install -y "$@" ;;
+    yum) $SUDO yum install -y "$@" ;;
+    pacman) $SUDO pacman -S --noconfirm "$@" ;;
+    zypper) $SUDO zypper install -y "$@" ;;
+    *) warn "No supported package manager found - install $* manually."; return 1 ;;
+  esac
+}
+
+# git - needed to clone and for the built-in self-update.
+if [ "$GIT_WAS_ABSENT" -eq 1 ]; then step "Installing git"; pkg_install git || warn "Could not install git automatically (https://git-scm.com)."; fi
+
+# Node.js 20+ - required to build and run.
+need_node=1
+if command -v node >/dev/null 2>&1; then
+  NM="$(node -v | sed 's/^v//' | cut -d. -f1)"
+  if [ "$NM" -ge 20 ]; then need_node=0; else warn "Node $(node -v) is too old; need 20+."; fi
+fi
+if [ "$need_node" -eq 1 ]; then
+  step "Installing Node.js"
+  if [ "$OSx" = mac ]; then pkg_install node || true; else pkg_install nodejs npm || true; fi
+fi
+command -v node >/dev/null 2>&1 || { echo "Node.js 20+ not found and auto-install failed. Install it (https://nodejs.org or nvm) and re-run."; exit 1; }
 NODE_MAJOR="$(node -v | sed 's/^v//' | cut -d. -f1)"
-[ "$NODE_MAJOR" -ge 20 ] || { echo "Node $(node -v) too old; need 20+."; exit 1; }
+[ "$NODE_MAJOR" -ge 20 ] || { echo "Node $(node -v) is too old; need 20+. Install Node 20+ via nvm/nodesource and re-run."; exit 1; }
 echo "    Node $(node -v)"
-if ! command -v claude >/dev/null 2>&1; then
-  warn "Claude Code CLI not found. Install it and run 'claude login' (Pro/Max) for subscription auth."
-elif [ ! -f "$HOME/.claude/.credentials.json" ]; then
-  warn "No Claude credentials yet. Run 'claude login' with your Pro/Max account before starting."
+
+# Node is now present, so the manifest helper (which uses node) is usable from here on.
+DATA_DIR="${ZAMOLXIS_DATA_DIR:-$HOME/.zamolxis}"; MANIFEST="$DATA_DIR/install-manifest.json"
+mark_installed() { # key value(true|false|string) - records what THIS installer added
+  mkdir -p "$DATA_DIR"
+  node -e 'const fs=require("fs");const p=process.argv[1];let m={};try{m=JSON.parse(fs.readFileSync(p))}catch(e){}; m.installed=m.installed||{}; const v=process.argv[3]; m.installed[process.argv[2]]=(v==="true")?true:(v==="false"?false:v); m.updatedAt=new Date().toISOString(); fs.writeFileSync(p,JSON.stringify(m,null,2));' "$MANIFEST" "$1" "$2" 2>/dev/null || true
+}
+if [ "$GIT_WAS_ABSENT" -eq 1 ] && command -v git >/dev/null 2>&1; then echo "    git installed"; mark_installed git true; fi
+[ "$NODE_WAS_ABSENT" -eq 1 ] && mark_installed node true
+
+# Claude Code CLI - the engine Zamolxis runs on (subscription via 'claude login').
+if ! command -v claude >/dev/null 2>&1; then step "Installing Claude Code CLI (npm)"; npm install -g @anthropic-ai/claude-code >/dev/null 2>&1 || true; fi
+if command -v claude >/dev/null 2>&1; then
+  [ "$CLAUDE_WAS_ABSENT" -eq 1 ] && mark_installed claudeCode true
+  if [ ! -f "$HOME/.claude/.credentials.json" ]; then warn "Claude Code is installed. Run 'claude login' with your Pro/Max account before starting."; else echo "    Claude credentials found"; fi
 else
-  echo "    Claude credentials found"
+  warn "Could not auto-install the Claude Code CLI. Install it, then run 'claude login' (Pro/Max) for subscription auth."
 fi
 
 step "Installing dependencies (npm)"
@@ -188,13 +238,16 @@ else
 fi
 
 if [ "$SHOULD_INSTALL" -eq 1 ]; then
-  if ! command -v ollama >/dev/null 2>&1; then
+  OLLAMA_WAS_ABSENT=0; command -v ollama >/dev/null 2>&1 || OLLAMA_WAS_ABSENT=1
+  if [ "$OLLAMA_WAS_ABSENT" -eq 1 ]; then
     step "Installing Ollama"
     curl -fsSL https://ollama.com/install.sh | sh || warn "Ollama install failed; install it from https://ollama.com and re-run with --local."
+    command -v ollama >/dev/null 2>&1 && mark_installed ollama true
   fi
   if command -v ollama >/dev/null 2>&1; then
     step "Pulling model $MODEL (one-time download, ~1-2 GB)"
     ollama pull "$MODEL"
+    mark_installed model "$MODEL"
     set_env ZAMOLXIS_LOCAL_MODEL "$MODEL"
     set_env ZAMOLXIS_LOCAL_MODEL_URL "http://localhost:11434/v1"
     echo "    Configured local model for easy-task offload: $MODEL"

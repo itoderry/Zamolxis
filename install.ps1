@@ -33,20 +33,71 @@ function Set-EnvVar($text, $key, $val) {
   return $text.TrimEnd() + "`n" + $line + "`n"
 }
 
+# Install manifest: record ONLY what THIS installer adds (so `zamolxis uninstall` can reverse
+# exactly that and leave anything that was already on the machine alone). Merged across runs.
+$dataDir = if ($env:ZAMOLXIS_DATA_DIR) { $env:ZAMOLXIS_DATA_DIR } else { Join-Path $env:USERPROFILE ".zamolxis" }
+$manifestPath = Join-Path $dataDir "install-manifest.json"
+function Mark-Installed($key, $val) {
+  $m = $null
+  if (Test-Path $manifestPath) { try { $m = ConvertFrom-Json (Get-Content -Raw $manifestPath) } catch {} }
+  if (-not $m) { $m = [pscustomobject]@{ installed = [pscustomobject]@{} } }
+  if (-not $m.installed) { $m | Add-Member installed ([pscustomobject]@{}) -Force }
+  $m.installed | Add-Member $key $val -Force
+  $m | Add-Member updatedAt ((Get-Date).ToString("o")) -Force
+  New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+  ($m | ConvertTo-Json -Depth 6) | Set-Content -Encoding utf8 $manifestPath
+}
+
 Step "Checking prerequisites"
-$node = Get-Command node -ErrorAction SilentlyContinue
-if (-not $node) { throw "Node.js not found. Install Node 20+ from https://nodejs.org and retry." }
+function Test-Cmd($n) { return [bool](Get-Command $n -ErrorAction SilentlyContinue) }
+function Refresh-Path { $env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path','User') }
+$haveWinget = Test-Cmd winget
+if (-not $haveWinget) { Warn "winget not found - cannot auto-install missing prerequisites. Install them manually if the steps below fail." }
+
+# git - needed to clone the repo and for the built-in self-update.
+if (-not (Test-Cmd git)) {
+  if ($haveWinget) {
+    Step "Installing git (winget)"
+    winget install -e --id Git.Git --silent --accept-package-agreements --accept-source-agreements
+    Refresh-Path; $env:Path += ";$env:ProgramFiles\Git\cmd"
+  } else { Warn "git not found. Install it from https://git-scm.com" }
+  if (Test-Cmd git) { Write-Host "    git installed"; Mark-Installed git $true } else { Warn "git still not on PATH - open a NEW terminal after install completes." }
+} else { Write-Host "    git $((git --version).Split(' ')[-1])" }
+
+# Node.js 20+ - required to build and run Zamolxis.
+$nodeWasAbsent = -not (Test-Cmd node)
+$needNode = $true
+if (Test-Cmd node) {
+  try { if ([int]((node -v).TrimStart('v').Split('.')[0]) -ge 20) { $needNode = $false } } catch {}
+  if ($needNode) { Warn "Node $(node -v) is too old; need 20+." }
+}
+if ($needNode) {
+  if ($haveWinget) {
+    Step "Installing Node.js LTS (winget)"
+    winget install -e --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements
+    Refresh-Path; $env:Path += ";$env:ProgramFiles\nodejs"
+  } else { throw "Node.js 20+ not found and winget is unavailable. Install Node 20+ from https://nodejs.org and re-run." }
+}
+if (-not (Test-Cmd node)) { throw "Node was installed but is not on PATH yet. Open a NEW terminal and re-run install.ps1." }
 $nodeMajor = [int]((node -v).TrimStart('v').Split('.')[0])
-if ($nodeMajor -lt 20) { throw "Node $(node -v) is too old; need 20+." }
+if ($nodeMajor -lt 20) { throw "Node $(node -v) is too old; need 20+. Install a newer Node and re-run." }
+# Only record Node as ours if it was entirely absent before (don't claim an upgrade of a pre-existing Node).
+if ($needNode -and $nodeWasAbsent) { Mark-Installed node $true }
 Write-Host "    Node $(node -v)"
 
-$claude = Get-Command claude -ErrorAction SilentlyContinue
-if (-not $claude) {
-  Warn "Claude Code CLI not found on PATH. Install it and run 'claude login' (Pro/Max) so Zamolxis can use your subscription."
-} else {
+# Claude Code CLI - the engine Zamolxis runs on (subscription via 'claude login').
+if (-not (Test-Cmd claude)) {
+  Step "Installing Claude Code CLI (npm)"
+  try { npm install -g @anthropic-ai/claude-code 2>&1 | Out-Null } catch {}
+  Refresh-Path
+  if (Test-Cmd claude) { Mark-Installed claudeCode $true }
+}
+if (Test-Cmd claude) {
   $creds = Join-Path $env:USERPROFILE ".claude\.credentials.json"
-  if (-not (Test-Path $creds)) { Warn "No Claude credentials yet. Run 'claude login' with your Pro/Max account before starting." }
+  if (-not (Test-Path $creds)) { Warn "Claude Code is installed. Run 'claude login' with your Pro/Max account before starting." }
   else { Write-Host "    Claude credentials found" }
+} else {
+  Warn "Could not install the Claude Code CLI automatically. Install it, then run 'claude login' (Pro/Max) so Zamolxis can use your subscription."
 }
 
 Step "Installing dependencies (npm)"
@@ -198,12 +249,14 @@ if ($Local) {
 }
 
 if ($shouldInstall) {
-  if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
+  $ollamaWasAbsent = -not (Get-Command ollama -ErrorAction SilentlyContinue)
+  if ($ollamaWasAbsent) {
     Step "Installing Ollama"
     if (Get-Command winget -ErrorAction SilentlyContinue) {
       winget install --id Ollama.Ollama -e --silent --accept-package-agreements --accept-source-agreements
       $env:Path += ";$env:LOCALAPPDATA\Programs\Ollama"
       Start-Sleep -Seconds 3
+      if (Get-Command ollama -ErrorAction SilentlyContinue) { Mark-Installed ollama $true }
     } else {
       Warn "winget not available. Install Ollama from https://ollama.com then re-run with -Local."
     }
@@ -211,6 +264,7 @@ if ($shouldInstall) {
   if (Get-Command ollama -ErrorAction SilentlyContinue) {
     Step "Pulling model $model (one-time download, ~1-2 GB)"
     ollama pull $model
+    Mark-Installed model $model
     $envText = [System.IO.File]::ReadAllText($envFile)
     $envText = Set-EnvVar $envText 'ZAMOLXIS_LOCAL_MODEL' $model
     $envText = Set-EnvVar $envText 'ZAMOLXIS_LOCAL_MODEL_URL' 'http://localhost:11434/v1'
@@ -230,6 +284,7 @@ if ($shouldInstall) {
 if ($Service) {
   Step "Registering logon service"
   & (Join-Path $root "scripts\service-install.ps1")
+  Mark-Installed service $true
 }
 
 Step "Readiness check"
