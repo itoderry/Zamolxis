@@ -292,6 +292,18 @@ export class Engine {
   async runAgent(name: string, task?: string): Promise<RunResult & { agent?: string }> {
     const def = this.deps.agentStore?.get(name);
     if (!def) return { reply: `No agent named "${name}".`, sessionId: '', costUsd: 0, isError: true, agent: name };
+    // The executor follows the planner-compiled spec verbatim (falls back to the raw job if not compiled).
+    let agentJob = def.spec && def.spec.trim() ? def.spec : def.job;
+    // Hybrid planning: when handed a specific task that differs from the standing job, the smart model
+    // re-plans THAT task into literal steps before the cheap executor runs it.
+    if (task && task.trim() && task.trim() !== def.job.trim()) {
+      const adhoc = await this.replanTask(def, task).catch(() => undefined);
+      if (adhoc) agentJob = adhoc;
+    }
+    // Tell the executor about any generated code tools and exactly how to invoke them.
+    if (def.codeTools && def.codeTools.length) {
+      agentJob += '\n\nGENERATED TOOLS (invoke via the sandbox_exec tool):\n' + def.codeTools.map((t) => `- ${t.name}: run \`${t.run}\``).join('\n');
+    }
     const route = def.model && def.model !== 'auto' ? def.model : undefined;
     const r = await this.run({
       conversationKey: `agent:${def.name}`,
@@ -299,11 +311,145 @@ export class Engine {
       chatId: def.name,
       text: (task && task.trim()) || `Do your job now.`,
       route,
-      agentJob: def.job,
+      agentJob,
       agentTools: def.tools,
       elevate: def.canElevate,
     });
     return { ...r, agent: def.name };
+  }
+
+  /** Tiers an agent executor can plausibly run on right now (for the planner to choose from). */
+  private availableTiers(): string[] {
+    const tiers: string[] = [];
+    if (this.deps.config.localModel) tiers.push('local');
+    try {
+      if (freeProviderPool().length) tiers.push('freecloud');
+    } catch {
+      /* ignore */
+    }
+    tiers.push('claude');
+    return tiers;
+  }
+
+  private parseJsonObject(s: string): Record<string, unknown> | null {
+    if (!s) return null;
+    const t = s.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+    const i = t.indexOf('{');
+    const j = t.lastIndexOf('}');
+    if (i < 0 || j <= i) return null;
+    try {
+      return JSON.parse(t.slice(i, j + 1)) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * PLANNER: the smartest model compiles an agent's natural-language `job` into a literal,
+   * executable plan that a cheaper executor model can follow without improvising — including
+   * authoring any missing reference skills and generating runnable code tools — plus a risk
+   * assessment and the recommended executor tier. Returns a summary for the UI.
+   */
+  async compileAgent(name: string): Promise<{
+    ok: boolean;
+    spec?: string;
+    executor?: string;
+    skills?: string[];
+    codeTools?: { name: string; path: string; run: string }[];
+    risk?: { level: 'low' | 'medium' | 'high'; note: string; recommendedModel?: string };
+    note?: string;
+  }> {
+    const store = this.deps.agentStore;
+    const def = store?.get(name);
+    if (!store || !def) return { ok: false, note: 'no such agent' };
+    const tiers = this.availableTiers();
+    const toolNames = buildLocalTools().names.join(', ');
+    const skillIndex = (this.deps.skills?.detailsAll() ?? [])
+      .slice(0, 40)
+      .map((s) => `- ${s.name}: ${(s.description || '').slice(0, 90)}`)
+      .join('\n');
+    const system =
+      'You are the PLANNER for an autonomous agent system. A user described an agent\'s job in plain language. Compile it into a precise, LITERAL plan that a SMALL, less-capable "executor" model can follow WITHOUT improvising or guessing. ' +
+      'Return ONLY one JSON object (no prose, no code fences) of shape: ' +
+      '{"spec": string, "tools": string[], "skills": [{"name":string,"description":string,"body":string}], "codeTools": [{"name":string,"language":"bash"|"python"|"node","description":string,"code":string}], "executor": string, "risk": {"level":"low"|"medium"|"high","note":string,"recommendedModel":string}}. ' +
+      'Rules: spec = numbered, literal steps; name the EXACT tools to call and with what inputs; leave nothing implicit. ' +
+      'Choose "tools" ONLY from AVAILABLE TOOLS. Prefer existing AVAILABLE SKILLS; author a NEW skill (markdown knowledge/instructions) only when a needed capability is missing (max 3). ' +
+      'Generate a codeTool (a runnable script) ONLY when tools+skills cannot do the job (max 2); if you do, the spec MUST instruct running it via the sandbox_exec tool and "tools" MUST include sandbox_exec. ' +
+      'Assess risk: destructive, ambiguous, security-sensitive, or beyond-a-small-model jobs are medium/high — set recommendedModel to a stronger tier (up to "claude"). ' +
+      '"executor" = the CHEAPEST tier that can reliably run the spec; low risk -> cheapest available, higher risk -> stronger. "executor" and "recommendedModel" MUST be one of the AVAILABLE TIERS tokens.';
+    const prompt =
+      `AGENT NAME: ${def.name}\nUSER'S JOB DESCRIPTION:\n${def.job}\n\n` +
+      `AVAILABLE TOOLS: ${toolNames}\n\nAVAILABLE SKILLS:\n${skillIndex || '(none)'}\n\nAVAILABLE TIERS: ${tiers.join(', ')}\n\n` +
+      'Compile the plan now. Output ONLY the JSON object.';
+    const raw = await this.oneShotClaude(system, prompt, this.deps.config.smartModel || this.deps.config.model);
+    const plan = this.parseJsonObject(raw);
+    if (!plan) {
+      // Planner failed — leave the agent runnable on its raw job, flag medium risk so the user knows.
+      const risk = { level: 'medium' as const, note: 'Planner could not compile a structured plan; running on the raw job.', recommendedModel: 'claude' };
+      store.attachPlan(def.name, { risk });
+      return { ok: false, risk, note: 'planner returned unparseable output' };
+    }
+    const applied = this.applyPlan(def.name, plan);
+    const validTiers = new Set([...tiers, 'auto']);
+    const rawRisk = (plan.risk ?? {}) as { level?: string; note?: string; recommendedModel?: string };
+    const level: 'low' | 'medium' | 'high' = rawRisk.level === 'low' || rawRisk.level === 'high' ? rawRisk.level : rawRisk.level === 'medium' ? 'medium' : 'medium';
+    const recommendedModel = typeof rawRisk.recommendedModel === 'string' && validTiers.has(rawRisk.recommendedModel) ? rawRisk.recommendedModel : 'claude';
+    const risk = { level, note: String(rawRisk.note || '').slice(0, 300), recommendedModel };
+    // Executor: planner's pick if valid; otherwise risk-appropriate default. High risk never runs cheaper than recommended.
+    let executor = typeof plan.executor === 'string' && validTiers.has(plan.executor) ? plan.executor : level === 'high' ? recommendedModel : tiers[0] || 'claude';
+    if (level === 'high') executor = recommendedModel; // high-risk jobs run on the recommended (stronger) tier by default
+    const spec = typeof plan.spec === 'string' ? plan.spec.trim() : '';
+    // Respect an explicitly pinned tier; only auto-assign the executor when the user left it on 'auto'.
+    const keepModel = !!def.model && def.model !== 'auto';
+    const finalExecutor = keepModel ? def.model : executor;
+    store.attachPlan(def.name, { spec: spec || undefined, skills: applied.skills, codeTools: applied.codeTools, risk, model: keepModel ? undefined : executor });
+    return { ok: true, spec: spec || undefined, executor: finalExecutor, skills: applied.skills, codeTools: applied.codeTools, risk };
+  }
+
+  /** Author the planner's new skills + write its generated code tools to disk. */
+  private applyPlan(
+    agentName: string,
+    plan: Record<string, unknown>,
+  ): { skills: string[]; codeTools: { name: string; path: string; run: string }[] } {
+    const slugish = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'tool';
+    const skills: string[] = [];
+    const skillSpecs = Array.isArray(plan.skills) ? (plan.skills as Array<{ name?: string; description?: string; body?: string }>).slice(0, 3) : [];
+    for (const s of skillSpecs) {
+      if (!s || !s.name || !s.body || !this.deps.skills) continue;
+      try {
+        skills.push(this.deps.skills.write(String(s.name), String(s.description || ''), String(s.body)));
+      } catch (err) {
+        logger.warn({ err: String(err) }, 'planner skill authoring failed');
+      }
+    }
+    const codeTools: { name: string; path: string; run: string }[] = [];
+    const toolSpecs = Array.isArray(plan.codeTools) ? (plan.codeTools as Array<{ name?: string; language?: string; code?: string }>).slice(0, 2) : [];
+    for (const t of toolSpecs) {
+      if (!t || !t.name || !t.code) continue;
+      try {
+        const lang = t.language === 'python' ? 'python' : t.language === 'node' ? 'node' : 'bash';
+        const ext = lang === 'python' ? 'py' : lang === 'node' ? 'js' : 'sh';
+        const runner = lang === 'python' ? 'python' : lang === 'node' ? 'node' : 'bash';
+        const dir = path.join(this.deps.config.dataDir, 'agent-tools', agentName);
+        fs.mkdirSync(dir, { recursive: true });
+        const file = path.join(dir, `${slugish(String(t.name))}.${ext}`);
+        fs.writeFileSync(file, String(t.code));
+        codeTools.push({ name: String(t.name), path: file, run: `${runner} "${file}"` });
+      } catch (err) {
+        logger.warn({ err: String(err) }, 'planner code-tool generation failed');
+      }
+    }
+    return { skills, codeTools };
+  }
+
+  /** Hybrid re-plan: turn a specific run-time task into literal steps (lighter than a full compile). */
+  private async replanTask(def: { job: string; spec?: string; tools?: string[] }, task: string): Promise<string | undefined> {
+    const system =
+      'You are the planner for a focused agent. Turn the NEW TASK into literal, numbered step-by-step instructions a small executor model can follow without improvising. Use the agent\'s standing job and compiled spec as context, and name exact tools. Output ONLY the instructions — no preamble, no JSON.';
+    const prompt =
+      `AGENT JOB:\n${def.job}\n\nCOMPILED SPEC:\n${def.spec || '(none)'}\n\nALLOWED TOOLS: ${def.tools && def.tools.length ? def.tools.join(', ') : '(default toolset)'}\n\nNEW TASK FOR THIS RUN:\n${task}\n\nInstructions:`;
+    const out = await this.oneShotClaude(system, prompt, this.deps.config.smartModel || this.deps.config.model);
+    return out && out.trim().length > 5 ? out.trim() : undefined;
   }
 
   /** Deliver a message from an agent (or the assistant) to the user or another agent. To the user:

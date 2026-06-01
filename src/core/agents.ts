@@ -25,6 +25,19 @@ export interface AgentDef {
   /** Optional schedule (Phase 3): cron (recurring) or at (one-shot ISO). */
   schedule?: { cron?: string; at?: string };
   createdAt: number;
+
+  // ---- Planner/executor (Phase 4): the smartest model compiles the NL `job` into a literal,
+  // executable plan that a cheaper "executor" model can follow without improvising. ----
+  /** Compiled step-by-step instructions the executor follows verbatim (preferred over `job` at run time). */
+  spec?: string;
+  /** Skills the planner authored/attached for this agent (slugs in the skills store). */
+  skills?: string[];
+  /** Code tools the planner generated; the executor runs them via the sandbox by the `run` command. */
+  codeTools?: { name: string; path: string; run: string }[];
+  /** Planner's risk assessment of the job, surfaced to the user. */
+  risk?: { level: 'low' | 'medium' | 'high'; note: string; recommendedModel?: string };
+  /** When the plan was last compiled (ms epoch). */
+  compiledAt?: number;
 }
 
 function slug(name: string): string {
@@ -100,6 +113,26 @@ export class AgentStore {
     this.persist();
     logger.info({ name, model: def.model, tools: def.tools.length }, existing ? 'agent updated' : 'agent created');
     return name;
+  }
+
+  /** Attach a compiled plan (from the planner) to an existing agent. Preserves the original `job`. */
+  attachPlan(
+    name: string,
+    plan: { spec?: string; skills?: string[]; codeTools?: AgentDef['codeTools']; risk?: AgentDef['risk']; model?: string },
+  ): void {
+    const a = this.get(name);
+    if (!a) return;
+    if (plan.spec) a.spec = plan.spec;
+    if (plan.skills) a.skills = plan.skills;
+    if (plan.codeTools) a.codeTools = plan.codeTools;
+    if (plan.risk) a.risk = plan.risk;
+    if (plan.model && plan.model.trim()) a.model = plan.model.trim();
+    a.compiledAt = Date.now();
+    this.persist();
+    logger.info(
+      { name: a.name, risk: a.risk?.level, skills: a.skills?.length ?? 0, codeTools: a.codeTools?.length ?? 0, model: a.model },
+      'agent plan compiled',
+    );
   }
 
   remove(name: string): boolean {

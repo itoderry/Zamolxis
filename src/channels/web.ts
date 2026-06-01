@@ -155,6 +155,14 @@ export class WebChannel implements Channel {
     private readonly listAgentSchedules?: () => Array<{ id: string; agent?: string; cron?: string; at?: string; prompt: string }>,
     /** Cancel a schedule by id. */
     private readonly cancelSchedule?: (id: string) => boolean,
+    /** Compile an agent's NL job into an executable plan via the smart model (planner/executor). */
+    private readonly compileAgent?: (name: string) => Promise<{
+      ok: boolean;
+      executor?: string;
+      skills?: string[];
+      codeTools?: { name: string }[];
+      risk?: { level: string; note: string; recommendedModel?: string };
+    }>,
   ) {
     const { bind, authToken } = config.web;
     if (!LOOPBACK.includes(bind) && !authToken) {
@@ -483,7 +491,13 @@ export class WebChannel implements Channel {
             if (!this.agentStore) return this.json(res, 400, { error: 'agents unavailable' });
             if (action === 'create') {
               const name = this.agentStore.upsert({ name: String(o.name || ''), job: String(o.job || ''), tools: Array.isArray(o.tools) ? o.tools : undefined, model: o.model ? String(o.model) : undefined, canElevate: typeof o.canElevate === 'boolean' ? o.canElevate : undefined });
-              return this.json(res, 200, { ok: true, name, agents: this.agentStore.list() });
+              // Planner: the smart model compiles the NL job into an executable plan (skills, code tools,
+              // executor tier, risk) so the cheap executor follows a script instead of improvising.
+              let plan = null;
+              if (this.compileAgent && o.compile !== false) {
+                try { plan = await this.compileAgent(name); } catch { /* best-effort; the agent still runs on its raw job */ }
+              }
+              return this.json(res, 200, { ok: true, name, plan, agents: this.agentStore.list() });
             }
             if (action === 'delete') {
               return this.json(res, 200, { ok: this.agentStore.remove(String(o.name || '')), agents: this.agentStore.list() });
@@ -819,7 +833,7 @@ function renderAgents(){var box=el('agentrail');if(!box)return;
   if(!AGENTS.length){box.innerHTML='<div style="color:var(--mut);font-size:11px;padding:2px 7px">none yet</div>';return}
   box.innerHTML=AGENTS.map(function(a){
     var sl=schedsFor(a.name).map(function(s){return '<div style="font-size:10px;color:var(--mut);margin-left:8px;margin-top:1px">\\u23F0 '+esc(s.cron||s.at||'')+' <span class="ascd" data-id="'+esc(s.id)+'" title="cancel" style="color:#e88;cursor:pointer">\\u00d7</span></div>'}).join('');
-    return '<div style="padding:4px 7px"><div style="font-size:12px" title="'+esc(a.job)+'">'+esc(a.label||a.name)+' <span style="color:var(--mut);font-size:10px">['+esc(a.model)+(a.canElevate?'\\u2191':'')+']</span></div><div style="margin-top:1px"><span class="arun" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px">run</span><span class="asch" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">schedule</span><span class="adel" data-n="'+esc(a.name)+'" style="color:#e88;cursor:pointer;font-size:11px;margin-left:10px">delete</span></div>'+sl+'</div>'}).join('');
+    return '<div style="padding:4px 7px"><div style="font-size:12px" title="'+esc(a.job)+'">'+esc(a.label||a.name)+' <span style="color:var(--mut);font-size:10px">['+esc(a.model)+(a.canElevate?'\\u2191':'')+']</span>'+((a.risk&&a.risk.level&&a.risk.level!=='low')?(' <span title="'+esc(a.risk.note||'')+'" style="color:'+(a.risk.level==='high'?'#e06a5f':'#e0a55f')+';font-size:10px">\\u26A0 '+esc(a.risk.level)+'</span>'):'')+'</div><div style="margin-top:1px"><span class="arun" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px">run</span><span class="asch" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">schedule</span><span class="adel" data-n="'+esc(a.name)+'" style="color:#e88;cursor:pointer;font-size:11px;margin-left:10px">delete</span></div>'+sl+'</div>'}).join('');
   [].slice.call(box.querySelectorAll('.arun')).forEach(function(x){x.onclick=function(){runAgentUI(x.getAttribute('data-n'))}});
   [].slice.call(box.querySelectorAll('.asch')).forEach(function(x){x.onclick=function(){scheduleAgentUI(x.getAttribute('data-n'))}});
   [].slice.call(box.querySelectorAll('.ascd')).forEach(function(x){x.onclick=function(){cancelSched(x.getAttribute('data-id'))}});
@@ -829,11 +843,22 @@ function scheduleAgentUI(name){var cron=prompt('Schedule "'+name+'" on a cron ex
 function cancelSched(id){if(!confirm('Cancel this schedule?'))return;fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'unschedule',id:id})}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.schedules){SCHEDS=d.schedules;renderAgents()}}).catch(function(){})}
 function runAgentUI(name){var task=prompt('Task for "'+name+'" (blank = its standard job):','');if(task===null)return;switchView('chat');var m=add('bot',name,'(running '+name+'...)');setStatus('agent '+name+' running...');
   fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'run',name:name,task:task||undefined})}).then(function(r){return r.ok?r.json():null}).then(function(d){setStatus('');if(m)m.textContent=(d&&d.reply)?d.reply:'(no reply)'}).catch(function(){setStatus('');if(m)m.textContent='(agent run failed)'})}
-function createAgentPrompt(){var name=prompt('New agent name:');if(!name)return;var job=prompt('Its job / instructions:');if(!job)return;
-  var model=prompt('Model/tier: auto | local | freecloud | groq | google | cerebras | mistral | openrouter | deepseek | claude','auto')||'auto';
-  var tools=prompt('Tools it may use (comma-separated; blank = all default), e.g. web_search,read_url,http_get','');
+function createAgentPrompt(){var name=prompt('New agent name:');if(!name)return;var job=prompt('Its job / instructions (plain language - the smart model compiles it into an executable plan):');if(!job)return;
+  var model=prompt('Model/tier: auto (let the planner choose by risk) | local | freecloud | groq | google | cerebras | mistral | openrouter | deepseek | claude','auto')||'auto';
+  var tools=prompt('Tools it may use (comma-separated; blank = default + auto-chosen), e.g. web_search,read_url,http_get','');
   var toolArr=tools?tools.split(',').map(function(s){return s.trim()}).filter(Boolean):undefined;
-  fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'create',name:name,job:job,model:model,tools:toolArr,canElevate:true})}).then(function(r){return r.json()}).then(function(){showToast('Agent created.');setTimeout(hideToast,1800);loadAgents()}).catch(function(){showToast('Create failed.')})}
+  showToast('Compiling the agent plan with the smart model...');postCreateAgent(name,job,model,toolArr)}
+function postCreateAgent(name,job,model,toolArr){
+  fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'create',name:name,job:job,model:model,tools:toolArr,canElevate:true})}).then(function(r){return r.json()}).then(function(d){
+    loadAgents();var p=d&&d.plan;
+    if(p&&p.ok){var parts=['executor: '+(p.executor||'?')];
+      if(p.skills&&p.skills.length)parts.push('skills: '+p.skills.join(', '));
+      if(p.codeTools&&p.codeTools.length)parts.push('built tools: '+p.codeTools.map(function(t){return t.name}).join(', '));
+      showToast('Compiled \\u2713  '+parts.join('  |  '));setTimeout(hideToast,3500);
+      if(p.risk&&p.risk.level&&p.risk.level!=='low'){var rec=p.risk.recommendedModel||'claude';var cur=p.executor||model;
+        if(rec!==cur&&confirm('\\u26A0 '+String(p.risk.level).toUpperCase()+' RISK\\n\\n'+(p.risk.note||'')+'\\n\\nPlanned to run on: '+cur+'\\nRun on the recommended (safer) model "'+rec+'" instead?')){postCreateAgent(name,job,rec,toolArr)}}
+    }else{showToast('Agent saved (planner unavailable - runs on the raw job).');setTimeout(hideToast,2800)}
+  }).catch(function(){showToast('Create failed.')})}
 // Per-chat route picker: Auto, Local, every CONFIGURED provider, Free (rotate), Claude.
 function rebuildRouteSelect(){var sel=el('route');if(!sel||!RAIL)return;var d=RAIL;var cur=sel.value||curRoute();
   var opts=[['auto','Auto']];
