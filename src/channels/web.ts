@@ -149,6 +149,12 @@ export class WebChannel implements Channel {
     private readonly runAgent?: (name: string, task?: string) => Promise<{ reply: string }>,
     /** Live agent-message log (agent->agent and agent->user), polled by the Agents chat. */
     private readonly agentMsgs?: Array<{ from: string; to: string; text: string; ts: number }>,
+    /** Schedule a named agent on a cron expression (deterministic — does not rely on the model). */
+    private readonly scheduleAgent?: (name: string, cron: string, task?: string) => { id: string },
+    /** List active agent schedules (for the rail). */
+    private readonly listAgentSchedules?: () => Array<{ id: string; agent?: string; cron?: string; at?: string; prompt: string }>,
+    /** Cancel a schedule by id. */
+    private readonly cancelSchedule?: (id: string) => boolean,
   ) {
     const { bind, authToken } = config.web;
     if (!LOOPBACK.includes(bind) && !authToken) {
@@ -487,6 +493,21 @@ export class WebChannel implements Channel {
               const r = await this.runAgent(String(o.name || ''), o.task ? String(o.task) : undefined);
               return this.json(res, 200, { ok: true, reply: r.reply });
             }
+            if (action === 'schedule') {
+              if (!this.scheduleAgent) return this.json(res, 400, { error: 'scheduling unavailable' });
+              const cron = String(o.cron || '').trim();
+              if (!cron) return this.json(res, 400, { error: 'cron required' });
+              if (!this.agentStore.get(String(o.name || ''))) return this.json(res, 400, { error: 'no such agent' });
+              const j = this.scheduleAgent(String(o.name || ''), cron, o.task ? String(o.task) : undefined);
+              return this.json(res, 200, { ok: true, id: j.id, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
+            }
+            if (action === 'schedules') {
+              return this.json(res, 200, { ok: true, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
+            }
+            if (action === 'unschedule') {
+              const ok = this.cancelSchedule ? this.cancelSchedule(String(o.id || '')) : false;
+              return this.json(res, 200, { ok, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
+            }
             return this.json(res, 400, { error: 'unknown action' });
           } catch (err) {
             this.json(res, 400, { error: String(err) });
@@ -790,13 +811,22 @@ function renderRail(){var box=el('provrail');if(!box)return;var d=RAIL;if(!d){bo
   h+='<div style="text-transform:uppercase;font-size:10px;letter-spacing:.5px;color:var(--mut);margin:14px 4px 6px;border-top:1px solid var(--line);padding-top:10px">Agents</div><div id="agentrail"></div><div id="newagent" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new agent</div>';
   box.innerHTML=h;var lk=el('raillink');if(lk)lk.onclick=function(){el('provbtn').click()};var na=el('newagent');if(na)na.onclick=createAgentPrompt;loadAgents()}
 function loadRail(){fetch('/api/providers',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d){RAIL=d;renderRail();rebuildRouteSelect();if(LASTD)renderModels(LASTD)}}).catch(function(){})}
-var AGENTS=[];
-function loadAgents(){fetch('/api/agents',{headers:hdrs()}).then(function(r){return r.ok?r.json():[]}).then(function(a){AGENTS=a||[];renderAgents()}).catch(function(){})}
+var AGENTS=[],SCHEDS=[];
+function loadAgents(){fetch('/api/agents',{headers:hdrs()}).then(function(r){return r.ok?r.json():[]}).then(function(a){AGENTS=a||[];renderAgents();loadSchedules()}).catch(function(){})}
+function loadSchedules(){fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'schedules'})}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.schedules){SCHEDS=d.schedules;renderAgents()}}).catch(function(){})}
+function schedsFor(n){return SCHEDS.filter(function(s){return s.agent===n})}
 function renderAgents(){var box=el('agentrail');if(!box)return;
   if(!AGENTS.length){box.innerHTML='<div style="color:var(--mut);font-size:11px;padding:2px 7px">none yet</div>';return}
-  box.innerHTML=AGENTS.map(function(a){return '<div style="padding:4px 7px"><div style="font-size:12px" title="'+esc(a.job)+'">'+esc(a.label||a.name)+' <span style="color:var(--mut);font-size:10px">['+esc(a.model)+(a.canElevate?'\\u2191':'')+']</span></div><div style="margin-top:1px"><span class="arun" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px">run</span><span class="adel" data-n="'+esc(a.name)+'" style="color:#e88;cursor:pointer;font-size:11px;margin-left:10px">delete</span></div></div>'}).join('');
+  box.innerHTML=AGENTS.map(function(a){
+    var sl=schedsFor(a.name).map(function(s){return '<div style="font-size:10px;color:var(--mut);margin-left:8px;margin-top:1px">\\u23F0 '+esc(s.cron||s.at||'')+' <span class="ascd" data-id="'+esc(s.id)+'" title="cancel" style="color:#e88;cursor:pointer">\\u00d7</span></div>'}).join('');
+    return '<div style="padding:4px 7px"><div style="font-size:12px" title="'+esc(a.job)+'">'+esc(a.label||a.name)+' <span style="color:var(--mut);font-size:10px">['+esc(a.model)+(a.canElevate?'\\u2191':'')+']</span></div><div style="margin-top:1px"><span class="arun" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px">run</span><span class="asch" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">schedule</span><span class="adel" data-n="'+esc(a.name)+'" style="color:#e88;cursor:pointer;font-size:11px;margin-left:10px">delete</span></div>'+sl+'</div>'}).join('');
   [].slice.call(box.querySelectorAll('.arun')).forEach(function(x){x.onclick=function(){runAgentUI(x.getAttribute('data-n'))}});
+  [].slice.call(box.querySelectorAll('.asch')).forEach(function(x){x.onclick=function(){scheduleAgentUI(x.getAttribute('data-n'))}});
+  [].slice.call(box.querySelectorAll('.ascd')).forEach(function(x){x.onclick=function(){cancelSched(x.getAttribute('data-id'))}});
   [].slice.call(box.querySelectorAll('.adel')).forEach(function(x){x.onclick=function(){var n=x.getAttribute('data-n');if(!confirm('Delete agent "'+n+'"?'))return;fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'delete',name:n})}).then(function(){loadAgents()})}})}
+function scheduleAgentUI(name){var cron=prompt('Schedule "'+name+'" on a cron expression.\\n  */1 * * * *  = every minute\\n  */5 * * * *  = every 5 minutes\\n  0 * * * *    = hourly\\n  0 9 * * *    = 9:00 every day\\n  0 9 * * 1-5  = 9:00 on weekdays','*/5 * * * *');if(!cron)return;var task=prompt('Task to run each time (blank = the agent\\'s standard job):','');if(task===null)return;
+  fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'schedule',name:name,cron:cron,task:task||undefined})}).then(function(r){return r.json()}).then(function(d){if(d&&d.ok){if(d.schedules){SCHEDS=d.schedules;renderAgents()}showToast('Scheduled "'+name+'" ('+cron+').');setTimeout(hideToast,2000)}else{showToast((d&&d.error)?('Schedule failed: '+d.error):'Schedule failed.');setTimeout(hideToast,2500)}}).catch(function(){showToast('Schedule failed.')})}
+function cancelSched(id){if(!confirm('Cancel this schedule?'))return;fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'unschedule',id:id})}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.schedules){SCHEDS=d.schedules;renderAgents()}}).catch(function(){})}
 function runAgentUI(name){var task=prompt('Task for "'+name+'" (blank = its standard job):','');if(task===null)return;switchView('chat');var m=add('bot',name,'(running '+name+'...)');setStatus('agent '+name+' running...');
   fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'run',name:name,task:task||undefined})}).then(function(r){return r.ok?r.json():null}).then(function(d){setStatus('');if(m)m.textContent=(d&&d.reply)?d.reply:'(no reply)'}).catch(function(){setStatus('');if(m)m.textContent='(agent run failed)'})}
 function createAgentPrompt(){var name=prompt('New agent name:');if(!name)return;var job=prompt('Its job / instructions:');if(!job)return;

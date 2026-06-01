@@ -143,7 +143,10 @@ async function main(): Promise<void> {
       [config.channels.whatsapp, () => new WhatsAppChannel(config.dataDir)],
       [config.channels.signal, () => new SignalChannel()],
       [config.channels.email, () => new EmailChannel()],
-      [config.channels.web, () => new WebChannel(config, settings, reload, (key) => sessions.purge(key), tabs, usage, skills, memory, agentStore, (n, t) => engine.runAgent(n, t).then((r) => ({ reply: r.reply })), agentMsgs)],
+      [config.channels.web, () => new WebChannel(config, settings, reload, (key) => sessions.purge(key), tabs, usage, skills, memory, agentStore, (n, t) => engine.runAgent(n, t).then((r) => ({ reply: r.reply })), agentMsgs,
+        (name, cron, task) => scheduler.add({ name: `agent:${name}`, agent: name, prompt: task || '', cron, channel: 'agent', chatId: name, conversationKey: `agent:${name}` }),
+        () => scheduler.list().filter((j) => j.agent).map((j) => ({ id: j.id, agent: j.agent, cron: j.cron, at: j.at, prompt: j.prompt })),
+        (id) => scheduler.cancel(id))],
     ];
     for (const [enabled, make] of factories) {
       if (!enabled) continue;
