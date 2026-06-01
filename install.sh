@@ -230,7 +230,26 @@ if [ "$LOCAL" -eq 1 ]; then
 else
   if [ "$CAPABLE" -eq 1 ]; then
     show_menu
-    echo "    Re-run with --local to choose one and set it up (Ollama + the model). Add --yes to take the recommended unattended."
+    # No --local flag, but the machine can handle one - OFFER it right here (free, speeds simple turns).
+    if [ "$ASSUME_YES" -eq 1 ]; then
+      SHOULD_INSTALL=1; echo "    --yes: installing the recommended model '$MODEL'."
+    elif [ -t 0 ]; then
+      printf "    Set up a local model now? Pick [1-%d], Enter = '%s' (recommended), or 'n' to skip: " "${#FIT_ID[@]}" "$DEFAULT_ID"
+      read -r ANS </dev/tty || ANS=""
+      ANS="$(printf '%s' "$ANS" | tr -d '[:space:]')"
+      if printf '%s' "$ANS" | grep -qiE '^(n|no|s|skip)$'; then
+        echo "    Skipped - the subscription will handle everything. Re-run 'bash install.sh --local' anytime."
+      elif [ -z "$ANS" ]; then
+        MODEL="$DEFAULT_ID"; SHOULD_INSTALL=1
+      elif printf '%s' "$ANS" | grep -qE '^[0-9]+$' && [ "$ANS" -ge 1 ] && [ "$ANS" -le "${#FIT_ID[@]}" ]; then
+        MODEL="${FIT_ID[$(( ANS - 1 ))]}"; SHOULD_INSTALL=1
+      else
+        FOUND=0; for id in "${FIT_ID[@]}"; do [ "$id" = "$ANS" ] && { MODEL="$id"; FOUND=1; }; done
+        if [ "$FOUND" -eq 1 ]; then SHOULD_INSTALL=1; else MODEL="$DEFAULT_ID"; SHOULD_INSTALL=1; fi
+      fi
+    else
+      echo "    Re-run with --local to set one up (Ollama + the model)."
+    fi
   else
     echo "    This machine is below the bar for a useful local model; the subscription will handle everything."
     echo "    (--local --force would still let you pick a small one if you really want it.)"
@@ -254,8 +273,22 @@ if [ "$SHOULD_INSTALL" -eq 1 ]; then
   fi
 fi
 
+# Put the `zamolxis` command on PATH so the user doesn't have to use `npm run ...`.
+step "Linking the 'zamolxis' command"
+LINKED=0
+if npm link >/dev/null 2>&1; then
+  LINKED=1; mark_installed globalLink true; echo "    'zamolxis' is now on your PATH."
+elif sudo -n npm link >/dev/null 2>&1; then
+  LINKED=1; mark_installed globalLink true; echo "    'zamolxis' linked (with sudo)."
+else
+  warn "Could not link 'zamolxis' globally - use 'npm run web' / 'npm run cli', or run 'sudo npm link' once."
+fi
+
 step "Readiness check"
-node dist/index.js --doctor || warn "doctor reported issues (see above)"
+if node dist/index.js --doctor; then :; else
+  warn "Readiness check failed. If you saw 'Cannot find module', the build or dependencies are incomplete - run:"
+  warn "    npm install && npm run build"
+fi
 
 if [ "$SERVICE" -eq 1 ]; then
   step "Service setup"
@@ -265,10 +298,18 @@ fi
 
 echo
 echo "Zamolxis installed."
-echo "  Interactive:  npm run cli"
-echo "  Web UI:       npm run web   then open http://127.0.0.1:$WEB_PORT"
-echo "  Background:   npm start"
-echo "  Re-check:     npm run doctor"
+if [ "$LINKED" -eq 1 ]; then
+  echo "  Start it:     zamolxis web      then open http://127.0.0.1:$WEB_PORT"
+  echo "  Chat in CLI:  zamolxis cli"
+  echo "  Background:   zamolxis start    (also: zamolxis stop / restart / status)"
+  echo "  Re-check:     zamolxis doctor"
+else
+  echo "  Start it:     npm run web       then open http://127.0.0.1:$WEB_PORT"
+  echo "  Chat in CLI:  npm run cli"
+  echo "  Background:   npm start"
+  echo "  Re-check:     npm run doctor"
+  echo "  Tip: run 'npm link' once to enable the shorter 'zamolxis' command."
+fi
 
 if [ "$WEB" -eq 1 ] && [ "$OPEN" -eq 1 ]; then
   step "Launching web interface"
