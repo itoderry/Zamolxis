@@ -358,7 +358,7 @@ export class Engine {
   }
 
   /** OpenAI-compatible tool-use loop (local Ollama or a free cloud provider). */
-  private async toolLoop(o: { url: string; model: string; apiKey?: string; system: string; userText: string; tools: LocalToolset }): Promise<{
+  private async toolLoop(o: { url: string; model: string; apiKey?: string; system: string; userText: string; tools: LocalToolset; history?: Array<{ role: string; content: string }> }): Promise<{
     failed: boolean;
     exhausted: boolean;
     finalText: string;
@@ -366,8 +366,11 @@ export class Engine {
     outTok: number;
     searched: boolean;
   }> {
+    // System, then the prior conversation (so a model that didn't answer earlier turns still
+    // knows what was discussed), then this turn's user message.
     const messages: Array<Record<string, unknown>> = [
       { role: 'system', content: o.system },
+      ...(o.history ?? []),
       { role: 'user', content: o.userText },
     ];
     const MAX_STEPS = 5;
@@ -463,11 +466,22 @@ export class Engine {
     return { escalate: false, result: { reply, sessionId: '', costUsd: 0, isError: false } };
   }
 
+  /** Prior turns of THIS conversation as OpenAI-style messages, so a model that didn't answer
+   *  earlier turns still has the thread. Capped (turns + per-message chars) to fit small local
+   *  context windows. Roles are normalized to user/assistant. The current turn isn't recorded yet. */
+  private recentHistory(conversationKey: string, maxTurns = 8, maxChars = 1500): Array<{ role: string; content: string }> {
+    const turns = this.deps.sessionIndex?.recent(conversationKey, maxTurns) ?? [];
+    return turns
+      .filter((t) => t.text && t.text.trim())
+      .map((t) => ({ role: t.role === 'assistant' ? 'assistant' : 'user', content: t.text.slice(0, maxChars) }));
+  }
+
   /** Answer with the on-device model via the shared tool loop (no subscription used). */
   private async answerLocal(req: RunRequest, allowEscalate: boolean): Promise<{ escalate: boolean; result?: RunResult }> {
     const lm = this.deps.config.localModel!;
     const { system, tools } = this.buildAssistant(allowEscalate, req.text);
-    const r = await this.toolLoop({ url: `${lm.url}/chat/completions`, model: lm.model, system, userText: req.text, tools });
+    const history = this.recentHistory(req.conversationKey);
+    const r = await this.toolLoop({ url: `${lm.url}/chat/completions`, model: lm.model, system, userText: req.text, tools, history });
     if (!r.failed) this.deps.usage?.recordEngine({ [`local:${lm.model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
     const out = this.finishAssistantTurn(req, allowEscalate, r, /* isLocal */ true);
     if (out.result) out.result.via = `Local (${lm.model})`;
@@ -479,7 +493,8 @@ export class Engine {
     const key = process.env[p.envKey];
     if (!key) return { escalate: true };
     const { system, tools } = this.buildAssistant(allowEscalate, req.text);
-    const r = await this.toolLoop({ url: `${p.baseUrl}/chat/completions`, model: p.model, apiKey: key, system, userText: req.text, tools });
+    const history = this.recentHistory(req.conversationKey);
+    const r = await this.toolLoop({ url: `${p.baseUrl}/chat/completions`, model: p.model, apiKey: key, system, userText: req.text, tools, history });
     recordProviderUse(p.id);
     if (!r.failed) this.deps.usage?.recordEngine({ [`${p.kind}:${p.id}:${p.model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
     if (!r.failed) logger.info({ provider: p.id, kind: p.kind }, 'cloud provider handled the turn');
@@ -667,7 +682,22 @@ export class Engine {
       },
     };
 
-    const promptText = req.displayName ? `[from ${req.displayName}]\n${req.text}` : req.text;
+    // Cross-model continuity: Claude resumes its OWN SDK session (the turns it answered), but
+    // turns handled by other tiers since its last turn aren't in that session. Inject them as
+    // context so a conversation that bounced local <-> Claude stays coherent. (`recent` is
+    // chronological; we take only turns newer than Claude's last and cap the block.)
+    const sinceClaude = existing?.lastClaudeTs ?? 0;
+    const unseen = (this.deps.sessionIndex?.recent(req.conversationKey, 20) ?? []).filter((t) => t.ts > sinceClaude);
+    let priorContext = '';
+    if (unseen.length) {
+      const lines = unseen
+        .slice(-10)
+        .map((t) => `${t.role === 'assistant' ? dispName : 'User'}: ${t.text.slice(0, 1500)}`)
+        .join('\n');
+      priorContext = `## Recent conversation so far (some turns were answered by a faster model; here for context)\n${lines}\n\n---\n\n`;
+    }
+    const userLine = req.displayName ? `[from ${req.displayName}]\n${req.text}` : req.text;
+    const promptText = priorContext + userLine;
     // Streaming-input mode (prompt as AsyncIterable) is REQUIRED for in-process
     // MCP tools: their callbacks ride the bidirectional control protocol. The
     // input stream must stay OPEN until the turn's result arrives — if the
@@ -765,12 +795,14 @@ export class Engine {
       errorKind = 'auth';
     }
 
+    // Use ONE timestamp for both the archived turn and lastClaudeTs, so the next Claude turn's
+    // "ts > lastClaudeTs" filter excludes this turn's own records (no duplicate context).
+    const now = Date.now();
     if (sessionId) {
-      sessions.set(req.conversationKey, { sessionId, workspace, updatedAt: Date.now() });
+      sessions.set(req.conversationKey, { sessionId, workspace, updatedAt: now, lastClaudeTs: now });
     }
-    // Archive the exchange for full-text search (search_history tool).
+    // Archive the exchange for full-text search (search_history tool) and cross-model history.
     if (!isError) {
-      const now = Date.now();
       this.deps.sessionIndex?.record(req.conversationKey, 'user', req.text, now);
       this.deps.sessionIndex?.record(req.conversationKey, 'assistant', reply, now);
     }

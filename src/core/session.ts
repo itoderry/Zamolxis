@@ -12,6 +12,12 @@ export interface SessionRecord {
   updatedAt: number;
   /** Absolute path to this conversation's agent workspace (holds CLAUDE.md, memory). */
   workspace: string;
+  /**
+   * Timestamp of the last turn Claude itself answered. Turns recorded AFTER this were handled
+   * by other tiers (local / free cloud / provider) and are NOT in Claude's resumed SDK session,
+   * so the engine injects them as context on the next Claude turn (cross-model continuity).
+   */
+  lastClaudeTs?: number;
 }
 
 export class SessionStore {

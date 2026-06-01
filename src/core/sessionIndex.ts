@@ -64,6 +64,26 @@ export class SessionIndex {
     }
   }
 
+  /**
+   * The last `limit` turns of ONE conversation, in chronological order. This is the
+   * model-agnostic transcript: every tier (local / free cloud / provider / Claude) records
+   * here, so it's used to give whichever model answers the next turn the prior context -
+   * otherwise switching models mid-conversation loses the thread. `rowid` is insertion order.
+   */
+  recent(conversation: string, limit = 12): Array<{ role: string; text: string; ts: number }> {
+    if (!this.db || !conversation) return [];
+    const lim = Math.min(Math.max(1, limit), 50);
+    try {
+      const rows = this.db
+        .prepare('SELECT role, text, ts FROM messages WHERE conversation = ? ORDER BY rowid DESC LIMIT ?')
+        .all(conversation, lim) as Array<{ role: string; text: string; ts: number }>;
+      return rows.reverse();
+    } catch (err) {
+      logger.debug({ err: String(err) }, 'recent-history query failed');
+      return [];
+    }
+  }
+
   search(query: string, limit = 10): SearchHit[] {
     if (!this.db || !query.trim()) return [];
     const lim = Math.min(Math.max(1, limit), 25);
