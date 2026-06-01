@@ -231,9 +231,12 @@ export class WebChannel implements Channel {
         time: now.getTime(),
         tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
         tzOffsetMin: now.getTimezoneOffset(),
+        // "found" also when a CLAUDE_CODE_OAUTH_TOKEN is set: the engine authenticates off that env
+        // token (no credentials.json / expiry). On macOS `claude login` writes only to the Keychain,
+        // so credentials.json is absent and the UI must not hide Claude when the token is present.
         auth: exp
           ? { found: true, expiresAt: exp.expiresAt.getTime(), expired: exp.expired }
-          : { found: false, expiresAt: null, expired: false },
+          : { found: Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN), expiresAt: null, expired: false },
         models: {
           primary: this.config.model || 'default',
           fast: this.config.fastModel || null,
@@ -264,7 +267,8 @@ export class WebChannel implements Channel {
           routeChain: this.config.routeChain,
           localModel: this.config.localModel?.model || null,
           claude: {
-            found: Boolean(exp),
+            // Also "found" when the engine's CLAUDE_CODE_OAUTH_TOKEN env is set (no credentials.json needed).
+            found: Boolean(exp) || Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN),
             expired: exp ? exp.expired : false,
             primary: this.config.model || '(cli default)',
             fast: this.config.fastModel || '-',

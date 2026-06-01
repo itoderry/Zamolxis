@@ -341,7 +341,10 @@ async function updateCmd() {
     console.error('Update aborted: `git pull --ff-only` failed (see log).');
     process.exit(1);
   }
-  if (!updateStep('npm install', npm, ['install', '--no-audit', '--no-fund'])) {
+  // --include=dev: a web-triggered update inherits the daemon's NODE_ENV=production, under which
+  // npm omits devDependencies - which would prune `typescript`, so `npm run build` (tsc) then fails
+  // with "tsc: command not found" and the update silently aborts. Forcing dev deps fixes it on every OS.
+  if (!updateStep('npm install', npm, ['install', '--no-audit', '--no-fund', '--include=dev'])) {
     fs.appendFileSync(logFile, '[update] npm install failed; aborting, NOT restarting.\n');
     console.error('Update aborted: npm install failed (see log).');
     process.exit(1);
