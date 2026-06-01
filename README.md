@@ -47,19 +47,19 @@ Then clone the repo and run the installer for your system. It checks prerequisit
 Windows (PowerShell):
 
 ```powershell
-git clone https://github.com/halusc/Zamolxis.git; cd Zamolxis; powershell -ExecutionPolicy Bypass -File .\install.ps1
+git clone https://github.com/itoderry/Zamolxis.git; cd Zamolxis; powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 macOS (Terminal):
 
 ```bash
-git clone https://github.com/halusc/Zamolxis.git && cd Zamolxis && bash install.sh
+git clone https://github.com/itoderry/Zamolxis.git && cd Zamolxis && bash install.sh
 ```
 
 Linux (shell):
 
 ```bash
-git clone https://github.com/halusc/Zamolxis.git && cd Zamolxis && bash install.sh
+git clone https://github.com/itoderry/Zamolxis.git && cd Zamolxis && bash install.sh
 ```
 
 Flags you can add: `-Web` / `--web` (browser UI), `-Web -Open` / `--web --open` (UI, opened right away), `-Service` / `--service` (start at logon), and `-Local` / `--local` (pick an on-device model that fits your hardware - more on that below).
@@ -91,7 +91,7 @@ Ready. Start with:  npm run cli
 ### Prefer to do it by hand?
 
 ```bash
-git clone https://github.com/halusc/Zamolxis.git && cd Zamolxis
+git clone https://github.com/itoderry/Zamolxis.git && cd Zamolxis
 npm install && npm run build
 cp .env.example .env   # optional - the defaults are fine
 npm run cli
