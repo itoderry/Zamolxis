@@ -363,7 +363,7 @@ async function updateCmd() {
 function usage() {
   console.log(`Zamolxis - self-hosted agent on your Claude subscription
 
-Usage: zamolxis <command> [extra daemon args]
+Usage: zamolxis <command> [extra daemon args]   (alias: zam <command>)
 
   run        run in the foreground (web UI + channels; Ctrl+C to stop)
   start      start in the background (detached, survives terminal close)

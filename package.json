@@ -8,7 +8,8 @@
     "node": ">=20"
   },
   "bin": {
-    "zamolxis": "./bin/zamolxis.mjs"
+    "zamolxis": "./bin/zamolxis.mjs",
+    "zam": "./bin/zamolxis.mjs"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
