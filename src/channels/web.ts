@@ -58,6 +58,30 @@ function resolveGit(): string {
   return 'git';
 }
 const GIT_BIN = resolveGit();
+
+// Version shown in the UI: package.json semver (human-bumped per release) + an auto-increasing
+// build number = the git commit count + the short commit SHA. Computed ONCE at startup. The build
+// number rises on every commit with zero maintenance; a non-git install falls back to pkg + 0.
+const VERSION = (() => {
+  let pkg = '0.0.0';
+  try {
+    pkg = (JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { version?: string }).version || pkg;
+  } catch {
+    /* keep default */
+  }
+  let commit = '';
+  let build = 0;
+  try {
+    const r = spawnSync(GIT_BIN, ['rev-list', '--count', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8', windowsHide: true });
+    if (r.status === 0) build = parseInt((r.stdout || '').trim(), 10) || 0;
+    const s = spawnSync(GIT_BIN, ['rev-parse', '--short', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8', windowsHide: true });
+    if (s.status === 0) commit = (s.stdout || '').trim();
+  } catch {
+    /* not a git checkout */
+  }
+  return { pkg, build, commit };
+})();
+
 type UpdateState = { isRepo: boolean; behind: number; local: string; remote: string; branch: string; checkedAt: number };
 let UPDATE: UpdateState = { isRepo: false, behind: 0, local: '', remote: '', branch: '', checkedAt: 0 };
 let UPDATE_CHECKING = false;
@@ -243,6 +267,7 @@ export class WebChannel implements Channel {
           local: this.config.localModel?.model || null,
         },
         build: buildInfo(),
+        version: VERSION,
         update: UPDATE,
         localRouting: this.config.localRouting,
         last: snap?.last ?? null,
@@ -564,6 +589,7 @@ header{display:flex;align-items:center;gap:10px;padding:11px 18px;border-bottom:
 #models .tok{color:var(--accent);font-variant-numeric:tabular-nums}
 #emblem{width:26px;height:26px;flex:none;filter:drop-shadow(0 0 6px #cda34966)}
 #brand{font-family:Georgia,'Times New Roman',serif;font-weight:700;letter-spacing:3px;font-size:18px;color:var(--accent);text-transform:uppercase}
+#version{font-size:10px;color:var(--mut);opacity:.85;align-self:flex-end;margin-bottom:2px;cursor:default}
 #clock{margin-left:auto;font-variant-numeric:tabular-nums;font-size:12px;color:var(--mut);white-space:nowrap}
 #auth{font-size:11px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);color:var(--mut);cursor:default;white-space:nowrap}
 #auth.ok{color:#7dd08a;border-color:#2f5a35}
@@ -660,7 +686,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 .thread .del{color:var(--mut);font-size:12px;padding:2px 6px;border-radius:6px}.thread .del:hover{background:#3a2520;color:#e88}
 </style></head><body>
 <div id="toast"></div>
-<header><svg id="emblem" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="eg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8c87a"/><stop offset="1" stop-color="#b8893f"/></linearGradient></defs><path d="M32 3 58 18 V46 L32 61 6 46 V18 Z" fill="#1a150d" stroke="url(#eg)" stroke-width="3" stroke-linejoin="round"/><path d="M22 22 H42 L24 40 H43" fill="none" stroke="url(#eg)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg><b id="brand">__AGENT_NAME__</b>
+<header><svg id="emblem" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="eg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8c87a"/><stop offset="1" stop-color="#b8893f"/></linearGradient></defs><path d="M32 3 58 18 V46 L32 61 6 46 V18 Z" fill="#1a150d" stroke="url(#eg)" stroke-width="3" stroke-linejoin="round"/><path d="M22 22 H42 L24 40 H43" fill="none" stroke="url(#eg)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg><b id="brand">__AGENT_NAME__</b><span id="version" title=""></span>
   <span id="clock"></span><span id="build" title="" style="display:none"></span><span id="auth" title="">login ...</span><span id="status">connecting...</span>
   <div id="toolsmenu"><button id="toolsbtn">Tools ▾</button><div id="toolsdrop"><button id="chats">Chats</button><button id="skillsbtn">Skills</button><button id="provbtn">Providers</button><button id="mem">Memory</button><button id="cog">Settings</button></div></div></header>
 <div id="modelsbar"><span id="models"></span></div>
@@ -1128,6 +1154,7 @@ function waitForServer(tries,startedBefore){if(tries>90){showToast('Update is st
     else{waitForServer(tries+1,startedBefore)}}).catch(function(){waitForServer(tries+1,startedBefore)})},4000);}
 function fetchStatus(){fetch('/api/status',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(!d)return;
   LASTD=d;applyName(d.agentName);renderModels(d);srvAnchor=d.time;cliAnchor=Date.now();clockTz=d.tz;tickClock();
+  var vr=el('version');if(vr&&d.version){vr.textContent='v'+d.version.pkg+(d.version.build?' · build '+d.version.build:'');vr.title=(d.version.commit?'commit '+d.version.commit:'')+(d.version.build?' (build '+d.version.build+')':'')}
   if(d.tempUntil){var ms=d.tempUntil-Date.now();if(ms>0&&ms<3600000)setTimeout(fetchStatus,ms+800)}
   if(d.build&&d.build.started)buildStarted=d.build.started;
   var b=el('build');if(b){var up=d.update;
