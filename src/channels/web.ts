@@ -1,7 +1,8 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -35,6 +36,49 @@ function buildInfo(): { started: number; built: number; stale: boolean } {
     /* ignore */
   }
   return { started: START_TIME, built, stale: built > START_TIME + 2000 };
+}
+
+// Git-update freshness: if this install is a git checkout, periodically `git fetch` and
+// see whether origin is ahead. The web UI surfaces "update available" and offers a one-click
+// pull + reinstall + restart. The check is cached (refreshed at most every 5 min) and never
+// blocks a request; a non-git install or an offline box just reports isRepo:false / behind:0.
+const REPO_ROOT = path.dirname(DIST_DIR); // dist/.. = repo root
+const pexec = promisify(execFile);
+type UpdateState = { isRepo: boolean; behind: number; local: string; remote: string; branch: string; checkedAt: number };
+let UPDATE: UpdateState = { isRepo: false, behind: 0, local: '', remote: '', branch: '', checkedAt: 0 };
+let UPDATE_CHECKING = false;
+async function refreshUpdate(): Promise<void> {
+  if (UPDATE_CHECKING) return;
+  UPDATE_CHECKING = true;
+  const git = (args: string[], timeout = 8000) => pexec('git', args, { cwd: REPO_ROOT, timeout, windowsHide: true });
+  try {
+    await git(['rev-parse', '--is-inside-work-tree']);
+    const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim();
+    try {
+      await git(['fetch', '--quiet', 'origin'], 30000);
+    } catch {
+      /* offline or no remote: fall back to whatever refs we already have */
+    }
+    const local = (await git(['rev-parse', 'HEAD'])).stdout.trim();
+    let remote = '';
+    let behind = 0;
+    try {
+      remote = (await git(['rev-parse', '@{u}'])).stdout.trim();
+      behind = parseInt((await git(['rev-list', '--count', 'HEAD..@{u}'])).stdout.trim(), 10) || 0;
+    } catch {
+      /* current branch has no upstream configured */
+    }
+    UPDATE = { isRepo: true, behind, local: local.slice(0, 7), remote: remote.slice(0, 7), branch, checkedAt: Date.now() };
+  } catch {
+    UPDATE = { isRepo: false, behind: 0, local: '', remote: '', branch: '', checkedAt: Date.now() };
+  } finally {
+    UPDATE_CHECKING = false;
+  }
+}
+function maybeRefreshUpdate(): void {
+  if (UPDATE_CHECKING) return;
+  if (UPDATE.checkedAt && Date.now() - UPDATE.checkedAt < 5 * 60 * 1000) return;
+  void refreshUpdate();
 }
 
 /**
@@ -158,6 +202,7 @@ export class WebChannel implements Channel {
     }
     if (url.pathname === '/api/status' && req.method === 'GET') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      maybeRefreshUpdate(); // non-blocking; result lands in a later poll
       const exp = oauthExpiry();
       const now = new Date();
       const snap = this.usage?.snapshot();
@@ -177,6 +222,7 @@ export class WebChannel implements Channel {
           local: this.config.localModel?.model || null,
         },
         build: buildInfo(),
+        update: UPDATE,
         localRouting: this.config.localRouting,
         last: snap?.last ?? null,
         engineTokens: { session: snap?.engine.session.totals.total ?? 0, total: snap?.engine.total.totals.total ?? 0 },
@@ -276,6 +322,23 @@ export class WebChannel implements Channel {
         child.unref();
       } catch (err) {
         logger.warn({ err: String(err) }, 'web restart spawn failed');
+      }
+      return;
+    }
+    if (url.pathname === '/api/update' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      this.json(res, 200, { ok: true, updating: true });
+      // Spawn a DETACHED `zamolxis update`: it git-pulls, reinstalls, rebuilds, then restarts the
+      // daemon. Detached so it survives the restart it performs. Triggered by the UI's
+      // "update available" alert. (A broken pull/build aborts WITHOUT restarting - see bin.)
+      try {
+        const bin = fileURLToPath(new URL('../../bin/zamolxis.mjs', import.meta.url));
+        const root = fileURLToPath(new URL('../../', import.meta.url));
+        logger.info('web-triggered update (git pull + install + build + restart)');
+        const child = spawn(process.execPath, [bin, 'update'], { cwd: root, detached: true, stdio: 'ignore', windowsHide: true });
+        child.unref();
+      } catch (err) {
+        logger.warn({ err: String(err) }, 'web update spawn failed');
       }
       return;
     }
@@ -615,7 +678,7 @@ var cid=localStorage.zx_thread||threads[0].id;
 if(!threads.some(function(t){return t.id===cid})){cid=threads[0].id}
 var token=localStorage.zx_token||'';
 var AGENT_NAME='__AGENT_NAME__',BOT_LABEL=AGENT_NAME.toLowerCase();
-var ws=null,gen=0,cur=null,curStarted=false,awaitingReload=false;
+var ws=null,gen=0,cur=null,curStarted=false,awaitingReload=false,buildStarted=0;
 var tabsData=[],activeView='chat';
 function el(id){return document.getElementById(id)}
 function setStatus(t){el('status').textContent=t}
@@ -950,10 +1013,24 @@ function renderModels(d){var box=el('models');if(!box)return;
 function doRestart(){if(!confirm('Restart Zamolxis to load the new build? The page will reconnect in a few seconds.'))return;awaitingReload=true;showToast('Restarting Zamolxis...');var b=el('build');if(b){b.textContent='⟳ restarting...';b.onclick=null;b.style.cursor='default'}
   fetch('/api/restart',{method:'POST',headers:hdrs()}).catch(function(){});
   setTimeout(function(){location.reload()},7000);}
+function doUpdate(){if(!confirm('Update Zamolxis now?\\n\\nThis will: git pull, reinstall dependencies, rebuild, then restart. It can take a minute or two - the page reconnects automatically once it is back.'))return;
+  awaitingReload=true;var startedBefore=buildStarted;
+  showToast('Updating: pull + install + build + restart. This can take a minute...');
+  var b=el('build');if(b){b.textContent='⬆ updating...';b.onclick=null;b.style.cursor='default';b.style.textDecoration='none'}
+  fetch('/api/update',{method:'POST',headers:hdrs()}).catch(function(){});
+  setTimeout(function(){waitForServer(0,startedBefore)},8000);}
+function waitForServer(tries,startedBefore){if(tries>90){showToast('Update is still running - reload the page manually once it finishes.');return}
+  setTimeout(function(){fetch('/api/status',{headers:hdrs()}).then(function(r){return r&&r.ok?r.json():null}).then(function(d){
+    if(d&&d.build&&d.build.started&&d.build.started!==startedBefore){showToast('Updated - reloading...');setTimeout(function(){location.reload()},900)}
+    else{waitForServer(tries+1,startedBefore)}}).catch(function(){waitForServer(tries+1,startedBefore)})},4000);}
 function fetchStatus(){fetch('/api/status',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(!d)return;
   LASTD=d;applyName(d.agentName);renderModels(d);srvAnchor=d.time;cliAnchor=Date.now();clockTz=d.tz;tickClock();
   if(d.tempUntil){var ms=d.tempUntil-Date.now();if(ms>0&&ms<3600000)setTimeout(fetchStatus,ms+800)}
-  var b=el('build');if(b){if(d.build&&d.build.stale){b.style.display='';b.textContent='⟳ outdated build — click to restart';b.title='The running process predates the latest build. Click to restart Zamolxis and load it.';b.style.cursor='pointer';b.style.textDecoration='underline';b.onclick=doRestart}else{b.style.display='none';b.onclick=null}}
+  if(d.build&&d.build.started)buildStarted=d.build.started;
+  var b=el('build');if(b){var up=d.update;
+    if(up&&up.isRepo&&up.behind>0){b.style.display='';b.textContent='⬆ update available ('+up.behind+' new) - click to update';b.title='A newer version is on GitHub (origin/'+esc(up.branch||'main')+', '+esc(up.remote||'')+'). Click to pull, reinstall, rebuild and restart.';b.style.cursor='pointer';b.style.textDecoration='underline';b.onclick=doUpdate}
+    else if(d.build&&d.build.stale){b.style.display='';b.textContent='⟳ outdated build - click to restart';b.title='The running process predates the latest build. Click to restart Zamolxis and load it.';b.style.cursor='pointer';b.style.textDecoration='underline';b.onclick=doRestart}
+    else{b.style.display='none';b.onclick=null}}
   var a=el('auth');if(!a)return;var au=d.auth||{};
   if(!au.found){a.className='warn';a.textContent='login: unknown';a.title='Could not read the Claude credentials file (it may be in an OS keychain).'}
   else if(au.expired){a.className='bad';a.textContent='login expired';a.title='Subscription login expired. On the host run: claude login  then restart Zamolxis.'}

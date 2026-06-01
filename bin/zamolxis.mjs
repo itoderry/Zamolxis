@@ -4,6 +4,7 @@
 //   zamolxis start               start in the background (detached; survives closing the terminal)
 //   zamolxis stop                stop the background instance
 //   zamolxis restart             restart the background instance
+//   zamolxis update              git pull + reinstall + rebuild + restart (git installs only)
 //   zamolxis status              is it running?
 //   zamolxis web                 foreground, web UI only
 //   zamolxis cli                 foreground, interactive CLI only
@@ -319,6 +320,43 @@ async function uninstallCmd() {
   console.log(`To finish, delete the program folder:\n  ${root}`);
 }
 
+// One step of an update (git pull / npm install / npm run build). Output is appended to the
+// daemon log so the detached process leaves a trace. Returns true on success (exit 0).
+function updateStep(label, cmd, args) {
+  fs.mkdirSync(logDir, { recursive: true });
+  fs.appendFileSync(logFile, `\n[update] ${label}: ${cmd} ${args.join(' ')}\n`);
+  const out = fs.openSync(logFile, 'a');
+  const r = spawnSync(cmd, args, { cwd: root, stdio: ['ignore', out, out], windowsHide: true, shell: process.platform === 'win32' });
+  fs.closeSync(out);
+  return r.status === 0;
+}
+// Pull the latest from git, reinstall, rebuild, and restart. A failed pull or build ABORTS
+// without restarting, so a broken update never takes down a working instance.
+async function updateCmd() {
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  fs.mkdirSync(logDir, { recursive: true });
+  fs.appendFileSync(logFile, `\n[update] starting at ${new Date().toISOString()} (cwd ${root})\n`);
+  if (!updateStep('git pull', 'git', ['pull', '--ff-only'])) {
+    fs.appendFileSync(logFile, '[update] git pull --ff-only failed (diverged history or no network); aborting, NOT restarting.\n');
+    console.error('Update aborted: `git pull --ff-only` failed (see log).');
+    process.exit(1);
+  }
+  if (!updateStep('npm install', npm, ['install', '--no-audit', '--no-fund'])) {
+    fs.appendFileSync(logFile, '[update] npm install failed; aborting, NOT restarting.\n');
+    console.error('Update aborted: npm install failed (see log).');
+    process.exit(1);
+  }
+  if (!updateStep('npm run build', npm, ['run', 'build'])) {
+    fs.appendFileSync(logFile, '[update] build failed; aborting (NOT restarting on a broken build).\n');
+    console.error('Update aborted: build failed (see log).');
+    process.exit(1);
+  }
+  fs.appendFileSync(logFile, '[update] pull + install + build OK; restarting.\n');
+  await stop();
+  await sleep(600);
+  start([]);
+}
+
 function usage() {
   console.log(`Zamolxis - self-hosted agent on your Claude subscription
 
@@ -328,6 +366,7 @@ Usage: zamolxis <command> [extra daemon args]
   start      start in the background (detached, survives terminal close)
   stop       stop the background instance
   restart    restart the background instance
+  update     git pull + reinstall + rebuild + restart (if installed from git)
   status     show whether it is running
   web        foreground, web UI only
   cli        foreground, interactive CLI only
@@ -367,6 +406,9 @@ switch (cmd) {
     await stop();
     await sleep(600);
     start(extra);
+    break;
+  case 'update':
+    await updateCmd();
     break;
   case 'status':
     status();
