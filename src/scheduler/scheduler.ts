@@ -93,7 +93,13 @@ export class Scheduler {
             displayName: `scheduler:${job.name}`,
           });
       const channel = this.channels.get(job.channel);
-      if (channel) await channel.send({ chatId: job.chatId, text: job.agent ? `[agent ${job.agent}] ${result.reply}` : result.reply });
+      if (channel) {
+        await channel.send({ chatId: job.chatId, text: job.agent ? `[agent ${job.agent}] ${result.reply}` : result.reply });
+      } else if (job.agent) {
+        // Agent-scheduled jobs carry channel:'agent', which is not a real channel — deliver the
+        // result back through the agent message bus (surfaced to the web UI + CLI, mirrored into chat).
+        await this.engine.sendAgentMessage(job.agent, 'user', result.reply);
+      }
     } catch (err) {
       logger.error({ id, err: String(err) }, 'job failed');
     } finally {

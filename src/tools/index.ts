@@ -42,6 +42,14 @@ export interface ToolDeps {
   runAgent?: (name: string, task?: string) => Promise<string>;
   /** Deliver a message from an agent to another agent or the user (late-bound to the engine). */
   sendAgentMessage?: (from: string, to: string, text: string) => Promise<string>;
+  /** Compile an agent's NL job into an executable plan via the smart model (late-bound to the engine). */
+  compileAgent?: (name: string) => Promise<{
+    ok: boolean;
+    executor?: string;
+    skills?: string[];
+    codeTools?: { name: string }[];
+    risk?: { level: string; note: string; recommendedModel?: string };
+  }>;
 }
 
 const text = (s: string) => ({ content: [{ type: 'text' as const, text: s }] });
@@ -345,7 +353,23 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
       if (!deps.agentStore) return text('Agents are not available in this build.');
       try {
         const n = deps.agentStore.upsert({ name: args.name, job: args.job, tools: args.tools, model: args.model, canElevate: args.canElevate });
-        return text(`Agent "${n}" saved (model: ${args.model || 'auto'}). Run it with run_agent, or from the Agents list in the UI.`);
+        let extra = '';
+        if (deps.compileAgent) {
+          try {
+            const p = await deps.compileAgent(n);
+            if (p.ok) {
+              extra =
+                `\nPlanner compiled it: executor=${p.executor}, risk=${p.risk?.level ?? 'n/a'}` +
+                (p.skills && p.skills.length ? `, skills=[${p.skills.join(', ')}]` : '') +
+                (p.codeTools && p.codeTools.length ? `, generated tools=[${p.codeTools.map((t) => t.name).join(', ')}]` : '') +
+                '.';
+              if (p.risk && p.risk.level !== 'low') extra += `\n⚠ ${p.risk.level} risk: ${p.risk.note} (recommended model: ${p.risk.recommendedModel}).`;
+            }
+          } catch {
+            /* compile is best-effort; the agent still runs on its raw job */
+          }
+        }
+        return text(`Agent "${n}" saved (model: ${args.model || 'auto'}).${extra}\nRun it with run_agent, or from the Agents list in the UI.`);
       } catch (e) {
         return text('Could not create agent: ' + String(e));
       }
