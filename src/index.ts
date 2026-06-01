@@ -3,6 +3,7 @@ import { loadConfig, applyPersistedSettings, type ZamolxisConfig } from './confi
 import { logger } from './logger.js';
 import { checkAuth, oauthExpiry } from './core/auth.js';
 import { SessionStore } from './core/session.js';
+import { AgentStore } from './core/agents.js';
 import { Throttle } from './core/throttle.js';
 import { Engine } from './core/engine.js';
 import { ChannelManager } from './channels/manager.js';
@@ -102,7 +103,8 @@ async function main(): Promise<void> {
   } catch (err) {
     logger.warn({ err: String(err) }, 'skill seeding skipped');
   }
-  const engine = new Engine({ config, sessions, throttle, memory, sessionIndex, usage, skills });
+  const agentStore = new AgentStore(config.dataDir);
+  const engine = new Engine({ config, sessions, throttle, memory, sessionIndex, usage, skills, agentStore });
   // Agent-managed dashboard tabs (web UI), with optional periodic refresh.
   const tabs = new TabsManager(config.dataDir);
   tabs.wire(engine);
@@ -121,7 +123,7 @@ async function main(): Promise<void> {
     const sandbox = new SandboxManager(config.sandbox);
     const settings = new SettingsManager(config, sandbox, config.dataDir, () => manager.runningNames(), memory);
     engine.buildMcpServers = (ctx) =>
-      buildToolServers(ctx, { scheduler, skills, sandbox, memory, sessionIndex, tabs, usage, localModel: config.localModel, dataDir: config.dataDir, skillsDir: config.skillsDir });
+      buildToolServers(ctx, { scheduler, skills, sandbox, memory, sessionIndex, tabs, usage, localModel: config.localModel, dataDir: config.dataDir, skillsDir: config.skillsDir, agentStore, runAgent: (n, t) => engine.runAgent(n, t).then((r) => r.reply) });
     logger.info({ sandbox: sandbox.listConfigured(), default: sandbox.defaultBackend }, 'sandbox ready');
 
     const factories: Array<[boolean, () => Channel]> = [

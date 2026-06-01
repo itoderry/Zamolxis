@@ -20,6 +20,7 @@ import type { SkillsManager } from '../skills/manager.js';
 import { buildLocalTools, localSearchAvailable, type LocalToolset } from './localTools.js';
 import { effectiveName } from './displayName.js';
 import { pickFreeProvider, freeProviderPool, providerById, recordProviderUse, type ProviderDef } from './providers.js';
+import type { AgentStore } from './agents.js';
 
 export interface RunRequest {
   /** Stable per-conversation key, e.g. "telegram:12345". */
@@ -40,6 +41,10 @@ export interface RunRequest {
   route?: string;
   /** Internal: this turn is a user-driven escalation (so prompt the smart model to teach the local one). */
   escalated?: boolean;
+  /** Agent run: the agent's role/instructions, prepended to the system prompt. */
+  agentJob?: string;
+  /** Agent run: restrict the tool-using tiers to only these tool names ([] / undefined = all). */
+  agentTools?: string[];
 }
 
 /** Builds per-turn in-process MCP servers, closing over the live conversation context. */
@@ -75,6 +80,8 @@ export interface EngineDeps {
   mcpServers?: Record<string, McpServerConfig>;
   /** Programmatic subagents available via the Task tool. */
   agents?: Record<string, AgentDefinition>;
+  /** User-defined agents (named jobs that run on any tier). */
+  agentStore?: AgentStore;
 }
 
 function buildPersona(name: string): string {
@@ -272,6 +279,24 @@ export class Engine {
     return /^(escalate( this| it)?|wrong|that'?s wrong|that is wrong|incorrect|that'?s incorrect|not right|that'?s not right|no,? ?(that'?s )?(wrong|incorrect)|nope,? ?wrong|redo|try again|do it again|use claude|ask claude|bigger model)[.!]*$/i.test(t);
   }
 
+  /** Run a named user-defined agent against a task, on its configured tier with only its tools.
+   *  Runs in its own conversation context ("agent:<name>") so it doesn't pollute a user chat. */
+  async runAgent(name: string, task?: string): Promise<RunResult & { agent?: string }> {
+    const def = this.deps.agentStore?.get(name);
+    if (!def) return { reply: `No agent named "${name}".`, sessionId: '', costUsd: 0, isError: true, agent: name };
+    const route = def.model && def.model !== 'auto' ? def.model : undefined;
+    const r = await this.run({
+      conversationKey: `agent:${def.name}`,
+      channel: 'agent',
+      chatId: def.name,
+      text: (task && task.trim()) || `Do your job now.`,
+      route,
+      agentJob: def.job,
+      agentTools: def.tools,
+    });
+    return { ...r, agent: def.name };
+  }
+
   async run(req: RunRequest): Promise<RunResult> {
     const key = req.conversationKey;
     const { config } = this.deps;
@@ -348,9 +373,17 @@ export class Engine {
    * failure also escalates. Usage is recorded (summed across rounds) as "local:<model>".
    */
   /** Shared assistant system prompt + tools for the tool-using models (local & free cloud). */
-  private buildAssistant(allowEscalate: boolean, query = ''): { system: string; tools: LocalToolset } {
+  private buildAssistant(allowEscalate: boolean, query = '', agent?: { job?: string; tools?: string[] }): { system: string; tools: LocalToolset } {
     const { config } = this.deps;
-    const tools = buildLocalTools();
+    let tools = buildLocalTools();
+    // Agent tool restriction: expose ONLY the tools this agent is allowed to use.
+    if (agent?.tools && agent.tools.length) {
+      const allow = new Set(agent.tools);
+      const defs = tools.defs.filter((d) => allow.has((d as { function?: { name?: string } }).function?.name ?? ''));
+      const names = tools.names.filter((n) => allow.has(n));
+      const baseExec = tools.exec;
+      tools = { names, defs, exec: (name: string, args: Record<string, unknown>) => (allow.has(name) ? baseExec(name, args) : Promise.resolve('That tool is not available to this agent.')) };
+    }
     const hasSearch = tools.names.includes('web_search');
     const noSearchNote =
       'You do NOT have web search. Only http_get a SPECIFIC URL you were given or that a skill provides. Do NOT fetch search engines (google.com, bing.com) or guess/invent URLs. If you do not have the exact URL for what is asked, say you cannot look it up and that web search can be enabled by adding a Tavily or Brave API key in Settings.';
@@ -375,7 +408,9 @@ export class Engine {
       ? "When you web_search: pick the most AUTHORITATIVE on-topic result (official, league, ESPN, or encyclopedia pages over ticket/betting/preview pages) and ANSWER THE USER'S ACTUAL QUESTION directly in 1-2 sentences with the specific fact. Do NOT paste ticket prices, betting odds, moneylines, streaming/\"watch\" options, or other details the user didn't ask for. If the top result is a betting/preview page, look for the answer in another result instead of dumping it."
       : undefined;
     const learned = query ? this.deps.memory.relevantLearningsBlock(query) : this.deps.memory.learningsBlock();
-    const system = [toolsLine, searchSynth, safety, escalateRule, persona, nowLine, profileHint, learned, skillsHint, config.systemPromptAppend]
+    // An agent's job leads the prompt so the model stays on its specific task.
+    const agentRole = agent?.job ? `YOU ARE A FOCUSED AGENT. YOUR JOB:\n${agent.job}\nDo exactly this job using only your available tools; do not drift off-task.` : undefined;
+    const system = [agentRole, toolsLine, searchSynth, safety, escalateRule, persona, nowLine, profileHint, learned, skillsHint, config.systemPromptAppend]
       .filter(Boolean)
       .join('\n\n');
     return { system, tools };
@@ -503,7 +538,7 @@ export class Engine {
   /** Answer with the on-device model via the shared tool loop (no subscription used). */
   private async answerLocal(req: RunRequest, allowEscalate: boolean): Promise<{ escalate: boolean; result?: RunResult }> {
     const lm = this.deps.config.localModel!;
-    const { system, tools } = this.buildAssistant(allowEscalate, req.text);
+    const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools });
     const history = this.recentHistory(req.conversationKey);
     const r = await this.toolLoop({ url: `${lm.url}/chat/completions`, model: lm.model, system, userText: req.text, tools, history });
     if (!r.failed) this.deps.usage?.recordEngine({ [`local:${lm.model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
@@ -516,7 +551,7 @@ export class Engine {
   private async answerProvider(req: RunRequest, p: ProviderDef, allowEscalate: boolean): Promise<{ escalate: boolean; result?: RunResult }> {
     const key = process.env[p.envKey];
     if (!key) return { escalate: true };
-    const { system, tools } = this.buildAssistant(allowEscalate, req.text);
+    const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools });
     const history = this.recentHistory(req.conversationKey);
     const r = await this.toolLoop({ url: `${p.baseUrl}/chat/completions`, model: p.model, apiKey: key, system, userText: req.text, tools, history });
     recordProviderUse(p.id);
@@ -656,7 +691,8 @@ export class Engine {
         .map((s) => `- ${s.name}: ${s.description}${files.get(s.name) ? ` (read: ${files.get(s.name)})` : ''}`)
         .join('\n')}`;
     }
-    const append = [laws, buildPersona(dispName), this.deps.memory.systemPromptBlock(), memoryAware, skillsHint, escalationHint, searchHint, localHint, config.systemPromptAppend, nameLock]
+    const agentRole = req.agentJob ? `YOU ARE A FOCUSED AGENT. YOUR JOB:\n${req.agentJob}\nDo exactly this job; stay on task.` : undefined;
+    const append = [agentRole, laws, buildPersona(dispName), this.deps.memory.systemPromptBlock(), memoryAware, skillsHint, escalationHint, searchHint, localHint, config.systemPromptAppend, nameLock]
       .filter(Boolean)
       .join('\n\n');
 
