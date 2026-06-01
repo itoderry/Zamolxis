@@ -241,7 +241,25 @@ if ($Local) {
 } else {
   if ($capable) {
     Show-ModelMenu
-    Write-Host "    Re-run with -Local to choose one and set it up (Ollama + the model). Add -Yes to take the recommended unattended."
+    # No -Local flag, but the machine can handle one - OFFER it now (free, speeds simple turns).
+    if ($Yes) {
+      $shouldInstall = $true; Write-Host "    -Yes: installing the recommended model '$model'."
+    } elseif ([Environment]::UserInteractive) {
+      $ans = (Read-Host "    Set up a local model now? Pick [1-$($fit.Count)], Enter = '$defaultId' (recommended), or 'n' to skip").Trim()
+      if ($ans -match '^(n|no|s|skip)$') {
+        Write-Host "    Skipped - the subscription will handle everything. Re-run with -Local anytime."
+      } elseif ($ans -eq '') {
+        $model = $defaultId; $shouldInstall = $true
+      } elseif ($ans -match '^\d+$' -and [int]$ans -ge 1 -and [int]$ans -le $fit.Count) {
+        $model = $fit[[int]$ans - 1].Id; $shouldInstall = $true
+      } elseif ($fit | Where-Object { $_.Id -eq $ans }) {
+        $model = $ans; $shouldInstall = $true
+      } else {
+        $model = $defaultId; $shouldInstall = $true
+      }
+    } else {
+      Write-Host "    Re-run with -Local to set one up (Ollama + the model)."
+    }
   } else {
     Write-Host "    This machine is below the bar for a useful local model; the subscription will handle everything."
     Write-Host "    (-Local -Force would still let you pick a small one if you really want it.)"
@@ -287,15 +305,35 @@ if ($Service) {
   Mark-Installed service $true
 }
 
+# Put the `zamolxis` command on PATH so the user doesn't have to use `npm run ...`.
+Step "Linking the 'zamolxis' command"
+$linked = $false
+try { npm link 2>&1 | Out-Null; if ($LASTEXITCODE -eq 0) { $linked = $true } } catch {}
+if ($linked) { Mark-Installed globalLink $true; Write-Host "    'zamolxis' is now on your PATH." }
+else { Warn "Could not link 'zamolxis' globally - use 'npm run web' / 'npm run cli', or run 'npm link' once." }
+
 Step "Readiness check"
-try { node "dist\index.js" --doctor } catch { Warn "doctor reported issues (see above)" }
+$ok = $true
+try { node "dist\index.js" --doctor; if ($LASTEXITCODE -ne 0) { $ok = $false } } catch { $ok = $false }
+if (-not $ok) {
+  Warn "Readiness check failed. If you saw 'Cannot find module', the build or dependencies are incomplete - run:"
+  Warn "    npm install ; npm run build"
+}
 
 Write-Host ""
 Write-Host "Zamolxis installed." -ForegroundColor Green
-Write-Host "  Interactive:  npm run cli"
-Write-Host "  Web UI:       npm run web   then open http://127.0.0.1:$webPort"
-Write-Host "  Background:   npm start   (or, with -Service: npm run service:start)"
-Write-Host "  Re-check:     npm run doctor"
+if ($linked) {
+  Write-Host "  Start it:     zamolxis web      then open http://127.0.0.1:$webPort"
+  Write-Host "  Chat in CLI:  zamolxis cli"
+  Write-Host "  Background:   zamolxis start    (also: zamolxis stop / restart / status)"
+  Write-Host "  Re-check:     zamolxis doctor"
+} else {
+  Write-Host "  Start it:     npm run web       then open http://127.0.0.1:$webPort"
+  Write-Host "  Chat in CLI:  npm run cli"
+  Write-Host "  Background:   npm start         (or, with -Service: npm run service:start)"
+  Write-Host "  Re-check:     npm run doctor"
+  Write-Host "  Tip: run 'npm link' once to enable the shorter 'zamolxis' command."
+}
 
 if ($Web -and $Open) {
   Step "Launching web interface"
