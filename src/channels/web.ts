@@ -342,6 +342,42 @@ export class WebChannel implements Channel {
       }
       return;
     }
+    if (url.pathname === '/api/upload' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      // Accept a single file as base64 JSON ({chatId,name,contentB64}); save it under
+      // <dataDir>/uploads/<chatId>/ and return the absolute path. The chat message then
+      // references that path so the agent reads it with its file tools (Read/PDF/docx/...).
+      let body = '';
+      let tooBig = false;
+      req.on('data', (c) => {
+        body += c;
+        if (body.length > 35_000_000) {
+          tooBig = true;
+          req.destroy();
+        }
+      });
+      req.on('end', () => {
+        if (tooBig) return this.json(res, 413, { error: 'file too large (25 MB max)' });
+        try {
+          const o = JSON.parse(body || '{}');
+          const b64 = String(o.contentB64 || '');
+          if (!b64) return this.json(res, 400, { error: 'no content' });
+          const buf = Buffer.from(b64, 'base64');
+          if (buf.length > 25 * 1024 * 1024) return this.json(res, 413, { error: 'file too large (25 MB max)' });
+          const safeCid = String(o.chatId || 'web').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'web';
+          const safeName = String(o.name || 'file').replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 120) || 'file';
+          const dir = path.join(this.config.dataDir, 'uploads', safeCid);
+          fs.mkdirSync(dir, { recursive: true });
+          const dest = path.join(dir, `${Date.now()}-${safeName}`);
+          fs.writeFileSync(dest, buf);
+          logger.info({ dest, bytes: buf.length }, 'web upload saved');
+          return this.json(res, 200, { ok: true, path: dest, name: safeName, bytes: buf.length });
+        } catch (err) {
+          return this.json(res, 400, { error: String(err) });
+        }
+      });
+      return;
+    }
     if (url.pathname === '/api/pack' && req.method === 'POST') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
       let body = '';
@@ -538,6 +574,14 @@ footer{border-top:1px solid var(--line);background:#120f0a}
 #route,#model{width:auto;flex:0 0 auto;align-self:center;font-size:12px;padding:8px;color:var(--mut)}
 #send{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#17130d;border:none;font-weight:600;padding:0 18px}
 #send:hover{filter:brightness(1.08)}
+#attach{background:#0c0a07;color:var(--mut);border:1px solid var(--line);border-radius:12px;padding:0 12px;cursor:pointer;font-size:17px;align-self:stretch}
+#attach:hover{color:var(--accent);border-color:var(--accent)}
+#attachbar{max-width:840px;margin:0 auto;display:flex;flex-wrap:wrap;gap:6px;padding:8px 20px 0}
+#attachbar:empty{display:none}
+.achip{display:inline-flex;align-items:center;gap:7px;background:#1a150d;border:1px solid var(--line);border-radius:8px;padding:3px 9px;font-size:12px;color:var(--mut)}
+.achip b{color:var(--ink);font-weight:500;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.achip .x{cursor:pointer;color:#e88;font-weight:700}
+#chatview.drag{outline:2px dashed var(--accent);outline-offset:-10px;border-radius:12px}
 #tabview{position:absolute;inset:0;overflow:auto;display:none}
 #tabview.show{display:block}
 #tabinner{max-width:900px;margin:0 auto;padding:26px 22px}
@@ -599,7 +643,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
   <div id="chatwrap">
   <div id="chatview">
     <div id="log"><div id="loginner"></div></div>
-    <footer><div id="footinner"><select id="route" title="Where this chat is answered: Auto routes simple turns to the local model, Local forces on-device, Claude forces the subscription"><option value="auto">Auto</option><option value="local">Local</option><option value="claude">Claude</option></select><select id="model" title="Which Claude model answers this chat. Default = automatic: the fast model for simple turns, the primary model for complex ones. Sonnet/Haiku are faster than Opus."><option value="">Model: auto</option><option value="opus">Opus · deep</option><option value="sonnet">Sonnet · fast</option><option value="haiku">Haiku · fastest</option></select><textarea id="in" rows="1" placeholder="Message __AGENT_NAME__..."></textarea><button id="send">Send</button></div></footer>
+    <footer><div id="attachbar"></div><div id="footinner"><select id="route" title="Where this chat is answered: Auto routes simple turns to the local model, Local forces on-device, Claude forces the subscription"><option value="auto">Auto</option><option value="local">Local</option><option value="claude">Claude</option></select><select id="model" title="Which Claude model answers this chat. Default = automatic: the fast model for simple turns, the primary model for complex ones. Sonnet/Haiku are faster than Opus."><option value="">Model: auto</option><option value="opus">Opus · deep</option><option value="sonnet">Sonnet · fast</option><option value="haiku">Haiku · fastest</option></select><input id="fileinput" type="file" multiple style="display:none"><button id="attach" type="button" title="Attach files (or drag-and-drop / paste)">&#128206;</button><textarea id="in" rows="1" placeholder="Message __AGENT_NAME__..."></textarea><button id="send">Send</button></div></footer>
   </div>
   <div id="tabview"><div id="tabinner"></div></div>
   </div>
@@ -740,11 +784,33 @@ function deleteThread(id){fetch('/api/forget',{method:'POST',headers:hdrs(),body
 var inHist=[];try{inHist=JSON.parse(localStorage.zx_inhist||'[]')}catch(e){}
 var histPos=-1,histDraft='';
 function pushHist(t){if(!t)return;if(inHist[inHist.length-1]!==t){inHist.push(t);if(inHist.length>100)inHist.shift();try{localStorage.zx_inhist=JSON.stringify(inHist)}catch(e){}}histPos=-1;histDraft=''}
-function sendMsg(){var t=el('in').value.trim();if(!t)return;if(!ws||ws.readyState!==1){setStatus('not connected');return}switchView('chat');add('user','you',t);pushHist(t);el('in').value='';cur=add('bot',BOT_LABEL,'thinking...');curStarted=false;setStatus('thinking...');var sendModel=(el('model')&&el('model').style.display!=='none')?curModel():'';startGen();ws.send(JSON.stringify({text:t,route:curRoute(),model:sendModel}));
-  var th=threads.filter(function(x){return x.id===cid})[0];if(th&&(th.label==='New chat'||th.label==='Chat 1')){th.label=t.slice(0,32);saveThreads();renderThreads()}}
+var pending=[];var MAXUP=20*1024*1024;
+function renameThreadFrom(t){if(!t)return;var th=threads.filter(function(x){return x.id===cid})[0];if(th&&(th.label==='New chat'||th.label==='Chat 1')){th.label=t.slice(0,32);saveThreads();renderThreads()}}
+function sendMsg(){var t=el('in').value.trim();var files=pending.slice();if(!t&&!files.length)return;if(!ws||ws.readyState!==1){setStatus('not connected');return}
+  switchView('chat');
+  var shown=t+(files.length?((t?'\\n':'')+files.map(function(f){return '📎 '+f.name}).join('\\n')):'');
+  add('user','you',shown||'(file)');if(t)pushHist(t);el('in').value='';
+  var sendModel=(el('model')&&el('model').style.display!=='none')?curModel():'';
+  cur=add('bot',BOT_LABEL,'thinking...');curStarted=false;
+  renameThreadFrom(t||(files[0]&&files[0].name));
+  if(!files.length){setStatus('thinking...');startGen();ws.send(JSON.stringify({text:t,route:curRoute(),model:sendModel}));return}
+  setStatus('uploading...');clearAttach();startGen();
+  Promise.all(files.map(function(f){return fetch('/api/upload',{method:'POST',headers:hdrs(),body:JSON.stringify({chatId:cid,name:f.name,contentB64:f.b64})}).then(function(r){return r.ok?r.json():null})})).then(function(rs){
+    var paths=rs.filter(Boolean).map(function(x){return x.path});
+    if(!paths.length){setStatus('upload failed');if(cur){cur.textContent='(upload failed)'}return}
+    var note=(t?t+'\\n\\n':'')+'Attached file(s) - read them with your tools to answer:\\n'+paths.map(function(p){return '- '+p}).join('\\n');
+    setStatus('thinking...');ws.send(JSON.stringify({text:note,route:'claude',model:sendModel}));
+  }).catch(function(){setStatus('upload failed');if(cur){cur.textContent='(upload failed)'}})}
 el('route').onchange=function(){routes[cid]=el('route').value;localStorage.zx_routes=JSON.stringify(routes);updateModelVis()};applyRoute();
 el('model').onchange=function(){models[cid]=el('model').value;localStorage.zx_models=JSON.stringify(models)};applyModel();
 el('send').onclick=sendMsg;
+function addFiles(list){var arr=[].slice.call(list||[]);if(!arr.length)return;arr.forEach(function(f){if(f.size>MAXUP){showToast('"'+f.name+'" is too big (max 20 MB).');setTimeout(hideToast,3000);return}var rd=new FileReader();rd.onload=function(){var s=String(rd.result||'');var i=s.indexOf(',');pending.push({name:f.name,size:f.size,b64:i>=0?s.slice(i+1):s});renderAttach()};rd.onerror=function(){showToast('Could not read "'+f.name+'".');setTimeout(hideToast,3000)};rd.readAsDataURL(f)})}
+function renderAttach(){var bar=el('attachbar');if(!bar)return;bar.innerHTML=pending.map(function(f,i){return '<span class="achip">📎 <b title="'+esc(f.name)+'">'+esc(f.name)+'</b><span class="x" data-i="'+i+'">&times;</span></span>'}).join('');[].slice.call(bar.querySelectorAll('.x')).forEach(function(x){x.onclick=function(){pending.splice(+x.getAttribute('data-i'),1);renderAttach()}})}
+function clearAttach(){pending=[];renderAttach()}
+if(el('attach'))el('attach').onclick=function(){el('fileinput').click()};
+if(el('fileinput'))el('fileinput').onchange=function(){addFiles(this.files);this.value=''};
+el('in').addEventListener('paste',function(e){var f=e.clipboardData&&e.clipboardData.files;if(f&&f.length){e.preventDefault();addFiles(f)}});
+(function(){var cv=el('chatview');if(!cv)return;function over(e){e.preventDefault();cv.classList.add('drag')}cv.addEventListener('dragenter',over);cv.addEventListener('dragover',over);cv.addEventListener('dragleave',function(e){e.preventDefault();cv.classList.remove('drag')});cv.addEventListener('drop',function(e){e.preventDefault();cv.classList.remove('drag');if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length)addFiles(e.dataTransfer.files)})})();
 el('in').addEventListener('keydown',function(e){var n=el('in');
   if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg();return}
   // Shell-style history: Up at the very start of the field, Down at the very end.
