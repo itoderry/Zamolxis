@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { logger } from '../logger.js';
 
 /**
@@ -22,12 +23,26 @@ export interface AuthStatus {
 }
 
 function credentialsPresent(): boolean {
-  // Stored by `claude login`; location varies (file or OS keychain).
+  // 1) A long-lived OAuth token in the env (from `claude setup-token`). This is the most
+  //    reliable subscription auth for the SDK, and the recommended path on macOS where
+  //    `claude login` stores the token in the Keychain (which a background SDK often can't read).
+  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return true;
+  // 2) A credentials file (Windows/Linux, and some macOS versions).
   const candidates = [
     path.join(os.homedir(), '.claude', '.credentials.json'),
     path.join(os.homedir(), '.claude', 'credentials.json'),
   ];
-  return candidates.some((p) => fs.existsSync(p));
+  if (candidates.some((p) => fs.existsSync(p))) return true;
+  // 3) macOS Keychain item created by `claude login` (best-effort; service name may vary).
+  if (process.platform === 'darwin') {
+    try {
+      const r = spawnSync('security', ['find-generic-password', '-s', 'Claude Code-credentials'], { stdio: 'ignore' });
+      if (r.status === 0) return true;
+    } catch {
+      /* security unavailable */
+    }
+  }
+  return false;
 }
 
 export function checkAuth(): AuthStatus {
@@ -42,7 +57,11 @@ export function checkAuth(): AuthStatus {
     logger.warn('ANTHROPIC_API_KEY detected — it will be hidden from the engine so the subscription is used. Set ZAMOLXIS_ALLOW_API_KEY=1 to override.');
   }
   if (!credsFound) {
-    logger.warn('No Claude credentials file found. Run `claude login` (with a Pro/Max subscription) before starting, or the engine cannot authenticate.');
+    if (process.platform === 'darwin') {
+      logger.warn('No Claude credentials found. On macOS `claude login` stores the token in the Keychain, which the engine often cannot read. Run `claude setup-token` and put the result in .env as CLAUDE_CODE_OAUTH_TOKEN=..., then restart.');
+    } else {
+      logger.warn('No Claude credentials found. Run `claude login` (Pro/Max), or set CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) in .env, before starting.');
+    }
   }
   return {
     usingSubscription: true,
