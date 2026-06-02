@@ -905,6 +905,9 @@ export class Engine {
     if (req.route === 'local') return { tiers: cloud.includes('local') ? ['local'] : cloud.slice(0, 1), claude: elev };
     if (req.route === 'freecloud') return { tiers: ['freecloud'], claude: claudeIn || elev }; // explicit → rotate free providers
     if (req.route && req.route !== 'auto' && providerById(req.route)) return { tiers: [req.route], claude: claudeIn || elev }; // explicit provider id
+    // Agent runs follow their configured tier/chain and only escalate via canElevate — do NOT force
+    // Claude for "current info" (e.g. "what time is it"): the time is injected, so a cheap tier suffices.
+    if (req.agentJob) return { tiers: cloud, claude: claudeIn || elev };
     if (this.hardClaudeOnly(req.text) && claudeIn) return { tiers: [], claude: true }; // needs Claude-only tools
     // Live/current-fact questions: the tiny local model mis-reasons even WHEN it searches
     // (grabs the wrong game, can't map "two nights ago", defaults the venue) — so skip

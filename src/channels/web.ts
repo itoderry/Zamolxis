@@ -512,8 +512,19 @@ export class WebChannel implements Channel {
             }
             if (action === 'run') {
               if (!this.runAgent) return this.json(res, 400, { error: 'cannot run agents here' });
-              const r = await this.runAgent(String(o.name || ''), o.task ? String(o.task) : undefined);
-              return this.json(res, 200, { ok: true, reply: r.reply });
+              const name = String(o.name || '');
+              const task = o.task ? String(o.task) : undefined;
+              // 'run' is one-shot, but if the task states a cadence ("every minute"), also set up a
+              // recurring schedule — that's what the user means by "every minute tell me ...".
+              let scheduled: { cron: string; note?: string } | null = null;
+              const hasSchedule = this.listAgentSchedules ? this.listAgentSchedules().some((s) => s.agent === name) : false;
+              if (task && this.scheduleAgent && this.nlToCron && !hasSchedule &&
+                  /\b(every|each|hourly|daily|weekly|minute|minutes|hour|hours|morning|evening|night|noon|midnight|weekday|weekdays|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(task)) {
+                const c = await this.nlToCron(task);
+                if (c.cron) { this.scheduleAgent(name, c.cron, task); scheduled = { cron: c.cron, note: c.note }; }
+              }
+              const r = await this.runAgent(name, task);
+              return this.json(res, 200, { ok: true, reply: r.reply, scheduled, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
             }
             if (action === 'schedule') {
               if (!this.scheduleAgent) return this.json(res, 400, { error: 'scheduling unavailable' });
@@ -896,8 +907,8 @@ function scheduleAgentUI(name){var when=prompt('When should "'+name+'" run? Say 
 function stopAgentUI(name,stop){fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'stop',name:name,stop:stop})}).then(function(r){return r.json()}).then(function(d){if(d){if(d.schedules)SCHEDS=d.schedules;loadAgents();showToast(stop?('Stopped "'+name+'" ('+(d.suspended||0)+' schedule(s) suspended)'):('Resumed "'+name+'"'));setTimeout(hideToast,2500)}}).catch(function(){showToast('Action failed.')})}
 function analyzeAgentUI(name){showToast('Analyzing "'+name+'" with the smart model...');fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'analyze',name:name})}).then(function(r){return r.json()}).then(function(d){loadAgents();hideToast();if(d&&d.ok){alert('Analysis of "'+name+'":\\n\\n'+(d.assessment||'(no assessment)')+'\\n\\n'+(d.changed?'\\u2713 The prompt was improved.':'No change needed.'))}else{showToast((d&&d.note)?d.note:'Analyze failed.');setTimeout(hideToast,3000)}}).catch(function(){showToast('Analyze failed.')})}
 function cancelSched(id){if(!confirm('Cancel this schedule?'))return;fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'unschedule',id:id})}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.schedules){SCHEDS=d.schedules;renderAgents()}}).catch(function(){})}
-function runAgentUI(name){var task=prompt('Task for "'+name+'" (blank = its standard job):','');if(task===null)return;switchView('chat');var m=add('bot',name,'(running '+name+'...)');setStatus('agent '+name+' running...');
-  fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'run',name:name,task:task||undefined})}).then(function(r){return r.ok?r.json():null}).then(function(d){setStatus('');if(m)m.textContent=(d&&d.reply)?d.reply:'(no reply)'}).catch(function(){setStatus('');if(m)m.textContent='(agent run failed)'})}
+function runAgentUI(name){var task=prompt('Task for "'+name+'" (blank = its standard job). Tip: say "every minute ..." and it will also be scheduled.','');if(task===null)return;switchView('chat');var m=add('bot',name,'(running '+name+'...)');setStatus('agent '+name+' running...');
+  fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'run',name:name,task:task||undefined})}).then(function(r){return r.ok?r.json():null}).then(function(d){setStatus('');if(m)m.textContent=(d&&d.reply)?d.reply:'(no reply)';if(d&&d.schedules){SCHEDS=d.schedules;renderAgents()}if(d&&d.scheduled){showToast('Also scheduled: '+(d.scheduled.note||d.scheduled.cron));setTimeout(hideToast,3000)}}).catch(function(){setStatus('');if(m)m.textContent='(agent run failed)'})}
 function createAgentPrompt(){var name=prompt('New agent name:');if(!name)return;
   var job=prompt('Tell the story in plain language: what the agent should do, and how often if it should repeat.\\n\\ne.g. "Every morning at 8 fetch the top Hacker News stories and send me a 5-bullet summary."\\n\\nThe smart model writes clear instructions + skills for a cheaper model to run, and sets up the schedule if you mentioned one.');if(!job)return;
   showToast('The smart model is writing the plan (instructions, skills, schedule)...');postCreateAgent(name,job,'auto',undefined)}
@@ -1015,7 +1026,7 @@ function loadThread(id){cid=id;saveThreads();applyRoute();applyModel();el('login
   if(isAgentCid(id)){var oa=ws;if(oa){try{oa.close()}catch(e){}}ws=null;renderAgentThread(agentNameOf(id));renderThreads();return}
   var old=ws;openWs();if(old){try{old.close()}catch(e){}}renderThreads()}
 function renderThreads(){var h='';threads.forEach(function(t){var del=(t.id==='main'||t.agent)?'':'<span class="del" data-del="'+t.id+'">delete</span>';h+='<div class="thread'+(t.id===cid?' cur':'')+'" data-id="'+t.id+'"><span class="lbl">'+esc(t.label)+'</span>'+del+'</div>'});el('threadlist').innerHTML=h;
-  Array.prototype.forEach.call(el('threadlist').querySelectorAll('.thread'),function(n){n.onclick=function(e){if(e.target.getAttribute('data-del'))return;loadThread(n.getAttribute('data-id'));el('threadpanel').classList.remove('open')}});
+  Array.prototype.forEach.call(el('threadlist').querySelectorAll('.thread'),function(n){n.onclick=function(e){if(e.target.getAttribute('data-del'))return;loadThread(n.getAttribute('data-id'))}});
   Array.prototype.forEach.call(el('threadlist').querySelectorAll('[data-del]'),function(n){n.onclick=function(e){e.stopPropagation();deleteThread(n.getAttribute('data-del'))}})}
 function newChat(){var id=uuid();threads.unshift({id:id,label:'New chat'});loadThread(id);el('threadpanel').classList.remove('open');switchView('chat')}
 function openAgentChat(name){var id='agent:'+name;if(!threads.some(function(t){return t.id===id})){threads.push({id:id,label:'\\uD83E\\uDD16 '+name,agent:name});saveThreads()}switchView('chat');loadThread(id);el('threadpanel').classList.remove('open')}
@@ -1396,6 +1407,8 @@ var agentSince=Date.now();var AGENTLOG=[];
 function mirrorOn(){return localStorage.zx_mirror!=='0'}
 function pollAgentMsgs(){fetch('/api/agentmsgs?since='+agentSince,{headers:hdrs()}).then(function(r){return r.ok?r.json():[]}).then(function(ms){if(!ms||!ms.length)return;ms.forEach(function(m){if(m.ts>agentSince)agentSince=m.ts;
   AGENTLOG.push(m);if(AGENTLOG.length>500)AGENTLOG.shift();
+  // Auto-add a chat thread for any agent that produces messages, so its chat appears in the list.
+  [m.from,m.to].forEach(function(nm){if(nm&&nm!=='user'&&nm!=='assistant'&&AGENTS.some(function(a){return a.name===nm})&&!threads.some(function(t){return t.id==='agent:'+nm})){threads.push({id:'agent:'+nm,label:'\\uD83E\\uDD16 '+nm,agent:nm});saveThreads();renderThreads()}});
   var lbl='\\uD83E\\uDD16 '+m.from+' \\u2192 '+m.to;
   if(isAgentCid(cid)&&(m.from===agentNameOf(cid)||m.to===agentNameOf(cid))){add('bot',lbl,m.text)} /* live into the open agent thread */
   else if(mirrorOn()&&cid==='main'){add('bot',lbl,m.text)} /* and mirror into the main chat */
