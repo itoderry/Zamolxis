@@ -1005,7 +1005,12 @@ function updateModelVis(){var re=el('route'),me=el('model');if(!me)return;me.sty
 function saveThreads(){localStorage.zx_threads=JSON.stringify(threads);localStorage.zx_thread=cid}
 function isAgentCid(id){return !!id&&id.indexOf('agent:')===0}
 function agentNameOf(id){return id.slice(6)}
-function renderAgentThread(name){el('loginner').innerHTML='';AGENTLOG.forEach(function(m){if(m.from===name||m.to===name){var lbl=(m.from===name)?('\\uD83E\\uDD16 '+m.from+' \\u2192 '+m.to):(m.from+' \\u2192 '+name);add('bot',lbl,m.text)}})}
+function renderAgentThread(name){el('loginner').innerHTML='';
+  fetch('/api/agentmsgs?since=0',{headers:hdrs()}).then(function(r){return r.ok?r.json():[]}).then(function(ms){
+    if(ms&&ms.length){AGENTLOG=ms;if(ms[ms.length-1].ts>agentSince)agentSince=ms[ms.length-1].ts}
+    var any=false;AGENTLOG.forEach(function(m){if(m.from===name||m.to===name){var lbl=(m.from===name)?('\\uD83E\\uDD16 '+m.from+' \\u2192 '+m.to):(m.from+' \\u2192 '+name);add('bot',lbl,m.text);any=true}});
+    if(!any)add('bot','\\uD83E\\uDD16 '+name,'(no messages yet - run '+name+', or wait for its next scheduled run)')
+  }).catch(function(){})}
 function loadThread(id){cid=id;saveThreads();applyRoute();applyModel();el('loginner').innerHTML='';cur=null;curStarted=false;
   if(isAgentCid(id)){var oa=ws;if(oa){try{oa.close()}catch(e){}}ws=null;renderAgentThread(agentNameOf(id));renderThreads();return}
   var old=ws;openWs();if(old){try{old.close()}catch(e){}}renderThreads()}
