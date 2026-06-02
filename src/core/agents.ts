@@ -40,6 +40,9 @@ export interface AgentDef {
   compiledAt?: number;
   /** Stopped by the user: schedules suspended and manual/scheduled runs refused until resumed. */
   stopped?: boolean;
+  /** Open agent: created WITHOUT fixed instructions — Run prompts for a task each time.
+   *  Dedicated agents (open=false/undefined) Run their standing job with no prompt. */
+  open?: boolean;
 }
 
 function slug(name: string): string {
@@ -95,6 +98,7 @@ export class AgentStore {
     canElevate?: boolean;
     label?: string;
     schedule?: { cron?: string; at?: string };
+    open?: boolean;
   }): string {
     const name = slug(input.name);
     if (!name) throw new Error('invalid agent name');
@@ -108,6 +112,7 @@ export class AgentStore {
       model: (input.model || existing?.model || 'auto').trim(),
       canElevate: typeof input.canElevate === 'boolean' ? input.canElevate : (existing?.canElevate ?? true),
       schedule: input.schedule ?? existing?.schedule,
+      open: typeof input.open === 'boolean' ? input.open : existing?.open,
       createdAt: existing?.createdAt ?? Date.now(),
     };
     if (existing) Object.assign(existing, def);

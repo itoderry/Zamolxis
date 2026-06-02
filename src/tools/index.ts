@@ -12,6 +12,7 @@ import type { UsageTracker } from '../core/usage.js';
 import { runWebSearch, localSearchAvailable, runHaService, haConfigured } from '../core/localTools.js';
 import { setTempName } from '../core/displayName.js';
 import { buildPaidTools } from './paid.js';
+import { readInbox, resolveAccount, listAccountNames, addAccount } from './email.js';
 import type { AgentStore } from '../core/agents.js';
 
 /** Live conversation context, captured per agent turn so tools deliver to the right place. */
@@ -422,11 +423,67 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
     },
   );
 
+  const readEmail = tool(
+    'read_email',
+    'Read an email inbox. READ-ONLY: never sends, replies, deletes, or marks messages as read. Returns recent/unread messages with sender, subject, and date. Supports multiple accounts — pass `account` (a name from list_email_accounts) to pick one. Use for "summarize my unread emails", "any important mail in my gmail today?". See the gmail/outlook/yahoo connection skills to set accounts up.',
+    {
+      account: z.string().optional().describe('Account name (from list_email_accounts). Omit if only one is configured.'),
+      unreadOnly: z.boolean().optional().describe('Only unread messages (default true); false = recent messages'),
+      limit: z.number().optional().describe('Max messages to return (default 15, max 50)'),
+      search: z.string().optional().describe('Only messages whose sender or subject contains this text'),
+    },
+    async (args) => {
+      const conn = resolveAccount(deps.dataDir, args.account);
+      if (!conn) {
+        const names = listAccountNames(deps.dataDir);
+        if (names.length > 1 && !args.account) return text(`Which account? Configured: ${names.join(', ')}. Re-run with account set to one of these.`);
+        if (args.account) return text(`No email account named "${args.account}". Configured: ${names.join(', ') || '(none)'}.`);
+        return text('No email account is set up. Add one to <dataDir>/emails.json (see the "Connect Gmail/Outlook/Yahoo" skills for the exact server settings + app-password steps), then ask again. This is read-only and never sends.');
+      }
+      try {
+        const items = await readInbox(conn, { unreadOnly: args.unreadOnly, limit: args.limit, search: args.search });
+        if (!items.length) return text(args.unreadOnly === false ? 'No messages found in the inbox.' : 'No unread messages.');
+        return text(items.map((m, i) => `${i + 1}. From: ${m.from}\n   Subject: ${m.subject}\n   Date: ${m.date}`).join('\n\n'));
+      } catch (e) {
+        return text('Could not read the inbox: ' + String(e));
+      }
+    },
+  );
+  const addEmailAccount = tool(
+    'add_email_account',
+    'Save an email account so read_email can use it. The user can give just their email + app password (and optionally a provider); IMAP server settings are auto-filled for gmail/outlook/hotmail/yahoo/icloud/fastmail/zoho (or by email domain). Pass imapHost for anything else. Use when the user says e.g. "connect my gmail me@gmail.com, app password XXXX" or supplies email+password while creating an agent. Stored locally; the password is never echoed.',
+    {
+      user: z.string().describe('The full email address'),
+      password: z.string().describe('App password (or mailbox password). Stored locally only.'),
+      name: z.string().optional().describe('Short account name to reference later (default: the part before @)'),
+      provider: z.string().optional().describe('gmail | outlook | hotmail | live | yahoo | icloud | fastmail | zoho (optional; auto-detected from the address)'),
+      imapHost: z.string().optional().describe('IMAP host for providers without a preset'),
+      imapPort: z.number().optional().describe('IMAP port (default 993)'),
+    },
+    async (args) => {
+      const r = addAccount(deps.dataDir, args);
+      if (!r.ok) return text('Could not add the account: ' + (r.error || 'unknown error'));
+      return text(`Saved email account "${r.name}" (IMAP ${r.imapHost}). Use it with read_email account="${r.name}". It's read-only — Zamolxis never sends from it.`);
+    },
+  );
+  const listEmailAccounts = tool(
+    'list_email_accounts',
+    'List the configured email account names that read_email can use (no passwords). Use to discover which mailboxes are available.',
+    {},
+    async () => {
+      const names = listAccountNames(deps.dataDir);
+      return text(names.length ? `Email accounts: ${names.join(', ')}` : 'No email accounts configured yet. See the Gmail/Outlook/Yahoo connection skills.');
+    },
+  );
+
   return {
     zamolxis: createSdkMcpServer({
       name: 'zamolxis',
       version: '0.1.0',
       tools: [
+        readEmail,
+        addEmailAccount,
+        listEmailAccounts,
         createAgent,
         listAgents,
         runAgentTool,
