@@ -7,12 +7,37 @@ import { logger } from '../logger.js';
  * Owns the set of active channels, wires each one's inbound traffic to the
  * engine, and exposes channels for proactive sends (scheduler).
  */
+/** The shared "main" conversation key. Web-main + every messaging channel are bridged to it. */
+export const MAIN_KEY = 'main';
+/** The web thread id that is the (undeletable) main chat. */
+export const MAIN_WEB_CID = 'main';
+
 export class ChannelManager {
   private readonly channels = new Map<string, Channel>();
   /** Channels that started without throwing — i.e. actually live. */
   private readonly started = new Set<string>();
+  /** Bridged endpoints for the main chat: channelName -> chatId to deliver to (two-way mirror). */
+  private readonly bridge = new Map<string, string>();
 
   constructor(private readonly engine: Engine) {}
+
+  /** Is this inbound message part of the shared main conversation?
+   *  Web: only the dedicated main thread. CLI: no (local REPL). All messaging channels: yes —
+   *  every configured chat the user set up feeds/mirrors the one main chat. */
+  private isBridged(msg: InboundMessage): boolean {
+    if (msg.channel === 'web') return msg.chatId === MAIN_WEB_CID;
+    if (msg.channel === 'cli') return false;
+    return true;
+  }
+
+  /** Mirror text to every bridged surface except the originating channel. */
+  private broadcast(originChannel: string, text: string): void {
+    for (const [chName, chatId] of this.bridge) {
+      if (chName === originChannel) continue;
+      const ch = this.channels.get(chName);
+      if (ch) void ch.send({ chatId, text }).catch((err) => logger.warn({ err: String(err), ch: chName }, 'main-chat bridge send failed'));
+    }
+  }
 
   register(channel: Channel): void {
     this.channels.set(channel.name, channel);
@@ -48,8 +73,15 @@ export class ChannelManager {
   }
 
   private async handle(msg: InboundMessage, onProgress?: (chunk: string) => void): Promise<string> {
-    const key = conversationKey(msg);
-    logger.info({ key, from: msg.from, len: msg.text.length }, 'inbound');
+    const bridged = this.isBridged(msg);
+    const key = bridged ? MAIN_KEY : conversationKey(msg);
+    if (bridged) {
+      // Remember this surface as a main-chat endpoint, and mirror the user's message to the others
+      // so the conversation reads the same everywhere (two-way across all configured channels).
+      this.bridge.set(msg.channel, msg.chatId);
+      this.broadcast(msg.channel, `💬 ${msg.from || 'you'}: ${msg.text}`);
+    }
+    logger.info({ key, from: msg.from, len: msg.text.length, bridged }, 'inbound');
     const result = await this.engine.run({
       conversationKey: key,
       text: msg.text,
@@ -61,6 +93,8 @@ export class ChannelManager {
       onProgress,
     });
     logger.info({ key, costUsd: result.costUsd, isError: result.isError }, 'replied');
+    // Mirror the assistant's reply to the other bridged surfaces (the origin gets it via return).
+    if (bridged) this.broadcast(msg.channel, result.reply);
     return result.reply;
   }
 

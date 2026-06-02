@@ -877,8 +877,9 @@ function renderAgents(){var box=el('agentrail');if(!box)return;
   if(!AGENTS.length){box.innerHTML='<div style="color:var(--mut);font-size:11px;padding:2px 7px">none yet</div>';return}
   box.innerHTML=AGENTS.map(function(a){
     var sl=schedsFor(a.name).map(function(s){return '<div style="font-size:10px;color:var(--mut);margin-left:8px;margin-top:1px">\\u23F0 '+esc(s.cron||s.at||'')+' <span class="ascd" data-id="'+esc(s.id)+'" title="cancel" style="color:#e88;cursor:pointer">\\u00d7</span></div>'}).join('');
-    return '<div style="padding:4px 7px"><div style="font-size:12px" title="'+esc(a.job)+'">'+esc(a.label||a.name)+' <span style="color:var(--mut);font-size:10px">['+esc(a.model)+(a.canElevate?'\\u2191':'')+']</span>'+((a.risk&&a.risk.level&&a.risk.level!=='low')?(' <span title="'+esc(a.risk.note||'')+'" style="color:'+(a.risk.level==='high'?'#e06a5f':'#e0a55f')+';font-size:10px">\\u26A0 '+esc(a.risk.level)+'</span>'):'')+((a.stopped)?' <span style="color:var(--mut);font-size:10px">[stopped]</span>':'')+'</div><div style="margin-top:1px"><span class="arun" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px">run</span><span class="aana" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">analyze</span><span class="asch" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">schedule</span><span class="astp" data-n="'+esc(a.name)+'" data-stop="'+(a.stopped?'0':'1')+'" style="color:'+(a.stopped?'#7dd08a':'#e0a55f')+';cursor:pointer;font-size:11px;margin-left:10px">'+(a.stopped?'resume':'stop')+'</span><span class="adel" data-n="'+esc(a.name)+'" style="color:#e88;cursor:pointer;font-size:11px;margin-left:10px">delete</span></div>'+sl+'</div>'}).join('');
+    return '<div style="padding:4px 7px"><div style="font-size:12px" title="'+esc(a.job)+'"><span class="aopen" data-n="'+esc(a.name)+'" style="cursor:pointer;text-decoration:underline" title="open '+esc(a.name)+' chat">'+esc(a.label||a.name)+'</span> <span style="color:var(--mut);font-size:10px">['+esc(a.model)+(a.canElevate?'\\u2191':'')+']</span>'+((a.risk&&a.risk.level&&a.risk.level!=='low')?(' <span title="'+esc(a.risk.note||'')+'" style="color:'+(a.risk.level==='high'?'#e06a5f':'#e0a55f')+';font-size:10px">\\u26A0 '+esc(a.risk.level)+'</span>'):'')+((a.stopped)?' <span style="color:var(--mut);font-size:10px">[stopped]</span>':'')+'</div><div style="margin-top:1px"><span class="arun" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px">run</span><span class="aana" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">analyze</span><span class="asch" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">schedule</span><span class="astp" data-n="'+esc(a.name)+'" data-stop="'+(a.stopped?'0':'1')+'" style="color:'+(a.stopped?'#7dd08a':'#e0a55f')+';cursor:pointer;font-size:11px;margin-left:10px">'+(a.stopped?'resume':'stop')+'</span><span class="adel" data-n="'+esc(a.name)+'" style="color:#e88;cursor:pointer;font-size:11px;margin-left:10px">delete</span></div>'+sl+'</div>'}).join('');
   [].slice.call(box.querySelectorAll('.arun')).forEach(function(x){x.onclick=function(){runAgentUI(x.getAttribute('data-n'))}});
+  [].slice.call(box.querySelectorAll('.aopen')).forEach(function(x){x.onclick=function(){openAgentChat(x.getAttribute('data-n'))}});
   [].slice.call(box.querySelectorAll('.aana')).forEach(function(x){x.onclick=function(){analyzeAgentUI(x.getAttribute('data-n'))}});
   [].slice.call(box.querySelectorAll('.asch')).forEach(function(x){x.onclick=function(){scheduleAgentUI(x.getAttribute('data-n'))}});
   [].slice.call(box.querySelectorAll('.astp')).forEach(function(x){x.onclick=function(){stopAgentUI(x.getAttribute('data-n'),x.getAttribute('data-stop')==='1')}});
@@ -937,9 +938,12 @@ function doUninstall(){var purge=!!(el('un_purge')&&el('un_purge').checked);
   awaitingReload=true;showToast('Uninstalling '+AGENT_NAME+'... the server will stop shortly.');
   fetch('/api/uninstall',{method:'POST',headers:hdrs(),body:JSON.stringify({purge:purge})}).catch(function(){});}
 var threads=[];try{threads=JSON.parse(localStorage.zx_threads||'[]')}catch(e){}
-if(!threads.length){threads=[{id:(localStorage.zx_cid||uuid()),label:'Chat 1'}]}
-var cid=localStorage.zx_thread||threads[0].id;
-if(!threads.some(function(t){return t.id===cid})){cid=threads[0].id}
+// The Main chat is permanent + undeletable, always first, and is bridged two-way to every
+// configured messaging channel (Telegram, etc.).
+threads=threads.filter(function(t){return t.id!=='main'});
+threads.unshift({id:'main',label:'Main',main:true});
+var cid=localStorage.zx_thread||'main';
+if(!threads.some(function(t){return t.id===cid})){cid='main'}
 var token=localStorage.zx_token||'';
 var AGENT_NAME='__AGENT_NAME__',BOT_LABEL=AGENT_NAME.toLowerCase();
 var ws=null,gen=0,cur=null,curStarted=false,awaitingReload=false,buildStarted=0;
@@ -994,19 +998,29 @@ function applyModel(){var n=el('model');if(n)n.value=curModel()}
 // for local/provider routes) hide it — otherwise a stale selection gets sent and forces Claude.
 function updateModelVis(){var re=el('route'),me=el('model');if(!me)return;me.style.display=(re&&re.value==='claude')?'':'none'}
 function saveThreads(){localStorage.zx_threads=JSON.stringify(threads);localStorage.zx_thread=cid}
-function loadThread(id){cid=id;saveThreads();applyRoute();applyModel();el('loginner').innerHTML='';cur=null;curStarted=false;var old=ws;openWs();if(old){try{old.close()}catch(e){}}renderThreads()}
-function renderThreads(){var h='';threads.forEach(function(t){h+='<div class="thread'+(t.id===cid?' cur':'')+'" data-id="'+t.id+'"><span class="lbl">'+esc(t.label)+'</span><span class="del" data-del="'+t.id+'">delete</span></div>'});el('threadlist').innerHTML=h;
+function isAgentCid(id){return !!id&&id.indexOf('agent:')===0}
+function agentNameOf(id){return id.slice(6)}
+function renderAgentThread(name){el('loginner').innerHTML='';AGENTLOG.forEach(function(m){if(m.from===name||m.to===name){var lbl=(m.from===name)?('\\uD83E\\uDD16 '+m.from+' \\u2192 '+m.to):(m.from+' \\u2192 '+name);add('bot',lbl,m.text)}})}
+function loadThread(id){cid=id;saveThreads();applyRoute();applyModel();el('loginner').innerHTML='';cur=null;curStarted=false;
+  if(isAgentCid(id)){var oa=ws;if(oa){try{oa.close()}catch(e){}}ws=null;renderAgentThread(agentNameOf(id));renderThreads();return}
+  var old=ws;openWs();if(old){try{old.close()}catch(e){}}renderThreads()}
+function renderThreads(){var h='';threads.forEach(function(t){var del=(t.id==='main'||t.agent)?'':'<span class="del" data-del="'+t.id+'">delete</span>';h+='<div class="thread'+(t.id===cid?' cur':'')+'" data-id="'+t.id+'"><span class="lbl">'+esc(t.label)+'</span>'+del+'</div>'});el('threadlist').innerHTML=h;
   Array.prototype.forEach.call(el('threadlist').querySelectorAll('.thread'),function(n){n.onclick=function(e){if(e.target.getAttribute('data-del'))return;loadThread(n.getAttribute('data-id'));el('threadpanel').classList.remove('open')}});
   Array.prototype.forEach.call(el('threadlist').querySelectorAll('[data-del]'),function(n){n.onclick=function(e){e.stopPropagation();deleteThread(n.getAttribute('data-del'))}})}
 function newChat(){var id=uuid();threads.unshift({id:id,label:'New chat'});loadThread(id);el('threadpanel').classList.remove('open');switchView('chat')}
-function deleteThread(id){fetch('/api/forget',{method:'POST',headers:hdrs(),body:JSON.stringify({cid:id})}).catch(function(){});
-  threads=threads.filter(function(t){return t.id!==id});if(!threads.length){threads=[{id:uuid(),label:'Chat 1'}]}if(id===cid){loadThread(threads[0].id)}else{saveThreads();renderThreads()}}
+function openAgentChat(name){var id='agent:'+name;if(!threads.some(function(t){return t.id===id})){threads.push({id:id,label:'\\uD83E\\uDD16 '+name,agent:name});saveThreads()}switchView('chat');loadThread(id);el('threadpanel').classList.remove('open')}
+function deleteThread(id){if(id==='main')return; /* the Main chat is permanent */
+  if(!isAgentCid(id))fetch('/api/forget',{method:'POST',headers:hdrs(),body:JSON.stringify({cid:id})}).catch(function(){});
+  threads=threads.filter(function(t){return t.id!==id});if(id===cid){loadThread('main')}else{saveThreads();renderThreads()}}
 var inHist=[];try{inHist=JSON.parse(localStorage.zx_inhist||'[]')}catch(e){}
 var histPos=-1,histDraft='';
 function pushHist(t){if(!t)return;if(inHist[inHist.length-1]!==t){inHist.push(t);if(inHist.length>100)inHist.shift();try{localStorage.zx_inhist=JSON.stringify(inHist)}catch(e){}}histPos=-1;histDraft=''}
 var pending=[];var MAXUP=20*1024*1024;
 function renameThreadFrom(t){if(!t)return;var th=threads.filter(function(x){return x.id===cid})[0];if(th&&(th.label==='New chat'||th.label==='Chat 1')){th.label=t.slice(0,32);saveThreads();renderThreads()}}
-function sendMsg(){var t=el('in').value.trim();var files=pending.slice();if(!t&&!files.length)return;if(!ws||ws.readyState!==1){setStatus('not connected');return}
+function sendMsg(){var t=el('in').value.trim();var files=pending.slice();if(!t&&!files.length)return;
+  if(isAgentCid(cid)){if(!t)return;switchView('chat');add('user','you',t);pushHist(t);el('in').value='';var nm=agentNameOf(cid);var mm=add('bot','\\uD83E\\uDD16 '+nm,'(running...)');setStatus('agent '+nm+' running...');
+    fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'run',name:nm,task:t})}).then(function(r){return r.ok?r.json():null}).then(function(d){setStatus('');if(mm)mm.textContent=(d&&d.reply)?d.reply:'(no reply)'}).catch(function(){setStatus('');if(mm)mm.textContent='(run failed)'});return}
+  if(!ws||ws.readyState!==1){setStatus('not connected');return}
   switchView('chat');
   var shown=t+(files.length?((t?'\\n':'')+files.map(function(f){return '📎 '+f.name}).join('\\n')):'');
   add('user','you',shown||'(file)');if(t)pushHist(t);el('in').value='';
@@ -1352,9 +1366,14 @@ function fetchStatus(){fetch('/api/status',{headers:hdrs()}).then(function(r){re
 }).catch(function(){})}
 setInterval(tickClock,1000);fetchStatus();setInterval(fetchStatus,30000);
 // Agent messages (agent->agent / agent->user): poll and mirror into the active chat (default on).
-var agentSince=Date.now();
+var agentSince=Date.now();var AGENTLOG=[];
 function mirrorOn(){return localStorage.zx_mirror!=='0'}
-function pollAgentMsgs(){fetch('/api/agentmsgs?since='+agentSince,{headers:hdrs()}).then(function(r){return r.ok?r.json():[]}).then(function(ms){if(!ms||!ms.length)return;ms.forEach(function(m){if(m.ts>agentSince)agentSince=m.ts;if(mirrorOn()){switchView('chat');add('bot','\\uD83E\\uDD16 '+m.from+' \\u2192 '+m.to,m.text)}})}).catch(function(){})}
+function pollAgentMsgs(){fetch('/api/agentmsgs?since='+agentSince,{headers:hdrs()}).then(function(r){return r.ok?r.json():[]}).then(function(ms){if(!ms||!ms.length)return;ms.forEach(function(m){if(m.ts>agentSince)agentSince=m.ts;
+  AGENTLOG.push(m);if(AGENTLOG.length>500)AGENTLOG.shift();
+  var lbl='\\uD83E\\uDD16 '+m.from+' \\u2192 '+m.to;
+  if(isAgentCid(cid)&&(m.from===agentNameOf(cid)||m.to===agentNameOf(cid))){add('bot',lbl,m.text)} /* live into the open agent thread */
+  else if(mirrorOn()&&cid==='main'){add('bot',lbl,m.text)} /* and mirror into the main chat */
+})}).catch(function(){})}
 setInterval(pollAgentMsgs,4000);
 function loadMemory(){fetch('/api/settings',{headers:hdrs()}).then(function(r){if(r.status===401)return null;return r.json()}).then(function(s){
     if(!s||!s.identity){el('memview').textContent='(memory unavailable)';return}
