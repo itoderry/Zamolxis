@@ -157,7 +157,8 @@ async function main(): Promise<void> {
         (n) => engine.compileAgent(n),
         (text) => engine.nlToCron(text),
         (n, stop) => engine.stopAgent(n, stop),
-        (n) => engine.analyzeAgent(n))],
+        (n) => engine.analyzeAgent(n),
+        (key) => sessionIndex.recent(key, 50))],
     ];
     for (const [enabled, make] of factories) {
       if (!enabled) continue;

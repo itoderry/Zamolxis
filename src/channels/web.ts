@@ -171,6 +171,8 @@ export class WebChannel implements Channel {
     private readonly stopAgent?: (name: string, stop: boolean) => Promise<{ ok: boolean; suspended: number; stopped: boolean }>,
     /** Analyze an agent: smart model reviews recent outputs and improves its spec. */
     private readonly analyzeAgent?: (name: string) => Promise<{ ok: boolean; assessment?: string; changed?: boolean; note?: string }>,
+    /** Recent turns for a conversation key (to restore chat history when switching threads). */
+    private readonly getHistory?: (conversationKey: string) => Array<{ role: string; text: string; ts: number }>,
   ) {
     const { bind, authToken } = config.web;
     if (!LOOPBACK.includes(bind) && !authToken) {
@@ -585,6 +587,13 @@ export class WebChannel implements Channel {
         return;
       }
     }
+    if (url.pathname === '/api/history' && req.method === 'GET') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      const cidp = url.searchParams.get('cid') || '';
+      // The main chat shares the bridged "main" key; other web threads use "web:<cid>".
+      const key = cidp === 'main' ? 'main' : `web:${cidp}`;
+      return this.json(res, 200, this.getHistory ? this.getHistory(key) : []);
+    }
     if (url.pathname === '/api/agentmsgs' && req.method === 'GET') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
       const since = Number(url.searchParams.get('since') || 0) || 0;
@@ -900,7 +909,7 @@ function renderAgents(){var box=el('agentrail');if(!box)return;
   [].slice.call(box.querySelectorAll('.asch')).forEach(function(x){x.onclick=function(){scheduleAgentUI(x.getAttribute('data-n'))}});
   [].slice.call(box.querySelectorAll('.astp')).forEach(function(x){x.onclick=function(){stopAgentUI(x.getAttribute('data-n'),x.getAttribute('data-stop')==='1')}});
   [].slice.call(box.querySelectorAll('.ascd')).forEach(function(x){x.onclick=function(){cancelSched(x.getAttribute('data-id'))}});
-  [].slice.call(box.querySelectorAll('.adel')).forEach(function(x){x.onclick=function(){var n=x.getAttribute('data-n');if(!confirm('Delete agent "'+n+'"?'))return;fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'delete',name:n})}).then(function(){loadAgents()})}})}
+  [].slice.call(box.querySelectorAll('.adel')).forEach(function(x){x.onclick=function(){var n=x.getAttribute('data-n');if(!confirm('Delete agent "'+n+'"?'))return;fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'delete',name:n})}).then(function(){var tid='agent:'+n;threads=threads.filter(function(t){return t.id!==tid});if(cid===tid){loadThread('main')}else{saveThreads();renderThreads()}loadAgents()})}})}
 function scheduleAgentUI(name){var when=prompt('When should "'+name+'" run? Say it in plain language:\\n  "every 5 minutes"\\n  "every day at noon"\\n  "weekdays at 9am"\\n  "every hour"');if(!when)return;var task=prompt('What should it do each time? (blank = its standard job)','');if(task===null)return;
   showToast('Working out the schedule...');
   fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'schedule',name:name,when:when,task:task||undefined})}).then(function(r){return r.json()}).then(function(d){if(d&&d.ok){if(d.schedules){SCHEDS=d.schedules;renderAgents()}showToast('Scheduled: '+(d.note||d.cron));setTimeout(hideToast,2800)}else{showToast((d&&d.error)?d.error:'Schedule failed.');setTimeout(hideToast,3200)}}).catch(function(){showToast('Schedule failed.')})}
@@ -1017,6 +1026,8 @@ function saveThreads(){localStorage.zx_threads=JSON.stringify(threads);localStor
 function isAgentCid(id){return !!id&&id.indexOf('agent:')===0}
 function agentNameOf(id){return id.slice(6)}
 function renderAgentThread(name){el('loginner').innerHTML='';
+  var def=AGENTS.filter(function(a){return a.name===name})[0];
+  if(def){var job='Job: '+(def.job||def.label||name);if(def.model)job+='\\n\\nRuns on: '+def.model+(def.canElevate?' (can escalate)':'');var sc=SCHEDS.filter(function(s){return s.agent===name})[0];if(sc)job+='\\nSchedule: '+(sc.cron||sc.at||'');add('bot','\\uD83E\\uDD16 '+name,job)}
   fetch('/api/agentmsgs?since=0',{headers:hdrs()}).then(function(r){return r.ok?r.json():[]}).then(function(ms){
     if(ms&&ms.length){AGENTLOG=ms;if(ms[ms.length-1].ts>agentSince)agentSince=ms[ms.length-1].ts}
     var any=false;AGENTLOG.forEach(function(m){if(m.from===name||m.to===name){var lbl=(m.from===name)?('\\uD83E\\uDD16 '+m.from+' \\u2192 '+m.to):(m.from+' \\u2192 '+name);add('bot',lbl,m.text);any=true}});
@@ -1024,12 +1035,14 @@ function renderAgentThread(name){el('loginner').innerHTML='';
   }).catch(function(){})}
 function loadThread(id){cid=id;saveThreads();applyRoute();applyModel();el('loginner').innerHTML='';cur=null;curStarted=false;
   if(isAgentCid(id)){var oa=ws;if(oa){try{oa.close()}catch(e){}}ws=null;renderAgentThread(agentNameOf(id));renderThreads();return}
-  var old=ws;openWs();if(old){try{old.close()}catch(e){}}renderThreads()}
+  var old=ws;openWs();if(old){try{old.close()}catch(e){}}renderThreads();
+  // Restore this thread's history from the server so switching chats doesn't lose it.
+  fetch('/api/history?cid='+encodeURIComponent(id),{headers:hdrs()}).then(function(r){return r.ok?r.json():[]}).then(function(h){if(cid!==id||!h||!h.length)return;el('loginner').innerHTML='';h.forEach(function(t){if(t.role==='user')add('user','you',t.text);else add('bot',BOT_LABEL,t.text)})}).catch(function(){})}
 function renderThreads(){var h='';threads.forEach(function(t){var del=(t.id==='main'||t.agent)?'':'<span class="del" data-del="'+t.id+'">delete</span>';h+='<div class="thread'+(t.id===cid?' cur':'')+'" data-id="'+t.id+'"><span class="lbl">'+esc(t.label)+'</span>'+del+'</div>'});el('threadlist').innerHTML=h;
   Array.prototype.forEach.call(el('threadlist').querySelectorAll('.thread'),function(n){n.onclick=function(e){if(e.target.getAttribute('data-del'))return;loadThread(n.getAttribute('data-id'))}});
   Array.prototype.forEach.call(el('threadlist').querySelectorAll('[data-del]'),function(n){n.onclick=function(e){e.stopPropagation();deleteThread(n.getAttribute('data-del'))}})}
 function newChat(){var id=uuid();threads.unshift({id:id,label:'New chat'});loadThread(id);el('threadpanel').classList.remove('open');switchView('chat')}
-function openAgentChat(name){var id='agent:'+name;if(!threads.some(function(t){return t.id===id})){threads.push({id:id,label:'\\uD83E\\uDD16 '+name,agent:name});saveThreads()}switchView('chat');loadThread(id);el('threadpanel').classList.remove('open')}
+function openAgentChat(name){var id='agent:'+name;if(!threads.some(function(t){return t.id===id})){threads.push({id:id,label:'\\uD83E\\uDD16 '+name,agent:name});saveThreads()}switchView('chat');loadThread(id)}
 function deleteThread(id){if(id==='main')return; /* the Main chat is permanent */
   if(!isAgentCid(id))fetch('/api/forget',{method:'POST',headers:hdrs(),body:JSON.stringify({cid:id})}).catch(function(){});
   threads=threads.filter(function(t){return t.id!==id});if(id===cid){loadThread('main')}else{saveThreads();renderThreads()}}
@@ -1407,12 +1420,14 @@ var agentSince=Date.now();var AGENTLOG=[];
 function mirrorOn(){return localStorage.zx_mirror!=='0'}
 function pollAgentMsgs(){fetch('/api/agentmsgs?since='+agentSince,{headers:hdrs()}).then(function(r){return r.ok?r.json():[]}).then(function(ms){if(!ms||!ms.length)return;ms.forEach(function(m){if(m.ts>agentSince)agentSince=m.ts;
   AGENTLOG.push(m);if(AGENTLOG.length>500)AGENTLOG.shift();
-  // Auto-add a chat thread for any agent that produces messages, so its chat appears in the list.
-  [m.from,m.to].forEach(function(nm){if(nm&&nm!=='user'&&nm!=='assistant'&&AGENTS.some(function(a){return a.name===nm})&&!threads.some(function(t){return t.id==='agent:'+nm})){threads.push({id:'agent:'+nm,label:'\\uD83E\\uDD16 '+nm,agent:nm});saveThreads();renderThreads()}});
+  // Auto-add a chat thread for any agent that produces messages; announce its start once in Main.
+  [m.from,m.to].forEach(function(nm){if(nm&&nm!=='user'&&nm!=='assistant'&&AGENTS.some(function(a){return a.name===nm})&&!threads.some(function(t){return t.id==='agent:'+nm})){threads.push({id:'agent:'+nm,label:'\\uD83E\\uDD16 '+nm,agent:nm});saveThreads();renderThreads();announceAgentInMain(nm)}});
   var lbl='\\uD83E\\uDD16 '+m.from+' \\u2192 '+m.to;
-  if(isAgentCid(cid)&&(m.from===agentNameOf(cid)||m.to===agentNameOf(cid))){add('bot',lbl,m.text)} /* live into the open agent thread */
-  else if(mirrorOn()&&cid==='main'){add('bot',lbl,m.text)} /* and mirror into the main chat */
+  // The agent's full output lives in ITS OWN chat (live-append when open); Main is NOT flooded.
+  if(isAgentCid(cid)&&(m.from===agentNameOf(cid)||m.to===agentNameOf(cid))){add('bot',lbl,m.text)}
 })}).catch(function(){})}
+// One-time notice in the Main chat: "<agent> started" as a clickable link that opens its chat.
+function announceAgentInMain(name){if(cid!=='main'||!mirrorOn())return;var note=add('bot','\\uD83E\\uDD16 '+name,name+' started \\u2014 click to open its chat.');if(note){note.style.cursor='pointer';note.style.textDecoration='underline';note.title='Open '+name+' chat';note.onclick=function(){el('threadpanel').classList.add('open');openAgentChat(name);renderThreads()}}}
 setInterval(pollAgentMsgs,4000);
 function loadMemory(){fetch('/api/settings',{headers:hdrs()}).then(function(r){if(r.status===401)return null;return r.json()}).then(function(s){
     if(!s||!s.identity){el('memview').textContent='(memory unavailable)';return}
