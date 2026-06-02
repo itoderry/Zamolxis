@@ -895,7 +895,11 @@ function renderRail(){var box=el('provchain');if(!box)return;var d=RAIL;if(!d){b
   box.innerHTML=h;var lk=el('raillink');if(lk)lk.onclick=function(){el('provbtn').click()};loadAgents()}
 function loadRail(){fetch('/api/providers',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d){RAIL=d;renderRail();rebuildRouteSelect();if(LASTD)renderModels(LASTD)}}).catch(function(){})}
 var AGENTS=[],SCHEDS=[];
-function loadAgents(){fetch('/api/agents',{headers:hdrs()}).then(function(r){return r.ok?r.json():[]}).then(function(a){AGENTS=a||[];renderAgents();loadSchedules()}).catch(function(){})}
+function loadAgents(){fetch('/api/agents',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(a){if(!a)return;AGENTS=a;
+  // Prune orphaned agent chats whose agent no longer exists (e.g. a deleted 'charlie').
+  var before=threads.length;threads=threads.filter(function(t){return !t.agent||AGENTS.some(function(x){return x.name===t.agent})});
+  if(threads.length!==before){if(!threads.some(function(t){return t.id===cid}))loadThread('main');else{saveThreads();renderThreads()}}
+  renderAgents();loadSchedules()}).catch(function(){})}
 function loadSchedules(){fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'schedules'})}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.schedules){SCHEDS=d.schedules;renderAgents()}}).catch(function(){})}
 function schedsFor(n){return SCHEDS.filter(function(s){return s.agent===n})}
 function renderAgents(){var box=el('agentrail');if(!box)return;
