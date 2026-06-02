@@ -57,6 +57,7 @@ interface PersistedSettings {
   model?: string;
   fastModel?: string;
   smartModel?: string;
+  timezone?: string;
   permissionMode?: string;
   maxTurns?: number;
   maxConcurrent?: number;
@@ -114,6 +115,7 @@ export class SettingsManager {
         model: this.config.model ?? '',
         fastModel: this.config.fastModel ?? '',
         smartModel: this.config.smartModel ?? '',
+        timezone: this.config.timezone ?? '',
         permissionMode: this.config.permissionMode,
         maxTurns: this.config.maxTurns,
         maxConcurrent: this.config.maxConcurrent,
@@ -191,6 +193,7 @@ export class SettingsManager {
     if (typeof live.model === 'string') { this.config.model = live.model.trim() || undefined; p.model = live.model.trim(); }
     if (typeof live.fastModel === 'string') { this.config.fastModel = live.fastModel.trim() || undefined; p.fastModel = live.fastModel.trim(); }
     if (typeof live.smartModel === 'string') { this.config.smartModel = live.smartModel.trim() || undefined; p.smartModel = live.smartModel.trim(); }
+    if (typeof live.timezone === 'string') { this.config.timezone = live.timezone.trim() || undefined; p.timezone = live.timezone.trim(); }
     if (typeof live.permissionMode === 'string' && (PERMISSION_MODES as readonly string[]).includes(live.permissionMode)) {
       this.config.permissionMode = live.permissionMode as ZamolxisConfig['permissionMode'];
       p.permissionMode = live.permissionMode;

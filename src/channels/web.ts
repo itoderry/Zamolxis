@@ -1073,6 +1073,8 @@ document.addEventListener('click',function(){closeTools()});
 el('chats').onclick=function(){var open=el('threadpanel').classList.contains('open');closePanels();closeTools();if(!open){renderThreads();el('threadpanel').classList.add('open')}};
 el('threadclose').onclick=function(){el('threadpanel').classList.remove('open')};
 if(el('newagent'))el('newagent').onclick=createAgentPrompt;
+// Auto-detect the user's timezone and persist it (once) so agents report LOCAL time even on a UTC host.
+(function autoTz(){try{var tz=Intl.DateTimeFormat().resolvedOptions().timeZone;if(!tz)return;fetch('/api/settings',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(s){if(s&&s.live&&!s.live.timezone){fetch('/api/settings',{method:'POST',headers:hdrs(),body:JSON.stringify({live:{timezone:tz}})}).catch(function(){})}}).catch(function(){})}catch(e){}})();
 (function setupRailResize(){var rail=el('provrail'),sec=el('provsec'),split=el('railsplit'),wh=el('railwidth');if(!rail||!sec||!split||!wh)return;
   try{if(localStorage.zx_railsplit)sec.style.height=localStorage.zx_railsplit}catch(e){}
   try{if(localStorage.zx_railw)rail.style.width=localStorage.zx_railw}catch(e){}
@@ -1241,6 +1243,8 @@ function renderSettings(s){var L=s.live,m=s.meta,h='';
   h+='<label>Fast model (auto-used for simple Claude turns; primary model handles complex ones)</label>'+sel('live_fastModel',m.models,L.fastModel);
   h+='<label>Smartest model (used when a local-model turn escalates because it could not cope)</label>'+sel('live_smartModel',m.models,L.smartModel);
   h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">These three are the <b>Claude</b> tier\\'s models. On-device and free/paid providers each have their own fixed model — manage which ones run, and in what order, in the <b class="accent">Providers</b> panel.</div>';
+  h+='<label>Timezone for "what time is it" (IANA, e.g. America/New_York; blank = host clock)</label>'+inp('live_timezone',L.timezone||'');
+  h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">Auto-detected from your browser. Agents report the time in this zone even if the server runs on UTC.</div>';
   if(L.localModel){h+='<label>Local model routing — '+esc(L.localModel)+' (on-device; answers simple turns without using the subscription)</label>'+sel('live_localRouting',['off','auto'],L.localRouting);
     h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">auto = answer simple messages locally and escalate the rest to Claude · off = always use Claude</div>'}
   else{h+='<label>Local model</label><div style="font-size:12px;color:var(--mut)">none installed - run install.ps1 -Local (or install.sh --local) to add one</div>'}
@@ -1323,7 +1327,7 @@ function fetchUsage(){fetch('/api/usage',{headers:hdrs()}).then(function(r){retu
 el('save').onclick=function(){
   var v=function(id){var n=el('s_'+id);return n?n.value:undefined};
   var ck=function(id){var n=el('s_'+id);return n?n.checked:undefined};
-  var patch={live:{agentName:v('live_agentName'),model:v('live_model'),fastModel:v('live_fastModel'),smartModel:v('live_smartModel'),localRouting:v('live_localRouting'),lawsEnabled:ck('live_lawsEnabled'),permissionMode:v('live_permissionMode'),sandboxBackend:v('live_sandboxBackend'),systemPromptAppend:v('live_systemPromptAppend'),maxTurns:Number(v('live_maxTurns')),maxConcurrent:Number(v('live_maxConcurrent'))},
+  var patch={live:{agentName:v('live_agentName'),model:v('live_model'),fastModel:v('live_fastModel'),smartModel:v('live_smartModel'),timezone:v('live_timezone'),localRouting:v('live_localRouting'),lawsEnabled:ck('live_lawsEnabled'),permissionMode:v('live_permissionMode'),sandboxBackend:v('live_sandboxBackend'),systemPromptAppend:v('live_systemPromptAppend'),maxTurns:Number(v('live_maxTurns')),maxConcurrent:Number(v('live_maxConcurrent'))},
     identity:{laws:v('id_laws'),soul:v('id_soul'),user:v('id_user')},channels:{},web:{port:Number(v('web_port')),bind:v('web_bind'),authToken:v('web_authToken')},
     sandbox:{dockerImage:v('sb_dockerImage'),dockerContainer:v('sb_dockerContainer'),sshHost:v('sb_sshHost'),sshUser:v('sb_sshUser'),sshPort:v('sb_sshPort'),sshIdentity:v('sb_sshIdentity')},credentials:{}};
   ['cli','telegram','discord','slack','whatsapp','signal','email','web'].forEach(function(c){var x=ck('ch_'+c);if(x!==undefined)patch.channels[c]=x});
