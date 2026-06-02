@@ -898,13 +898,21 @@ export class Engine {
       logger.info({ key: req.conversationKey, model: chosenModel, escalated: escalatedFromLocal }, 'model selected for this turn');
     }
 
+    // Agent tool restriction on the Claude tier: a focused agent gets ONLY its listed tools
+    // (mirrors the local/free executor). Bare names map to this build's MCP server (zamolxis);
+    // already-qualified names (e.g. a builtin or "mcp__x__y") pass through. Empty = no restriction.
+    const agentAllowed =
+      req.agentTools && req.agentTools.length
+        ? req.agentTools.map((t) => (/__|^[A-Z]/.test(t) ? t : `mcp__zamolxis__${t}`))
+        : undefined;
+
     const options: Options = {
       model: chosenModel,
       abortController,
       cwd: workspace,
       settingSources: ['project', 'user'],
       permissionMode: config.permissionMode,
-      allowedTools: config.allowedTools,
+      allowedTools: agentAllowed ?? config.allowedTools,
       disallowedTools: config.disallowedTools,
       canUseTool: this.canUseTool,
       maxTurns: config.maxTurns,
