@@ -62,6 +62,9 @@ const ConfigSchema = z.object({
   fastModel: z.string().optional(),
   /** Strongest model — used when a local-model turn escalates because it couldn't cope. */
   smartModel: z.string().optional(),
+  /** IANA timezone for "what time is it" (e.g. "America/New_York"). Defaults to the host's;
+   *  auto-detected from the browser so agents report the USER's local time even on a UTC host. */
+  timezone: z.string().optional(),
   /** Optional on-device model (OpenAI-compatible, e.g. Ollama) the agent can offload easy subtasks to. */
   localModel: z.object({ url: z.string(), model: z.string() }).optional(),
   /**
@@ -160,6 +163,7 @@ export function loadConfig(): ZamolxisConfig {
     model: process.env.ZAMOLXIS_MODEL || undefined,
     fastModel: process.env.ZAMOLXIS_FAST_MODEL || 'haiku',
     smartModel: process.env.ZAMOLXIS_SMART_MODEL || 'opus',
+    timezone: process.env.ZAMOLXIS_TZ || undefined,
     localModel: process.env.ZAMOLXIS_LOCAL_MODEL
       ? { url: process.env.ZAMOLXIS_LOCAL_MODEL_URL || 'http://localhost:11434/v1', model: process.env.ZAMOLXIS_LOCAL_MODEL }
       : undefined,
@@ -247,6 +251,7 @@ export function applyPersistedSettings(config: ZamolxisConfig): void {
       if (typeof s.model === 'string') config.model = s.model || undefined;
       if (typeof s.fastModel === 'string') config.fastModel = s.fastModel || undefined;
       if (typeof s.smartModel === 'string') config.smartModel = s.smartModel || undefined;
+      if (typeof s.timezone === 'string' && s.timezone) config.timezone = s.timezone;
       if (typeof s.permissionMode === 'string') config.permissionMode = s.permissionMode as ZamolxisConfig['permissionMode'];
       if (typeof s.maxTurns === 'number') config.maxTurns = s.maxTurns;
       if (typeof s.maxConcurrent === 'number') config.maxConcurrent = s.maxConcurrent;

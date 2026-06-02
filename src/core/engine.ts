@@ -315,7 +315,7 @@ export class Engine {
     }
     // Authoritative current time from the host clock — so time-sensitive agents (e.g. "tell me the
     // time every minute") report the REAL time instead of hallucinating one. Computed fresh per run.
-    agentJob = `CURRENT DATE/TIME (authoritative — use this exact value, never guess or invent a time): ${new Date().toString()}\n\n${agentJob}`;
+    agentJob = `CURRENT DATE/TIME = ${this.nowString()}\nThis is the ONLY correct current time. It OVERRIDES any other date/time you may have been given or trained on. If the user asks the time, answer with exactly this value (this timezone) — never convert it, guess, or use a different timezone.\n\n${agentJob}`;
     const route = def.model && def.model !== 'auto' ? def.model : undefined;
     const r = await this.run({
       conversationKey: `agent:${def.name}`,
@@ -360,6 +360,32 @@ export class Engine {
     const o = this.parseJsonObject(raw);
     const cron = o && typeof o.cron === 'string' && o.cron.trim() ? o.cron.trim() : undefined;
     return { cron, note: o && typeof o.note === 'string' ? o.note : '' };
+  }
+
+  /** Current date/time as a string in the user's configured timezone (config.timezone), so agents
+   *  report LOCAL time even when the daemon's host clock is on UTC. Falls back to the host clock. */
+  private nowString(): string {
+    const tz = this.deps.config.timezone;
+    if (tz) {
+      try {
+        return (
+          new Date().toLocaleString('en-US', {
+            timeZone: tz,
+            weekday: 'short',
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            timeZoneName: 'short',
+          }) + ` (${tz})`
+        );
+      } catch {
+        /* invalid timezone — fall through to host clock */
+      }
+    }
+    return new Date().toString();
   }
 
   /** Tiers an agent executor can plausibly run on right now (for the planner to choose from). */
@@ -434,7 +460,9 @@ export class Engine {
       // Planner failed — leave the agent runnable on its raw job, flag medium risk so the user knows.
       const risk = { level: 'medium' as const, note: 'Planner could not compile a structured plan; running on the raw job.', recommendedModel: 'claude' };
       store.attachPlan(def.name, { risk });
-      return { ok: false, risk, note: 'planner returned unparseable output' };
+      // Even if compilation failed, honor a cadence stated in the job so recurring still works.
+      const scheduled = await this.ensureScheduleFromJob(def);
+      return { ok: false, risk, schedule: scheduled, note: 'planner returned unparseable output' };
     }
     const applied = this.applyPlan(def.name, plan);
     const validTiers = new Set([...tiers, 'auto']);
@@ -459,6 +487,9 @@ export class Engine {
       scheduled = { cron: sched.cron.trim(), task: sched.task, humanReadable: sched.humanReadable };
       logger.info({ name: def.name, cron: scheduled.cron }, 'planner auto-scheduled agent from story');
     }
+    // Deterministic fallback: the planner sometimes omits the schedule even when the story clearly
+    // states a cadence ("every minute"). Catch that so recurring agents reliably get a real cron.
+    if (!scheduled) scheduled = await this.ensureScheduleFromJob(def);
     return { ok: true, spec: spec || undefined, executor: finalExecutor, skills: applied.skills, codeTools: applied.codeTools, risk, schedule: scheduled };
   }
 
@@ -484,6 +515,18 @@ export class Engine {
     if (changed) store.attachPlan(def.name, { spec: improved });
     logger.info({ name: def.name, changed }, 'agent analyzed');
     return { ok: true, assessment: typeof o.assessment === 'string' ? o.assessment : '', changed };
+  }
+
+  /** Deterministic schedule extraction: if the job text states a cadence and the agent has no
+   *  schedule yet, convert that cadence to a cron and create the job. Backstop for planner variance. */
+  private async ensureScheduleFromJob(def: { name: string; job: string }): Promise<{ cron: string; humanReadable?: string } | undefined> {
+    if ((this.deps.countAgentSchedules?.(def.name) ?? 0) > 0) return undefined;
+    if (!/\b(every|each|hourly|daily|weekly|minute|minutes|hour|hours|morning|evening|night|noon|midnight|weekday|weekdays|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(def.job)) return undefined;
+    const r = await this.nlToCron(def.job).catch(() => ({ cron: undefined as string | undefined, note: '' }));
+    if (!r.cron) return undefined;
+    this.deps.scheduleAgent?.(def.name, r.cron, undefined);
+    logger.info({ name: def.name, cron: r.cron }, 'schedule extracted from job text (deterministic fallback)');
+    return { cron: r.cron, humanReadable: r.note };
   }
 
   /** Author the planner's new skills + write its generated code tools to disk. */
@@ -660,7 +703,7 @@ export class Engine {
     const profile = this.deps.memory.getUser().replace(/^#.*$/m, '').trim();
     const profileHint = profile ? `About the user:\n${profile}` : undefined;
     const persona = `You are ${effectiveName(config.agentName)}, the user's personal assistant. Be concise.`;
-    const nowLine = `Right now it is ${new Date().toLocaleString()}. Use this to judge whether a dated event is in the PAST or upcoming — never describe a past event as if it is still to come (e.g. do not offer tickets/odds for a game that already happened).`;
+    const nowLine = `Right now it is ${this.nowString()}. This is the authoritative current time — if asked the time, report exactly this; also use it to judge whether a dated event is in the PAST or upcoming — never describe a past event as if it is still to come (e.g. do not offer tickets/odds for a game that already happened).`;
     const searchSynth = hasSearch
       ? "When you web_search: pick the most AUTHORITATIVE on-topic result (official, league, ESPN, or encyclopedia pages over ticket/betting/preview pages) and ANSWER THE USER'S ACTUAL QUESTION directly in 1-2 sentences with the specific fact. Do NOT paste ticket prices, betting odds, moneylines, streaming/\"watch\" options, or other details the user didn't ask for. If the top result is a betting/preview page, look for the answer in another result instead of dumping it."
       : undefined;

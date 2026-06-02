@@ -737,7 +737,13 @@ button:hover{border-color:var(--accent);color:var(--accent)}
 .tab:hover{color:var(--ink)}
 .tab.active{color:#1a150d;background:linear-gradient(135deg,var(--accent),#dcb964);border-color:var(--accent);font-weight:600}
 #main{flex:1;display:flex;overflow:hidden}
-#provrail{width:158px;flex:none;border-right:1px solid var(--line);overflow:auto;padding:10px 8px;background:#120f0a}
+#provrail{width:158px;flex:none;border-right:1px solid var(--line);background:#120f0a;display:flex;flex-direction:column;position:relative}
+#provsec{overflow:auto;padding:10px 8px;flex:none;height:50%}
+#railsplit{height:7px;flex:none;cursor:row-resize;background:var(--line);opacity:.45}
+#railsplit:hover{opacity:1;background:var(--accent)}
+#agentsec{overflow:auto;padding:8px 8px 10px;flex:1 1 0;min-height:42px}
+#railwidth{position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:6}
+#railwidth:hover{background:var(--accent);opacity:.5}
 #maininner{flex:1;display:flex;overflow:hidden}
 #chatwrap{flex:1;position:relative;overflow:hidden}
 @media(max-width:680px){#provrail{display:none}}
@@ -818,7 +824,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 <div id="modelsbar"><span id="models"></span></div>
 <div id="tabbar"></div>
 <div id="main">
-  <aside id="provrail"></aside>
+  <aside id="provrail"><div id="provsec"><div id="provchain"></div></div><div id="railsplit" title="Drag to resize Providers / Agents"></div><div id="agentsec"><div style="text-transform:uppercase;font-size:10px;letter-spacing:.5px;color:var(--mut);margin:2px 4px 6px">Agents</div><div id="agentrail"></div><div id="newagent" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new agent</div></div><div id="railwidth" title="Drag to resize the panel width"></div></aside>
   <div id="maininner">
   <div id="threadpanel"><div id="threadbody"><div style="display:flex;align-items:center;justify-content:space-between;margin-top:0"><h3 style="margin:0">Chats</h3><button id="threadclose" title="Close" style="background:none;border:none;color:var(--mut);font-size:20px;line-height:1;cursor:pointer;padding:0 4px">&times;</button></div><button id="newchat" style="width:100%;margin:10px 0">+ New chat</button><div id="threadlist"></div></div></div>
   <div id="chatwrap">
@@ -854,7 +860,7 @@ function railItem(d,tok){var label=tok,color=C_OFF,title=tok;
   else{var pp=(d.providers||[]).filter(function(p){return p.id===tok})[0];if(pp){label=pp.label;var lim=pp.freeDaily&&pp.used>=pp.freeDaily;color=!pp.configured?C_OFF:(lim?C_BAD:C_OK);title=pp.kind}}
   var used=tokMatch(tok,d);
   return '<div title="'+esc(title)+'" style="display:flex;align-items:center;gap:7px;padding:6px 7px;border-radius:7px;margin-bottom:4px;'+(used?'background:rgba(212,165,90,.14);border:1px solid var(--accent)':'border:1px solid transparent')+'">'+dotHtml(color,title)+'<span style="flex:1;color:'+color+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(label)+'</span>'+(used?'<span style="color:var(--accent);font-size:10px">last</span>':'')+'</div>'}
-function renderRail(){var box=el('provrail');if(!box)return;var d=RAIL;if(!d){box.innerHTML='';return}
+function renderRail(){var box=el('provchain');if(!box)return;var d=RAIL;if(!d){box.innerHTML='';return}
   var chain=d.routeChain||[];
   var h='<div style="color:var(--mut);text-transform:uppercase;font-size:10px;letter-spacing:.5px;margin:2px 4px 8px">Active chain</div>';
   if(!chain.length)h+='<div style="color:var(--mut);padding:4px 7px">none</div>';
@@ -866,8 +872,7 @@ function renderRail(){var box=el('provrail');if(!box)return;var d=RAIL;if(!d){bo
     } else h+=railItem(d,tok);
   });
   h+='<div id="raillink" style="color:var(--mut);font-size:10px;margin:9px 4px 4px;cursor:pointer">edit in Providers &#8594;</div>';
-  h+='<div style="text-transform:uppercase;font-size:10px;letter-spacing:.5px;color:var(--mut);margin:14px 4px 6px;border-top:1px solid var(--line);padding-top:10px">Agents</div><div id="agentrail"></div><div id="newagent" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new agent</div>';
-  box.innerHTML=h;var lk=el('raillink');if(lk)lk.onclick=function(){el('provbtn').click()};var na=el('newagent');if(na)na.onclick=createAgentPrompt;loadAgents()}
+  box.innerHTML=h;var lk=el('raillink');if(lk)lk.onclick=function(){el('provbtn').click()};loadAgents()}
 function loadRail(){fetch('/api/providers',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d){RAIL=d;renderRail();rebuildRouteSelect();if(LASTD)renderModels(LASTD)}}).catch(function(){})}
 var AGENTS=[],SCHEDS=[];
 function loadAgents(){fetch('/api/agents',{headers:hdrs()}).then(function(r){return r.ok?r.json():[]}).then(function(a){AGENTS=a||[];renderAgents();loadSchedules()}).catch(function(){})}
@@ -1000,7 +1005,12 @@ function updateModelVis(){var re=el('route'),me=el('model');if(!me)return;me.sty
 function saveThreads(){localStorage.zx_threads=JSON.stringify(threads);localStorage.zx_thread=cid}
 function isAgentCid(id){return !!id&&id.indexOf('agent:')===0}
 function agentNameOf(id){return id.slice(6)}
-function renderAgentThread(name){el('loginner').innerHTML='';AGENTLOG.forEach(function(m){if(m.from===name||m.to===name){var lbl=(m.from===name)?('\\uD83E\\uDD16 '+m.from+' \\u2192 '+m.to):(m.from+' \\u2192 '+name);add('bot',lbl,m.text)}})}
+function renderAgentThread(name){el('loginner').innerHTML='';
+  fetch('/api/agentmsgs?since=0',{headers:hdrs()}).then(function(r){return r.ok?r.json():[]}).then(function(ms){
+    if(ms&&ms.length){AGENTLOG=ms;if(ms[ms.length-1].ts>agentSince)agentSince=ms[ms.length-1].ts}
+    var any=false;AGENTLOG.forEach(function(m){if(m.from===name||m.to===name){var lbl=(m.from===name)?('\\uD83E\\uDD16 '+m.from+' \\u2192 '+m.to):(m.from+' \\u2192 '+name);add('bot',lbl,m.text);any=true}});
+    if(!any)add('bot','\\uD83E\\uDD16 '+name,'(no messages yet - run '+name+', or wait for its next scheduled run)')
+  }).catch(function(){})}
 function loadThread(id){cid=id;saveThreads();applyRoute();applyModel();el('loginner').innerHTML='';cur=null;curStarted=false;
   if(isAgentCid(id)){var oa=ws;if(oa){try{oa.close()}catch(e){}}ws=null;renderAgentThread(agentNameOf(id));renderThreads();return}
   var old=ws;openWs();if(old){try{old.close()}catch(e){}}renderThreads()}
@@ -1062,6 +1072,20 @@ el('toolsbtn').onclick=function(e){e.stopPropagation();el('toolsdrop').classList
 document.addEventListener('click',function(){closeTools()});
 el('chats').onclick=function(){var open=el('threadpanel').classList.contains('open');closePanels();closeTools();if(!open){renderThreads();el('threadpanel').classList.add('open')}};
 el('threadclose').onclick=function(){el('threadpanel').classList.remove('open')};
+if(el('newagent'))el('newagent').onclick=createAgentPrompt;
+// Auto-detect the user's timezone and persist it (once) so agents report LOCAL time even on a UTC host.
+(function autoTz(){try{var tz=Intl.DateTimeFormat().resolvedOptions().timeZone;if(!tz)return;fetch('/api/settings',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(s){if(s&&s.live&&!s.live.timezone){fetch('/api/settings',{method:'POST',headers:hdrs(),body:JSON.stringify({live:{timezone:tz}})}).catch(function(){})}}).catch(function(){})}catch(e){}})();
+(function setupRailResize(){var rail=el('provrail'),sec=el('provsec'),split=el('railsplit'),wh=el('railwidth');if(!rail||!sec||!split||!wh)return;
+  try{if(localStorage.zx_railsplit)sec.style.height=localStorage.zx_railsplit}catch(e){}
+  try{if(localStorage.zx_railw)rail.style.width=localStorage.zx_railw}catch(e){}
+  var dragY=false,dragX=false;
+  split.addEventListener('mousedown',function(e){dragY=true;e.preventDefault();document.body.style.userSelect='none'});
+  wh.addEventListener('mousedown',function(e){dragX=true;e.preventDefault();document.body.style.userSelect='none'});
+  document.addEventListener('mousemove',function(e){
+    if(dragY){var top=rail.getBoundingClientRect().top;var h=Math.max(42,Math.min(rail.clientHeight-70,e.clientY-top));sec.style.height=h+'px'}
+    if(dragX){var left=rail.getBoundingClientRect().left;var w=Math.max(120,Math.min(440,e.clientX-left));rail.style.width=w+'px'}});
+  document.addEventListener('mouseup',function(){if(dragY){try{localStorage.zx_railsplit=sec.style.height}catch(e){}}if(dragX){try{localStorage.zx_railw=rail.style.width}catch(e){}}if(dragY||dragX)document.body.style.userSelect='';dragY=false;dragX=false});
+})();
 el('newchat').onclick=newChat;
 el('cog').onclick=function(){closePanels();closeTools();el('panel').classList.add('open');loadSettings()};
 el('close').onclick=function(){el('panel').classList.remove('open')};
@@ -1219,6 +1243,8 @@ function renderSettings(s){var L=s.live,m=s.meta,h='';
   h+='<label>Fast model (auto-used for simple Claude turns; primary model handles complex ones)</label>'+sel('live_fastModel',m.models,L.fastModel);
   h+='<label>Smartest model (used when a local-model turn escalates because it could not cope)</label>'+sel('live_smartModel',m.models,L.smartModel);
   h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">These three are the <b>Claude</b> tier\\'s models. On-device and free/paid providers each have their own fixed model — manage which ones run, and in what order, in the <b class="accent">Providers</b> panel.</div>';
+  h+='<label>Timezone for "what time is it" (IANA, e.g. America/New_York; blank = host clock)</label>'+inp('live_timezone',L.timezone||'');
+  h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">Auto-detected from your browser. Agents report the time in this zone even if the server runs on UTC.</div>';
   if(L.localModel){h+='<label>Local model routing — '+esc(L.localModel)+' (on-device; answers simple turns without using the subscription)</label>'+sel('live_localRouting',['off','auto'],L.localRouting);
     h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">auto = answer simple messages locally and escalate the rest to Claude · off = always use Claude</div>'}
   else{h+='<label>Local model</label><div style="font-size:12px;color:var(--mut)">none installed - run install.ps1 -Local (or install.sh --local) to add one</div>'}
@@ -1301,7 +1327,7 @@ function fetchUsage(){fetch('/api/usage',{headers:hdrs()}).then(function(r){retu
 el('save').onclick=function(){
   var v=function(id){var n=el('s_'+id);return n?n.value:undefined};
   var ck=function(id){var n=el('s_'+id);return n?n.checked:undefined};
-  var patch={live:{agentName:v('live_agentName'),model:v('live_model'),fastModel:v('live_fastModel'),smartModel:v('live_smartModel'),localRouting:v('live_localRouting'),lawsEnabled:ck('live_lawsEnabled'),permissionMode:v('live_permissionMode'),sandboxBackend:v('live_sandboxBackend'),systemPromptAppend:v('live_systemPromptAppend'),maxTurns:Number(v('live_maxTurns')),maxConcurrent:Number(v('live_maxConcurrent'))},
+  var patch={live:{agentName:v('live_agentName'),model:v('live_model'),fastModel:v('live_fastModel'),smartModel:v('live_smartModel'),timezone:v('live_timezone'),localRouting:v('live_localRouting'),lawsEnabled:ck('live_lawsEnabled'),permissionMode:v('live_permissionMode'),sandboxBackend:v('live_sandboxBackend'),systemPromptAppend:v('live_systemPromptAppend'),maxTurns:Number(v('live_maxTurns')),maxConcurrent:Number(v('live_maxConcurrent'))},
     identity:{laws:v('id_laws'),soul:v('id_soul'),user:v('id_user')},channels:{},web:{port:Number(v('web_port')),bind:v('web_bind'),authToken:v('web_authToken')},
     sandbox:{dockerImage:v('sb_dockerImage'),dockerContainer:v('sb_dockerContainer'),sshHost:v('sb_sshHost'),sshUser:v('sb_sshUser'),sshPort:v('sb_sshPort'),sshIdentity:v('sb_sshIdentity')},credentials:{}};
   ['cli','telegram','discord','slack','whatsapp','signal','email','web'].forEach(function(c){var x=ck('ch_'+c);if(x!==undefined)patch.channels[c]=x});
