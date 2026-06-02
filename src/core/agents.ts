@@ -38,6 +38,8 @@ export interface AgentDef {
   risk?: { level: 'low' | 'medium' | 'high'; note: string; recommendedModel?: string };
   /** When the plan was last compiled (ms epoch). */
   compiledAt?: number;
+  /** Stopped by the user: schedules suspended and manual/scheduled runs refused until resumed. */
+  stopped?: boolean;
 }
 
 function slug(name: string): string {
@@ -133,6 +135,16 @@ export class AgentStore {
       { name: a.name, risk: a.risk?.level, skills: a.skills?.length ?? 0, codeTools: a.codeTools?.length ?? 0, model: a.model },
       'agent plan compiled',
     );
+  }
+
+  /** Stop (suspend) or resume an agent. Returns the stored def, or undefined if not found. */
+  setStopped(name: string, stopped: boolean): AgentDef | undefined {
+    const a = this.get(name);
+    if (!a) return undefined;
+    a.stopped = stopped;
+    this.persist();
+    logger.info({ name: a.name, stopped }, stopped ? 'agent stopped' : 'agent resumed');
+    return a;
   }
 
   remove(name: string): boolean {

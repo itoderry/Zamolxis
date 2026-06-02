@@ -133,6 +133,26 @@ export class Scheduler {
     return true;
   }
 
+  /** Count schedules bound to a given agent. */
+  countByAgent(agent: string): number {
+    return this.jobs.filter((j) => j.agent === agent).length;
+  }
+
+  /** Suspend (enabled=false → disarm) or resume (enabled=true → arm) ALL schedules for an agent.
+   *  Used by the agent "Stop" control. Returns how many jobs were affected. */
+  setAgentEnabled(agent: string, enabled: boolean): number {
+    let n = 0;
+    for (const job of this.jobs) {
+      if (job.agent !== agent) continue;
+      job.enabled = enabled;
+      if (enabled) this.arm(job);
+      else this.disarm(job.id);
+      n++;
+    }
+    if (n) this.persist();
+    return n;
+  }
+
   stop(): void {
     for (const cron of this.crons.values()) cron.stop();
     this.crons.clear();

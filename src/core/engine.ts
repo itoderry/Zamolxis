@@ -86,6 +86,12 @@ export interface EngineDeps {
   agentStore?: AgentStore;
   /** Sink for agent messages (to other agents or the user) - delivered to channels + logged. */
   onAgentMessage?: (msg: { from: string; to: string; text: string; ts: number }) => void;
+  /** Schedule a named agent on a cron (deterministic). Late-bound to the scheduler. */
+  scheduleAgent?: (name: string, cron: string, task?: string) => void;
+  /** How many schedules currently exist for an agent. Late-bound to the scheduler. */
+  countAgentSchedules?: (name: string) => number;
+  /** Suspend (enabled=false) or resume (true) ALL schedules for an agent. Returns the count affected. */
+  setAgentSchedulesEnabled?: (name: string, enabled: boolean) => number;
 }
 
 function buildPersona(name: string): string {
@@ -279,6 +285,8 @@ export class Engine {
   private readonly tails = new Map<string, Promise<unknown>>();
   /** Last turn per conversation (in-memory) so "wrong"/"escalate" can redo it on the smart model. */
   private readonly lastByKey = new Map<string, { text: string; reply: string }>();
+  /** In-flight Claude turns keyed by conversationKey, so an agent's run can be aborted by Stop. */
+  private readonly inFlight = new Map<string, AbortController>();
 
   /** A short user message that rejects the previous answer and asks to escalate. */
   private isEscalationTrigger(text: string): boolean {
@@ -292,6 +300,7 @@ export class Engine {
   async runAgent(name: string, task?: string): Promise<RunResult & { agent?: string }> {
     const def = this.deps.agentStore?.get(name);
     if (!def) return { reply: `No agent named "${name}".`, sessionId: '', costUsd: 0, isError: true, agent: name };
+    if (def.stopped) return { reply: `Agent "${def.name}" is stopped — resume it to run.`, sessionId: '', costUsd: 0, isError: true, agent: def.name };
     // The executor follows the planner-compiled spec verbatim (falls back to the raw job if not compiled).
     let agentJob = def.spec && def.spec.trim() ? def.spec : def.job;
     // Hybrid planning: when handed a specific task that differs from the standing job, the smart model
@@ -304,6 +313,9 @@ export class Engine {
     if (def.codeTools && def.codeTools.length) {
       agentJob += '\n\nGENERATED TOOLS (invoke via the sandbox_exec tool):\n' + def.codeTools.map((t) => `- ${t.name}: run \`${t.run}\``).join('\n');
     }
+    // Authoritative current time from the host clock — so time-sensitive agents (e.g. "tell me the
+    // time every minute") report the REAL time instead of hallucinating one. Computed fresh per run.
+    agentJob = `CURRENT DATE/TIME (authoritative — use this exact value, never guess or invent a time): ${new Date().toString()}\n\n${agentJob}`;
     const route = def.model && def.model !== 'auto' ? def.model : undefined;
     const r = await this.run({
       conversationKey: `agent:${def.name}`,
@@ -316,6 +328,38 @@ export class Engine {
       elevate: def.canElevate,
     });
     return { ...r, agent: def.name };
+  }
+
+  /** Stop (suspend) or resume an agent: toggles its `stopped` flag, suspends/resumes ALL its
+   *  schedules (whoever created them, however), and aborts any in-flight run. */
+  async stopAgent(name: string, stop = true): Promise<{ ok: boolean; suspended: number; stopped: boolean }> {
+    const def = this.deps.agentStore?.setStopped(name, stop);
+    if (!def) return { ok: false, suspended: 0, stopped: false };
+    const suspended = this.deps.setAgentSchedulesEnabled?.(def.name, !stop) ?? 0;
+    if (stop) {
+      try {
+        this.inFlight.get(`agent:${def.name}`)?.abort();
+      } catch {
+        /* best-effort */
+      }
+    }
+    logger.info({ name: def.name, stop, suspended }, 'agent stop/resume');
+    return { ok: true, suspended, stopped: stop };
+  }
+
+  /** Convert a plain-language schedule ("every 5 minutes", "weekdays at 9am") to a cron expression
+   *  using the smart model. Returns { cron } or { cron: undefined } if it isn't a recurring schedule. */
+  async nlToCron(text: string): Promise<{ cron?: string; note: string }> {
+    const t = (text || '').trim();
+    if (!t) return { note: 'empty' };
+    const system =
+      'Convert a plain-language schedule into a SINGLE standard 5-field cron expression (minute hour day-of-month month day-of-week). ' +
+      'Output ONLY one JSON object: {"cron": string|null, "note": string}. cron is the expression (e.g. "*/5 * * * *" = every 5 minutes, "0 9 * * 1-5" = 9am weekdays); note is a short human-readable confirmation. ' +
+      'If the text is not a recurring/timed schedule, output {"cron": null, "note": "why"}.';
+    const raw = await this.oneShotClaude(system, `Schedule: ${t}\n\nJSON:`, this.deps.config.smartModel || this.deps.config.model);
+    const o = this.parseJsonObject(raw);
+    const cron = o && typeof o.cron === 'string' && o.cron.trim() ? o.cron.trim() : undefined;
+    return { cron, note: o && typeof o.note === 'string' ? o.note : '' };
   }
 
   /** Tiers an agent executor can plausibly run on right now (for the planner to choose from). */
@@ -357,6 +401,7 @@ export class Engine {
     skills?: string[];
     codeTools?: { name: string; path: string; run: string }[];
     risk?: { level: 'low' | 'medium' | 'high'; note: string; recommendedModel?: string };
+    schedule?: { cron: string; task?: string; humanReadable?: string };
     note?: string;
   }> {
     const store = this.deps.agentStore;
@@ -371,12 +416,14 @@ export class Engine {
     const system =
       'You are the PLANNER for an autonomous agent system. A user described an agent\'s job in plain language. Compile it into a precise, LITERAL plan that a SMALL, less-capable "executor" model can follow WITHOUT improvising or guessing. ' +
       'Return ONLY one JSON object (no prose, no code fences) of shape: ' +
-      '{"spec": string, "tools": string[], "skills": [{"name":string,"description":string,"body":string}], "codeTools": [{"name":string,"language":"bash"|"python"|"node","description":string,"code":string}], "executor": string, "risk": {"level":"low"|"medium"|"high","note":string,"recommendedModel":string}}. ' +
+      '{"spec": string, "tools": string[], "skills": [{"name":string,"description":string,"body":string}], "codeTools": [{"name":string,"language":"bash"|"python"|"node","description":string,"code":string}], "executor": string, "risk": {"level":"low"|"medium"|"high","note":string,"recommendedModel":string}, "schedule": {"cron":string,"task":string,"humanReadable":string}|null}. ' +
       'Rules: spec = numbered, literal steps; name the EXACT tools to call and with what inputs; leave nothing implicit. ' +
       'Choose "tools" ONLY from AVAILABLE TOOLS. Prefer existing AVAILABLE SKILLS; author a NEW skill (markdown knowledge/instructions) only when a needed capability is missing (max 3). ' +
       'Generate a codeTool (a runnable script) ONLY when tools+skills cannot do the job (max 2); if you do, the spec MUST instruct running it via the sandbox_exec tool and "tools" MUST include sandbox_exec. ' +
       'Assess risk: destructive, ambiguous, security-sensitive, or beyond-a-small-model jobs are medium/high — set recommendedModel to a stronger tier (up to "claude"). ' +
-      '"executor" = the CHEAPEST tier that can reliably run the spec; low risk -> cheapest available, higher risk -> stronger. "executor" and "recommendedModel" MUST be one of the AVAILABLE TIERS tokens.';
+      '"executor" = the CHEAPEST tier that can reliably run the spec; low risk -> cheapest available, higher risk -> stronger. "executor" and "recommendedModel" MUST be one of the AVAILABLE TIERS tokens. ' +
+      'SCHEDULE: if the STORY says the job should run repeatedly or at a time ("every minute", "each morning at 8", "hourly", "weekdays at 9"), set "schedule" to a 5-field cron expression + the task to run each time + a humanReadable phrase; otherwise schedule = null. ' +
+      'The executor is ALWAYS given the authoritative current date/time at run time, so it can answer "what time is it" type jobs from that value — your spec can rely on it and must NOT tell the executor to guess the time.';
     const prompt =
       `AGENT NAME: ${def.name}\nUSER'S JOB DESCRIPTION:\n${def.job}\n\n` +
       `AVAILABLE TOOLS: ${toolNames}\n\nAVAILABLE SKILLS:\n${skillIndex || '(none)'}\n\nAVAILABLE TIERS: ${tiers.join(', ')}\n\n` +
@@ -403,7 +450,16 @@ export class Engine {
     const keepModel = !!def.model && def.model !== 'auto';
     const finalExecutor = keepModel ? def.model : executor;
     store.attachPlan(def.name, { spec: spec || undefined, skills: applied.skills, codeTools: applied.codeTools, risk, model: keepModel ? undefined : executor });
-    return { ok: true, spec: spec || undefined, executor: finalExecutor, skills: applied.skills, codeTools: applied.codeTools, risk };
+    // If the STORY implied a recurring schedule, set it up deterministically — but only when the
+    // agent has none yet, so re-compiles and any manually-added schedules aren't duplicated/clobbered.
+    let scheduled: { cron: string; task?: string; humanReadable?: string } | undefined;
+    const sched = (plan.schedule ?? null) as { cron?: string; task?: string; humanReadable?: string } | null;
+    if (sched && typeof sched.cron === 'string' && sched.cron.trim() && (this.deps.countAgentSchedules?.(def.name) ?? 0) === 0) {
+      this.deps.scheduleAgent?.(def.name, sched.cron.trim(), sched.task);
+      scheduled = { cron: sched.cron.trim(), task: sched.task, humanReadable: sched.humanReadable };
+      logger.info({ name: def.name, cron: scheduled.cron }, 'planner auto-scheduled agent from story');
+    }
+    return { ok: true, spec: spec || undefined, executor: finalExecutor, skills: applied.skills, codeTools: applied.codeTools, risk, schedule: scheduled };
   }
 
   /** Author the planner's new skills + write its generated code tools to disk. */
@@ -885,6 +941,8 @@ export class Engine {
     // of jamming the queue forever.
     const abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort(), config.turnTimeoutMs);
+    // Register so an agent's Stop can abort its in-flight turn (keyed by conversationKey, e.g. "agent:jimmy").
+    this.inFlight.set(req.conversationKey, abortController);
 
     // Model selection. Priority: explicit per-chat override > escalation (use the
     // SMARTEST model, since the local model just failed at this) > fast model for
@@ -1042,6 +1100,7 @@ export class Engine {
       return { reply, sessionId, costUsd, isError: true, errorKind: auth ? 'auth' : aborted ? 'timeout' : 'exception' };
     } finally {
       clearTimeout(timeout);
+      if (this.inFlight.get(req.conversationKey) === abortController) this.inFlight.delete(req.conversationKey);
     }
 
     // Surface an expired/invalid subscription login as a clear, actionable

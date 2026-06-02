@@ -49,6 +49,7 @@ export interface ToolDeps {
     skills?: string[];
     codeTools?: { name: string }[];
     risk?: { level: string; note: string; recommendedModel?: string };
+    schedule?: { cron: string; humanReadable?: string };
   }>;
 }
 
@@ -360,6 +361,7 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
             if (p.ok) {
               extra =
                 `\nPlanner compiled it: executor=${p.executor}, risk=${p.risk?.level ?? 'n/a'}` +
+                (p.schedule && p.schedule.cron ? `, schedule=${p.schedule.humanReadable || p.schedule.cron}` : '') +
                 (p.skills && p.skills.length ? `, skills=[${p.skills.join(', ')}]` : '') +
                 (p.codeTools && p.codeTools.length ? `, generated tools=[${p.codeTools.map((t) => t.name).join(', ')}]` : '') +
                 '.';

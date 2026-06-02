@@ -162,7 +162,12 @@ export class WebChannel implements Channel {
       skills?: string[];
       codeTools?: { name: string }[];
       risk?: { level: string; note: string; recommendedModel?: string };
+      schedule?: { cron: string; task?: string; humanReadable?: string };
     }>,
+    /** Convert a plain-language schedule to a cron expression via the smart model. */
+    private readonly nlToCron?: (text: string) => Promise<{ cron?: string; note: string }>,
+    /** Stop (suspend all schedules + halt) or resume an agent. */
+    private readonly stopAgent?: (name: string, stop: boolean) => Promise<{ ok: boolean; suspended: number; stopped: boolean }>,
   ) {
     const { bind, authToken } = config.web;
     if (!LOOPBACK.includes(bind) && !authToken) {
@@ -509,11 +514,25 @@ export class WebChannel implements Channel {
             }
             if (action === 'schedule') {
               if (!this.scheduleAgent) return this.json(res, 400, { error: 'scheduling unavailable' });
-              const cron = String(o.cron || '').trim();
-              if (!cron) return this.json(res, 400, { error: 'cron required' });
-              if (!this.agentStore.get(String(o.name || ''))) return this.json(res, 400, { error: 'no such agent' });
-              const j = this.scheduleAgent(String(o.name || ''), cron, o.task ? String(o.task) : undefined);
-              return this.json(res, 200, { ok: true, id: j.id, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
+              const name = String(o.name || '');
+              if (!this.agentStore.get(name)) return this.json(res, 400, { error: 'no such agent' });
+              let cron = String(o.cron || '').trim();
+              let note = '';
+              // Plain-language schedule ("every 5 minutes", "weekdays at 9am") -> cron via the smart model.
+              if (!cron && o.when && this.nlToCron) {
+                const r = await this.nlToCron(String(o.when));
+                if (!r.cron) return this.json(res, 400, { error: 'Could not read that schedule. Try e.g. "every 5 minutes" or "weekdays at 9am".' });
+                cron = r.cron;
+                note = r.note;
+              }
+              if (!cron) return this.json(res, 400, { error: 'cron or when required' });
+              const j = this.scheduleAgent(name, cron, o.task ? String(o.task) : undefined);
+              return this.json(res, 200, { ok: true, id: j.id, cron, note, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
+            }
+            if (action === 'stop') {
+              if (!this.stopAgent) return this.json(res, 400, { error: 'stop unavailable' });
+              const r = await this.stopAgent(String(o.name || ''), o.stop !== false);
+              return this.json(res, 200, { ok: r.ok, stopped: r.stopped, suspended: r.suspended, agents: this.agentStore.list(), schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
             }
             if (action === 'schedules') {
               return this.json(res, 200, { ok: true, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
@@ -776,7 +795,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 <div id="main">
   <aside id="provrail"></aside>
   <div id="maininner">
-  <div id="threadpanel"><div id="threadbody"><h3 style="margin-top:0">Chats</h3><button id="newchat" style="width:100%;margin-bottom:10px">+ New chat</button><div id="threadlist"></div></div></div>
+  <div id="threadpanel"><div id="threadbody"><div style="display:flex;align-items:center;justify-content:space-between;margin-top:0"><h3 style="margin:0">Chats</h3><button id="threadclose" title="Close" style="background:none;border:none;color:var(--mut);font-size:20px;line-height:1;cursor:pointer;padding:0 4px">&times;</button></div><button id="newchat" style="width:100%;margin:10px 0">+ New chat</button><div id="threadlist"></div></div></div>
   <div id="chatwrap">
   <div id="chatview">
     <div id="log"><div id="loginner"></div></div>
@@ -833,25 +852,27 @@ function renderAgents(){var box=el('agentrail');if(!box)return;
   if(!AGENTS.length){box.innerHTML='<div style="color:var(--mut);font-size:11px;padding:2px 7px">none yet</div>';return}
   box.innerHTML=AGENTS.map(function(a){
     var sl=schedsFor(a.name).map(function(s){return '<div style="font-size:10px;color:var(--mut);margin-left:8px;margin-top:1px">\\u23F0 '+esc(s.cron||s.at||'')+' <span class="ascd" data-id="'+esc(s.id)+'" title="cancel" style="color:#e88;cursor:pointer">\\u00d7</span></div>'}).join('');
-    return '<div style="padding:4px 7px"><div style="font-size:12px" title="'+esc(a.job)+'">'+esc(a.label||a.name)+' <span style="color:var(--mut);font-size:10px">['+esc(a.model)+(a.canElevate?'\\u2191':'')+']</span>'+((a.risk&&a.risk.level&&a.risk.level!=='low')?(' <span title="'+esc(a.risk.note||'')+'" style="color:'+(a.risk.level==='high'?'#e06a5f':'#e0a55f')+';font-size:10px">\\u26A0 '+esc(a.risk.level)+'</span>'):'')+'</div><div style="margin-top:1px"><span class="arun" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px">run</span><span class="asch" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">schedule</span><span class="adel" data-n="'+esc(a.name)+'" style="color:#e88;cursor:pointer;font-size:11px;margin-left:10px">delete</span></div>'+sl+'</div>'}).join('');
+    return '<div style="padding:4px 7px"><div style="font-size:12px" title="'+esc(a.job)+'">'+esc(a.label||a.name)+' <span style="color:var(--mut);font-size:10px">['+esc(a.model)+(a.canElevate?'\\u2191':'')+']</span>'+((a.risk&&a.risk.level&&a.risk.level!=='low')?(' <span title="'+esc(a.risk.note||'')+'" style="color:'+(a.risk.level==='high'?'#e06a5f':'#e0a55f')+';font-size:10px">\\u26A0 '+esc(a.risk.level)+'</span>'):'')+((a.stopped)?' <span style="color:var(--mut);font-size:10px">[stopped]</span>':'')+'</div><div style="margin-top:1px"><span class="arun" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px">run</span><span class="asch" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">schedule</span><span class="astp" data-n="'+esc(a.name)+'" data-stop="'+(a.stopped?'0':'1')+'" style="color:'+(a.stopped?'#7dd08a':'#e0a55f')+';cursor:pointer;font-size:11px;margin-left:10px">'+(a.stopped?'resume':'stop')+'</span><span class="adel" data-n="'+esc(a.name)+'" style="color:#e88;cursor:pointer;font-size:11px;margin-left:10px">delete</span></div>'+sl+'</div>'}).join('');
   [].slice.call(box.querySelectorAll('.arun')).forEach(function(x){x.onclick=function(){runAgentUI(x.getAttribute('data-n'))}});
   [].slice.call(box.querySelectorAll('.asch')).forEach(function(x){x.onclick=function(){scheduleAgentUI(x.getAttribute('data-n'))}});
+  [].slice.call(box.querySelectorAll('.astp')).forEach(function(x){x.onclick=function(){stopAgentUI(x.getAttribute('data-n'),x.getAttribute('data-stop')==='1')}});
   [].slice.call(box.querySelectorAll('.ascd')).forEach(function(x){x.onclick=function(){cancelSched(x.getAttribute('data-id'))}});
   [].slice.call(box.querySelectorAll('.adel')).forEach(function(x){x.onclick=function(){var n=x.getAttribute('data-n');if(!confirm('Delete agent "'+n+'"?'))return;fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'delete',name:n})}).then(function(){loadAgents()})}})}
-function scheduleAgentUI(name){var cron=prompt('Schedule "'+name+'" on a cron expression.\\n  */1 * * * *  = every minute\\n  */5 * * * *  = every 5 minutes\\n  0 * * * *    = hourly\\n  0 9 * * *    = 9:00 every day\\n  0 9 * * 1-5  = 9:00 on weekdays','*/5 * * * *');if(!cron)return;var task=prompt('Task to run each time (blank = the agent\\'s standard job):','');if(task===null)return;
-  fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'schedule',name:name,cron:cron,task:task||undefined})}).then(function(r){return r.json()}).then(function(d){if(d&&d.ok){if(d.schedules){SCHEDS=d.schedules;renderAgents()}showToast('Scheduled "'+name+'" ('+cron+').');setTimeout(hideToast,2000)}else{showToast((d&&d.error)?('Schedule failed: '+d.error):'Schedule failed.');setTimeout(hideToast,2500)}}).catch(function(){showToast('Schedule failed.')})}
+function scheduleAgentUI(name){var when=prompt('When should "'+name+'" run? Say it in plain language:\\n  "every 5 minutes"\\n  "every day at noon"\\n  "weekdays at 9am"\\n  "every hour"');if(!when)return;var task=prompt('What should it do each time? (blank = its standard job)','');if(task===null)return;
+  showToast('Working out the schedule...');
+  fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'schedule',name:name,when:when,task:task||undefined})}).then(function(r){return r.json()}).then(function(d){if(d&&d.ok){if(d.schedules){SCHEDS=d.schedules;renderAgents()}showToast('Scheduled: '+(d.note||d.cron));setTimeout(hideToast,2800)}else{showToast((d&&d.error)?d.error:'Schedule failed.');setTimeout(hideToast,3200)}}).catch(function(){showToast('Schedule failed.')})}
+function stopAgentUI(name,stop){fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'stop',name:name,stop:stop})}).then(function(r){return r.json()}).then(function(d){if(d){if(d.schedules)SCHEDS=d.schedules;loadAgents();showToast(stop?('Stopped "'+name+'" ('+(d.suspended||0)+' schedule(s) suspended)'):('Resumed "'+name+'"'));setTimeout(hideToast,2500)}}).catch(function(){showToast('Action failed.')})}
 function cancelSched(id){if(!confirm('Cancel this schedule?'))return;fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'unschedule',id:id})}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.schedules){SCHEDS=d.schedules;renderAgents()}}).catch(function(){})}
 function runAgentUI(name){var task=prompt('Task for "'+name+'" (blank = its standard job):','');if(task===null)return;switchView('chat');var m=add('bot',name,'(running '+name+'...)');setStatus('agent '+name+' running...');
   fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'run',name:name,task:task||undefined})}).then(function(r){return r.ok?r.json():null}).then(function(d){setStatus('');if(m)m.textContent=(d&&d.reply)?d.reply:'(no reply)'}).catch(function(){setStatus('');if(m)m.textContent='(agent run failed)'})}
-function createAgentPrompt(){var name=prompt('New agent name:');if(!name)return;var job=prompt('Its job / instructions (plain language - the smart model compiles it into an executable plan):');if(!job)return;
-  var model=prompt('Model/tier: auto (let the planner choose by risk) | local | freecloud | groq | google | cerebras | mistral | openrouter | deepseek | claude','auto')||'auto';
-  var tools=prompt('Tools it may use (comma-separated; blank = default + auto-chosen), e.g. web_search,read_url,http_get','');
-  var toolArr=tools?tools.split(',').map(function(s){return s.trim()}).filter(Boolean):undefined;
-  showToast('Compiling the agent plan with the smart model...');postCreateAgent(name,job,model,toolArr)}
+function createAgentPrompt(){var name=prompt('New agent name:');if(!name)return;
+  var job=prompt('Tell the story in plain language: what the agent should do, and how often if it should repeat.\\n\\ne.g. "Every morning at 8 fetch the top Hacker News stories and send me a 5-bullet summary."\\n\\nThe smart model writes clear instructions + skills for a cheaper model to run, and sets up the schedule if you mentioned one.');if(!job)return;
+  showToast('The smart model is writing the plan (instructions, skills, schedule)...');postCreateAgent(name,job,'auto',undefined)}
 function postCreateAgent(name,job,model,toolArr){
   fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'create',name:name,job:job,model:model,tools:toolArr,canElevate:true})}).then(function(r){return r.json()}).then(function(d){
     loadAgents();var p=d&&d.plan;
     if(p&&p.ok){var parts=['executor: '+(p.executor||'?')];
+      if(p.schedule&&p.schedule.cron)parts.push('schedule: '+(p.schedule.humanReadable||p.schedule.cron));
       if(p.skills&&p.skills.length)parts.push('skills: '+p.skills.join(', '));
       if(p.codeTools&&p.codeTools.length)parts.push('built tools: '+p.codeTools.map(function(t){return t.name}).join(', '));
       showToast('Compiled \\u2713  '+parts.join('  |  '));setTimeout(hideToast,3500);
@@ -999,6 +1020,7 @@ function closeTools(){var d=el('toolsdrop');if(d)d.classList.remove('open')}
 el('toolsbtn').onclick=function(e){e.stopPropagation();el('toolsdrop').classList.toggle('open')};
 document.addEventListener('click',function(){closeTools()});
 el('chats').onclick=function(){var open=el('threadpanel').classList.contains('open');closePanels();closeTools();if(!open){renderThreads();el('threadpanel').classList.add('open')}};
+el('threadclose').onclick=function(){el('threadpanel').classList.remove('open')};
 el('newchat').onclick=newChat;
 el('cog').onclick=function(){closePanels();closeTools();el('panel').classList.add('open');loadSettings()};
 el('close').onclick=function(){el('panel').classList.remove('open')};

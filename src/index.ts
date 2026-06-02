@@ -113,15 +113,22 @@ async function main(): Promise<void> {
     try { sessionIndex.record('agents', m.from, `-> ${m.to}: ${m.text}`, m.ts); } catch { /* best-effort */ }
     logger.info({ from: m.from, to: m.to }, 'agent message');
   };
-  const engine = new Engine({ config, sessions, throttle, memory, sessionIndex, usage, skills, agentStore, onAgentMessage: pushAgentMsg });
+  // Scheduler is created before the engine so the engine can drive it: auto-schedule an agent
+  // when the planner extracts a recurring job from the story, and suspend/resume on Stop.
+  const scheduler = new Scheduler(config.dataDir);
+  const engine = new Engine({
+    config, sessions, throttle, memory, sessionIndex, usage, skills, agentStore, onAgentMessage: pushAgentMsg,
+    scheduleAgent: (name, cron, task) => void scheduler.add({ name: `agent:${name}`, agent: name, prompt: task || '', cron, channel: 'agent', chatId: name, conversationKey: `agent:${name}` }),
+    countAgentSchedules: (name) => scheduler.countByAgent(name),
+    setAgentSchedulesEnabled: (name, enabled) => scheduler.setAgentEnabled(name, enabled),
+  });
   // Agent-managed dashboard tabs (web UI), with optional periodic refresh.
   const tabs = new TabsManager(config.dataDir);
   tabs.wire(engine);
 
   const manager = new ChannelManager(engine);
 
-  // Core services (created once): scheduling (skills created above).
-  const scheduler = new Scheduler(config.dataDir);
+  // Wire the scheduler to the engine + channels (created above).
   scheduler.wire(engine, manager);
 
   let reloading = false;
@@ -147,7 +154,9 @@ async function main(): Promise<void> {
         (name, cron, task) => scheduler.add({ name: `agent:${name}`, agent: name, prompt: task || '', cron, channel: 'agent', chatId: name, conversationKey: `agent:${name}` }),
         () => scheduler.list().filter((j) => j.agent).map((j) => ({ id: j.id, agent: j.agent, cron: j.cron, at: j.at, prompt: j.prompt })),
         (id) => scheduler.cancel(id),
-        (n) => engine.compileAgent(n))],
+        (n) => engine.compileAgent(n),
+        (text) => engine.nlToCron(text),
+        (n, stop) => engine.stopAgent(n, stop))],
     ];
     for (const [enabled, make] of factories) {
       if (!enabled) continue;
