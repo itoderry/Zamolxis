@@ -500,7 +500,7 @@ export class WebChannel implements Channel {
             const action = String(o.action || '');
             if (!this.agentStore) return this.json(res, 400, { error: 'agents unavailable' });
             if (action === 'create') {
-              const name = this.agentStore.upsert({ name: String(o.name || ''), job: String(o.job || ''), tools: Array.isArray(o.tools) ? o.tools : undefined, model: o.model ? String(o.model) : undefined, canElevate: typeof o.canElevate === 'boolean' ? o.canElevate : undefined });
+              const name = this.agentStore.upsert({ name: String(o.name || ''), job: String(o.job || ''), tools: Array.isArray(o.tools) ? o.tools : undefined, model: o.model ? String(o.model) : undefined, canElevate: typeof o.canElevate === 'boolean' ? o.canElevate : undefined, open: typeof o.open === 'boolean' ? o.open : undefined });
               // Planner: the smart model compiles the NL job into an executable plan (skills, code tools,
               // executor tier, risk) so the cheap executor follows a script instead of improvising.
               let plan = null;
@@ -860,6 +860,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 <div id="mempanel" class="side"><div class="phead"><h3>Memory</h3><button id="memclose">Close</button></div><div class="pbody" id="memview">loading...</div></div>
 <div id="skillpanel" class="side"><div class="phead"><h3>Skills</h3><button id="skillclose">Close</button></div><div class="pbody" id="skillview">loading...</div></div>
 <div id="provpanel" class="side"><div class="phead"><h3>AI Providers</h3><button id="provsave">Save</button><button id="provclose">Close</button></div><div class="pbody" id="provview">loading...</div></div>
+<div id="agentmodal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.55);align-items:center;justify-content:center"><div style="background:#161108;border:1px solid var(--line);border-radius:12px;padding:18px 18px 16px;width:min(600px,94vw);box-shadow:0 12px 40px rgba(0,0,0,.5)"><h3 style="margin:0 0 12px;color:var(--accent)">New agent</h3><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Name</label><input id="am_name" placeholder="e.g. mailproc" style="width:100%;box-sizing:border-box;margin-bottom:12px"><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Instructions &mdash; what it does, and how often if it repeats. Leave blank for an <b>open</b> agent you task each time.</label><textarea id="am_job" rows="9" placeholder="e.g. Every morning at 8, read my gmail and Slack me a 5-bullet digest of anything that needs a reply." style="width:100%;box-sizing:border-box;resize:vertical;margin-bottom:14px"></textarea><div style="display:flex;gap:8px;justify-content:flex-end"><button id="am_cancel" type="button">Cancel</button><button id="am_create" type="button">Create</button></div></div></div>
 <script>
 function uuid(){return crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random()}
 /* ---- shared status helpers (masked keys, status dots, active-provider rail, installer) ---- */
@@ -920,21 +921,23 @@ function scheduleAgentUI(name){var when=prompt('When should "'+name+'" run? Say 
 function stopAgentUI(name,stop){fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'stop',name:name,stop:stop})}).then(function(r){return r.json()}).then(function(d){if(d){if(d.schedules)SCHEDS=d.schedules;loadAgents();showToast(stop?('Stopped "'+name+'" ('+(d.suspended||0)+' schedule(s) suspended)'):('Resumed "'+name+'"'));setTimeout(hideToast,2500)}}).catch(function(){showToast('Action failed.')})}
 function analyzeAgentUI(name){showToast('Analyzing "'+name+'" with the smart model...');fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'analyze',name:name})}).then(function(r){return r.json()}).then(function(d){loadAgents();hideToast();if(d&&d.ok){alert('Analysis of "'+name+'":\\n\\n'+(d.assessment||'(no assessment)')+'\\n\\n'+(d.changed?'\\u2713 The prompt was improved.':'No change needed.'))}else{showToast((d&&d.note)?d.note:'Analyze failed.');setTimeout(hideToast,3000)}}).catch(function(){showToast('Analyze failed.')})}
 function cancelSched(id){if(!confirm('Cancel this schedule?'))return;fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'unschedule',id:id})}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.schedules){SCHEDS=d.schedules;renderAgents()}}).catch(function(){})}
-function runAgentUI(name){var task=prompt('Task for "'+name+'" (blank = its standard job). Tip: say "every minute ..." and it will also be scheduled.','');if(task===null)return;switchView('chat');var m=add('bot',name,'(running '+name+'...)');setStatus('agent '+name+' running...');
+function doRunAgent(name,task){switchView('chat');var m=add('bot',name,'(running '+name+'...)');setStatus('agent '+name+' running...');
   fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'run',name:name,task:task||undefined})}).then(function(r){return r.ok?r.json():null}).then(function(d){setStatus('');if(m)m.textContent=(d&&d.reply)?d.reply:'(no reply)';if(d&&d.schedules){SCHEDS=d.schedules;renderAgents()}if(d&&d.scheduled){showToast('Also scheduled: '+(d.scheduled.note||d.scheduled.cron));setTimeout(hideToast,3000)}}).catch(function(){setStatus('');if(m)m.textContent='(agent run failed)'})}
-function createAgentPrompt(){var name=prompt('New agent name:');if(!name)return;
-  var job=prompt('Tell the story in plain language: what the agent should do, and how often if it should repeat.\\n\\ne.g. "Every morning at 8 fetch the top Hacker News stories and send me a 5-bullet summary."\\n\\nThe smart model writes clear instructions + skills for a cheaper model to run, and sets up the schedule if you mentioned one.');if(!job)return;
-  showToast('The smart model is writing the plan (instructions, skills, schedule)...');postCreateAgent(name,job,'auto',undefined)}
-function postCreateAgent(name,job,model,toolArr){
-  fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'create',name:name,job:job,model:model,tools:toolArr,canElevate:true})}).then(function(r){return r.json()}).then(function(d){
-    loadAgents();var p=d&&d.plan;
+function runAgentUI(name){var a=AGENTS.filter(function(x){return x.name===name})[0];
+  if(a&&!a.open){doRunAgent(name,undefined);return} /* dedicated agent: run its standing job, no prompt */
+  var task=prompt('Task for "'+name+'" (this is an open agent). Tip: say "every minute ..." and it will also be scheduled.','');if(task===null)return;doRunAgent(name,task||undefined)}
+function createAgentPrompt(){var m=el('agentmodal');if(!m)return;el('am_name').value='';el('am_job').value='';m.style.display='flex';setTimeout(function(){el('am_name').focus()},30)}
+function postCreateAgent(name,job,model,toolArr,open){
+  var body={action:'create',name:name,job:job,model:model,tools:toolArr,canElevate:true,open:!!open};if(open)body.compile=false;
+  fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify(body)}).then(function(r){return r.json()}).then(function(d){
+    loadAgents();if(open){showToast('Open agent "'+name+'" created \\u2014 click run to give it a task.');setTimeout(hideToast,2800);return}var p=d&&d.plan;
     if(p&&p.ok){var parts=['executor: '+(p.executor||'?')];
       if(p.schedule&&p.schedule.cron)parts.push('schedule: '+(p.schedule.humanReadable||p.schedule.cron));
       if(p.skills&&p.skills.length)parts.push('skills: '+p.skills.join(', '));
       if(p.codeTools&&p.codeTools.length)parts.push('built tools: '+p.codeTools.map(function(t){return t.name}).join(', '));
       showToast('Compiled \\u2713  '+parts.join('  |  '));setTimeout(hideToast,3500);
       if(p.risk&&p.risk.level&&p.risk.level!=='low'){var rec=p.risk.recommendedModel||'claude';var cur=p.executor||model;
-        if(rec!==cur&&confirm('\\u26A0 '+String(p.risk.level).toUpperCase()+' RISK\\n\\n'+(p.risk.note||'')+'\\n\\nPlanned to run on: '+cur+'\\nRun on the recommended (safer) model "'+rec+'" instead?')){postCreateAgent(name,job,rec,toolArr)}}
+        if(rec!==cur&&confirm('\\u26A0 '+String(p.risk.level).toUpperCase()+' RISK\\n\\n'+(p.risk.note||'')+'\\n\\nPlanned to run on: '+cur+'\\nRun on the recommended (safer) model "'+rec+'" instead?')){postCreateAgent(name,job,rec,toolArr,false)}}
     }else{showToast('Agent saved (planner unavailable - runs on the raw job).');setTimeout(hideToast,2800)}
   }).catch(function(){showToast('Create failed.')})}
 // Per-chat route picker: Auto, Local, every CONFIGURED provider, Free (rotate), Claude.
@@ -1101,6 +1104,11 @@ document.addEventListener('click',function(){closeTools()});
 el('chats').onclick=function(){var open=el('threadpanel').classList.contains('open');closePanels();closeTools();if(!open){renderThreads();el('threadpanel').classList.add('open')}};
 el('threadclose').onclick=function(){el('threadpanel').classList.remove('open')};
 if(el('newagent'))el('newagent').onclick=createAgentPrompt;
+if(el('am_cancel'))el('am_cancel').onclick=function(){el('agentmodal').style.display='none'};
+if(el('agentmodal'))el('agentmodal').onclick=function(e){if(e.target===el('agentmodal'))el('agentmodal').style.display='none'};
+if(el('am_create'))el('am_create').onclick=function(){var nm=el('am_name').value.trim();if(!nm){el('am_name').focus();return}var jb=el('am_job').value.trim();el('agentmodal').style.display='none';
+  if(jb){showToast('The smart model is writing the plan (instructions, skills, schedule)...');postCreateAgent(nm,jb,'auto',undefined,false)}
+  else{showToast('Creating open agent...');postCreateAgent(nm,'Open agent: carry out whatever task you are given when you are run.','auto',undefined,true)}};
 // Auto-detect the user's timezone and persist it (once) so agents report LOCAL time even on a UTC host.
 (function autoTz(){try{var tz=Intl.DateTimeFormat().resolvedOptions().timeZone;if(!tz)return;fetch('/api/settings',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(s){if(s&&s.live&&!s.live.timezone){fetch('/api/settings',{method:'POST',headers:hdrs(),body:JSON.stringify({live:{timezone:tz}})}).catch(function(){})}}).catch(function(){})}catch(e){}})();
 (function setupRailResize(){var rail=el('provrail'),sec=el('provsec'),split=el('railsplit'),wh=el('railwidth');if(!rail||!sec||!split||!wh)return;
