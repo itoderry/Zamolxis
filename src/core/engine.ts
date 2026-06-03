@@ -305,6 +305,9 @@ export class Engine {
   private readonly lastByKey = new Map<string, { text: string; reply: string }>();
   /** In-flight Claude turns keyed by conversationKey, so an agent's run can be aborted by Stop. */
   private readonly inFlight = new Map<string, AbortController>();
+  /** Agents paused for THIS session by the startup restore policy (NOT persisted, unlike `stopped`),
+   *  so flipping the agentRestore setting + restarting brings them back. */
+  private readonly sessionPaused = new Set<string>();
 
   /** A short user message that rejects the previous answer and asks to escalate. */
   private isEscalationTrigger(text: string): boolean {
@@ -323,6 +326,7 @@ export class Engine {
     const def = this.deps.agentStore?.get(name);
     if (!def) return { reply: `No agent named "${name}".`, sessionId: '', costUsd: 0, isError: true, agent: name };
     if (def.stopped) return { reply: `Agent "${def.name}" is stopped — resume it to run.`, sessionId: '', costUsd: 0, isError: true, agent: def.name };
+    if (this.sessionPaused.has(def.name)) return { reply: `Agent "${def.name}" is paused by the startup policy — resume it to run.`, sessionId: '', costUsd: 0, isError: true, agent: def.name };
     // The executor follows the planner-compiled spec verbatim (falls back to the raw job if not compiled).
     let agentJob = def.spec && def.spec.trim() ? def.spec : def.job;
     // Hybrid planning: when handed a specific task that differs from the standing job, the smart model
@@ -354,9 +358,28 @@ export class Engine {
 
   /** Stop (suspend) or resume an agent: toggles its `stopped` flag, suspends/resumes ALL its
    *  schedules (whoever created them, however), and aborts any in-flight run. */
+  /** Apply the restart policy ONCE at startup: agents whose effective autostart resolves to false
+   *  are paused for this session only (per-agent `autostart` overrides the global agentRestore). */
+  applyAgentStartupPolicy(): void {
+    const restore = this.deps.config.agentRestore !== false;
+    this.sessionPaused.clear();
+    for (const a of this.deps.agentStore?.list() ?? []) {
+      const eff = typeof a.autostart === 'boolean' ? a.autostart : restore;
+      if (!eff) this.sessionPaused.add(a.name);
+    }
+    if (this.sessionPaused.size) logger.info({ paused: [...this.sessionPaused] }, 'agents paused at startup (restore policy)');
+  }
+
+  /** Can this agent run right now? False if manually stopped or paused by the startup policy. */
+  isAgentRunnable(name: string): boolean {
+    const def = this.deps.agentStore?.get(name);
+    return !!def && !def.stopped && !this.sessionPaused.has(name);
+  }
+
   async stopAgent(name: string, stop = true): Promise<{ ok: boolean; suspended: number; stopped: boolean }> {
     const def = this.deps.agentStore?.setStopped(name, stop);
     if (!def) return { ok: false, suspended: 0, stopped: false };
+    if (!stop) this.sessionPaused.delete(def.name); // resuming also lifts a startup-policy pause
     const suspended = this.deps.setAgentSchedulesEnabled?.(def.name, !stop) ?? 0;
     if (stop) {
       try {

@@ -81,6 +81,8 @@ export class Scheduler {
   private async fire(id: string): Promise<void> {
     const job = this.jobs.find((j) => j.id === id);
     if (!job || !this.engine || !this.channels) return;
+    // Skip agents that are stopped or paused by the startup restore policy (no run, no delivery).
+    if (job.agent && this.engine.isAgentRunnable && !this.engine.isAgentRunnable(job.agent)) return;
     logger.info({ id, name: job.name }, 'job firing');
     try {
       const result = job.agent

@@ -55,6 +55,10 @@ const ConfigSchema = z.object({
   agentName: z.string(),
   /** Whether the inviolable LAWS block is injected into the system prompt. */
   lawsEnabled: z.boolean(),
+  /** On startup, restore each agent to its last state (stopped agents stay stopped, scheduled
+   *  agents keep their schedules). When false, all agents start paused until manually resumed.
+   *  A per-agent `autostart` overrides this. */
+  agentRestore: z.boolean(),
 
   /** Primary Claude model (alias 'opus'|'sonnet'|'haiku' or full id). Undefined = CLI default. */
   model: z.string().optional(),
@@ -160,6 +164,7 @@ export function loadConfig(): ZamolxisConfig {
     extraSkillsDirs: detectExtraSkillsDirs(dataDir),
     agentName: process.env.ZAMOLXIS_AGENT_NAME || 'Zamolxis',
     lawsEnabled: bool(process.env.ZAMOLXIS_LAWS_ENABLED, true),
+    agentRestore: bool(process.env.ZAMOLXIS_AGENT_RESTORE, true),
     model: process.env.ZAMOLXIS_MODEL || undefined,
     fastModel: process.env.ZAMOLXIS_FAST_MODEL || 'haiku',
     smartModel: process.env.ZAMOLXIS_SMART_MODEL || 'opus',
@@ -248,6 +253,7 @@ export function applyPersistedSettings(config: ZamolxisConfig): void {
       const s = JSON.parse(fs.readFileSync(sp, 'utf8')) as Record<string, any>;
       if (typeof s.agentName === 'string' && s.agentName.trim()) config.agentName = s.agentName.trim();
       if (typeof s.lawsEnabled === 'boolean') config.lawsEnabled = s.lawsEnabled;
+      if (typeof s.agentRestore === 'boolean') config.agentRestore = s.agentRestore;
       if (typeof s.model === 'string') config.model = s.model || undefined;
       if (typeof s.fastModel === 'string') config.fastModel = s.fastModel || undefined;
       if (typeof s.smartModel === 'string') config.smartModel = s.smartModel || undefined;

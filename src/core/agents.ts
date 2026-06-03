@@ -43,6 +43,9 @@ export interface AgentDef {
   /** Open agent: created WITHOUT fixed instructions — Run prompts for a task each time.
    *  Dedicated agents (open=false/undefined) Run their standing job with no prompt. */
   open?: boolean;
+  /** Per-agent restart behavior, overriding the global agentRestore setting:
+   *  true = always resume on startup, false = always start paused, undefined = follow global. */
+  autostart?: boolean;
 }
 
 function slug(name: string): string {
@@ -99,6 +102,7 @@ export class AgentStore {
     label?: string;
     schedule?: { cron?: string; at?: string };
     open?: boolean;
+    autostart?: boolean;
   }): string {
     const name = slug(input.name);
     if (!name) throw new Error('invalid agent name');
@@ -113,6 +117,7 @@ export class AgentStore {
       canElevate: typeof input.canElevate === 'boolean' ? input.canElevate : (existing?.canElevate ?? true),
       schedule: input.schedule ?? existing?.schedule,
       open: typeof input.open === 'boolean' ? input.open : existing?.open,
+      autostart: typeof input.autostart === 'boolean' ? input.autostart : existing?.autostart,
       createdAt: existing?.createdAt ?? Date.now(),
     };
     if (existing) Object.assign(existing, def);

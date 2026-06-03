@@ -66,6 +66,7 @@ interface PersistedSettings {
   localRouting?: 'off' | 'auto';
   routeChain?: string[];
   lawsEnabled?: boolean;
+  agentRestore?: boolean;
   channels?: Partial<Record<(typeof CHANNELS)[number], boolean>>;
   web?: { port?: number; bind?: string; authToken?: string };
   sandbox?: { dockerImage?: string; dockerContainer?: string; sshHost?: string; sshUser?: string; sshPort?: number; sshIdentity?: string };
@@ -125,6 +126,7 @@ export class SettingsManager {
         localRouting: this.config.localRouting,
         routeChain: this.config.routeChain,
         lawsEnabled: this.config.lawsEnabled,
+        agentRestore: this.config.agentRestore,
       },
       // Restart-required sections reflect the PERSISTED intent overlaid on the live
       // config, so a saved change stays shown even before the reload takes effect.
@@ -221,6 +223,10 @@ export class SettingsManager {
     if (typeof live.lawsEnabled === 'boolean') {
       this.config.lawsEnabled = live.lawsEnabled;
       p.lawsEnabled = live.lawsEnabled;
+    }
+    if (typeof live.agentRestore === 'boolean') {
+      this.config.agentRestore = live.agentRestore;
+      p.agentRestore = live.agentRestore;
     }
 
     // ── identity: curated SOUL.md / USER.md (live; written to their own files) ──

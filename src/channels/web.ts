@@ -500,7 +500,7 @@ export class WebChannel implements Channel {
             const action = String(o.action || '');
             if (!this.agentStore) return this.json(res, 400, { error: 'agents unavailable' });
             if (action === 'create') {
-              const name = this.agentStore.upsert({ name: String(o.name || ''), job: String(o.job || ''), tools: Array.isArray(o.tools) ? o.tools : undefined, model: o.model ? String(o.model) : undefined, canElevate: typeof o.canElevate === 'boolean' ? o.canElevate : undefined, open: typeof o.open === 'boolean' ? o.open : undefined });
+              const name = this.agentStore.upsert({ name: String(o.name || ''), job: String(o.job || ''), tools: Array.isArray(o.tools) ? o.tools : undefined, model: o.model ? String(o.model) : undefined, canElevate: typeof o.canElevate === 'boolean' ? o.canElevate : undefined, open: typeof o.open === 'boolean' ? o.open : undefined, autostart: typeof o.autostart === 'boolean' ? o.autostart : undefined });
               // Planner: the smart model compiles the NL job into an executable plan (skills, code tools,
               // executor tier, risk) so the cheap executor follows a script instead of improvising.
               let plan = null;
@@ -860,7 +860,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 <div id="mempanel" class="side"><div class="phead"><h3>Memory</h3><button id="memclose">Close</button></div><div class="pbody" id="memview">loading...</div></div>
 <div id="skillpanel" class="side"><div class="phead"><h3>Skills</h3><button id="skillclose">Close</button></div><div class="pbody" id="skillview">loading...</div></div>
 <div id="provpanel" class="side"><div class="phead"><h3>AI Providers</h3><button id="provsave">Save</button><button id="provclose">Close</button></div><div class="pbody" id="provview">loading...</div></div>
-<div id="agentmodal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.55);align-items:center;justify-content:center"><div style="background:#161108;border:1px solid var(--line);border-radius:12px;padding:18px 18px 16px;width:min(600px,94vw);box-shadow:0 12px 40px rgba(0,0,0,.5)"><h3 style="margin:0 0 12px;color:var(--accent)">New agent</h3><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Name</label><input id="am_name" placeholder="e.g. mailproc" style="width:100%;box-sizing:border-box;margin-bottom:12px"><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Instructions &mdash; what it does, and how often if it repeats. Leave blank for an <b>open</b> agent you task each time.</label><textarea id="am_job" rows="9" placeholder="e.g. Every morning at 8, read my gmail and Slack me a 5-bullet digest of anything that needs a reply." style="width:100%;box-sizing:border-box;resize:vertical;margin-bottom:14px"></textarea><div style="display:flex;gap:8px;justify-content:flex-end"><button id="am_cancel" type="button">Cancel</button><button id="am_create" type="button">Create</button></div></div></div>
+<div id="agentmodal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.55);align-items:center;justify-content:center"><div style="background:#161108;border:1px solid var(--line);border-radius:12px;padding:18px 18px 16px;width:min(600px,94vw);box-shadow:0 12px 40px rgba(0,0,0,.5)"><h3 style="margin:0 0 12px;color:var(--accent)">New agent</h3><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Name</label><input id="am_name" placeholder="e.g. mailproc" style="width:100%;box-sizing:border-box;margin-bottom:12px"><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Instructions &mdash; what it does, and how often if it repeats. Leave blank for an <b>open</b> agent you task each time.</label><textarea id="am_job" rows="9" placeholder="e.g. Every morning at 8, read my gmail and Slack me a 5-bullet digest of anything that needs a reply." style="width:100%;box-sizing:border-box;resize:vertical;margin-bottom:12px"></textarea><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">On restart</label><select id="am_autostart" style="margin-bottom:14px"><option value="">Use global default</option><option value="resume">Always resume</option><option value="pause">Start paused</option></select><div style="display:flex;gap:8px;justify-content:flex-end"><button id="am_cancel" type="button">Cancel</button><button id="am_create" type="button">Create</button></div></div></div>
 <script>
 function uuid(){return crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random()}
 /* ---- shared status helpers (masked keys, status dots, active-provider rail, installer) ---- */
@@ -927,8 +927,8 @@ function runAgentUI(name){var a=AGENTS.filter(function(x){return x.name===name})
   if(a&&!a.open){doRunAgent(name,undefined);return} /* dedicated agent: run its standing job, no prompt */
   var task=prompt('Task for "'+name+'" (this is an open agent). Tip: say "every minute ..." and it will also be scheduled.','');if(task===null)return;doRunAgent(name,task||undefined)}
 function createAgentPrompt(){var m=el('agentmodal');if(!m)return;el('am_name').value='';el('am_job').value='';m.style.display='flex';setTimeout(function(){el('am_name').focus()},30)}
-function postCreateAgent(name,job,model,toolArr,open){
-  var body={action:'create',name:name,job:job,model:model,tools:toolArr,canElevate:true,open:!!open};if(open)body.compile=false;
+function postCreateAgent(name,job,model,toolArr,open,autostart){
+  var body={action:'create',name:name,job:job,model:model,tools:toolArr,canElevate:true,open:!!open};if(open)body.compile=false;if(typeof autostart==='boolean')body.autostart=autostart;
   fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify(body)}).then(function(r){return r.json()}).then(function(d){
     loadAgents();if(open){showToast('Open agent "'+name+'" created \\u2014 click run to give it a task.');setTimeout(hideToast,2800);return}var p=d&&d.plan;
     if(p&&p.ok){var parts=['executor: '+(p.executor||'?')];
@@ -1106,9 +1106,9 @@ el('threadclose').onclick=function(){el('threadpanel').classList.remove('open')}
 if(el('newagent'))el('newagent').onclick=createAgentPrompt;
 if(el('am_cancel'))el('am_cancel').onclick=function(){el('agentmodal').style.display='none'};
 if(el('agentmodal'))el('agentmodal').onclick=function(e){if(e.target===el('agentmodal'))el('agentmodal').style.display='none'};
-if(el('am_create'))el('am_create').onclick=function(){var nm=el('am_name').value.trim();if(!nm){el('am_name').focus();return}var jb=el('am_job').value.trim();el('agentmodal').style.display='none';
-  if(jb){showToast('The smart model is writing the plan (instructions, skills, schedule)...');postCreateAgent(nm,jb,'auto',undefined,false)}
-  else{showToast('Creating open agent...');postCreateAgent(nm,'Open agent: carry out whatever task you are given when you are run.','auto',undefined,true)}};
+if(el('am_create'))el('am_create').onclick=function(){var nm=el('am_name').value.trim();if(!nm){el('am_name').focus();return}var jb=el('am_job').value.trim();var asv=el('am_autostart')?el('am_autostart').value:'';var as=asv==='resume'?true:asv==='pause'?false:undefined;el('agentmodal').style.display='none';
+  if(jb){showToast('The smart model is writing the plan (instructions, skills, schedule)...');postCreateAgent(nm,jb,'auto',undefined,false,as)}
+  else{showToast('Creating open agent...');postCreateAgent(nm,'Open agent: carry out whatever task you are given when you are run.','auto',undefined,true,as)}};
 // Auto-detect the user's timezone and persist it (once) so agents report LOCAL time even on a UTC host.
 (function autoTz(){try{var tz=Intl.DateTimeFormat().resolvedOptions().timeZone;if(!tz)return;fetch('/api/settings',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(s){if(s&&s.live&&!s.live.timezone){fetch('/api/settings',{method:'POST',headers:hdrs(),body:JSON.stringify({live:{timezone:tz}})}).catch(function(){})}}).catch(function(){})}catch(e){}})();
 (function setupRailResize(){var rail=el('provrail'),sec=el('provsec'),split=el('railsplit'),wh=el('railwidth');if(!rail||!sec||!split||!wh)return;
@@ -1268,6 +1268,8 @@ function renderSettings(s){var L=s.live,m=s.meta,h='';
   h+=sec('Agents');
   h+='<label class="chk" style="font-size:13px;display:block"><input type="checkbox" id="mirroragents"> Mirror agent messages into the active chat (on by default)</label>';
   h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">Create/run agents in the left rail (under Providers). Messages between agents and to you appear in the active chat when mirroring is on.</div>';
+  h+='<label class="chk" style="font-size:13px;display:block;margin-top:6px"><input type="checkbox" id="s_live_agentRestore"'+(L.agentRestore!==false?' checked':'')+'> Restore agents to their last state on startup</label>';
+  h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">On (default): stopped agents stay stopped, scheduled agents keep running after a restart. Off: all agents start paused until you resume them. (A per-agent setting at creation can override this.)</div>';
   h+=sec('Startup');
   h+='<label class="chk" style="font-size:13px;display:block"><input type="checkbox" id="autostart"> Start Zamolxis automatically when I log in</label>';
   h+='<div id="autostatus" style="font-size:11px;color:var(--mut);margin-top:2px"></div>';
@@ -1363,7 +1365,7 @@ function fetchUsage(){fetch('/api/usage',{headers:hdrs()}).then(function(r){retu
 el('save').onclick=function(){
   var v=function(id){var n=el('s_'+id);return n?n.value:undefined};
   var ck=function(id){var n=el('s_'+id);return n?n.checked:undefined};
-  var patch={live:{agentName:v('live_agentName'),model:v('live_model'),fastModel:v('live_fastModel'),smartModel:v('live_smartModel'),timezone:v('live_timezone'),localRouting:v('live_localRouting'),lawsEnabled:ck('live_lawsEnabled'),permissionMode:v('live_permissionMode'),sandboxBackend:v('live_sandboxBackend'),systemPromptAppend:v('live_systemPromptAppend'),maxTurns:Number(v('live_maxTurns')),maxConcurrent:Number(v('live_maxConcurrent'))},
+  var patch={live:{agentName:v('live_agentName'),model:v('live_model'),fastModel:v('live_fastModel'),smartModel:v('live_smartModel'),timezone:v('live_timezone'),localRouting:v('live_localRouting'),lawsEnabled:ck('live_lawsEnabled'),agentRestore:ck('live_agentRestore'),permissionMode:v('live_permissionMode'),sandboxBackend:v('live_sandboxBackend'),systemPromptAppend:v('live_systemPromptAppend'),maxTurns:Number(v('live_maxTurns')),maxConcurrent:Number(v('live_maxConcurrent'))},
     identity:{laws:v('id_laws'),soul:v('id_soul'),user:v('id_user')},channels:{},web:{port:Number(v('web_port')),bind:v('web_bind'),authToken:v('web_authToken')},
     sandbox:{dockerImage:v('sb_dockerImage'),dockerContainer:v('sb_dockerContainer'),sshHost:v('sb_sshHost'),sshUser:v('sb_sshUser'),sshPort:v('sb_sshPort'),sshIdentity:v('sb_sshIdentity')},credentials:{}};
   ['cli','telegram','discord','slack','whatsapp','signal','email','web'].forEach(function(c){var x=ck('ch_'+c);if(x!==undefined)patch.channels[c]=x});

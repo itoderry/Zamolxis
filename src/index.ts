@@ -194,6 +194,7 @@ async function main(): Promise<void> {
   wire();
   await manager.startAll();
   scheduler.start();
+  engine.applyAgentStartupPolicy(); // pause agents per the restore setting / per-agent autostart
   tabs.start();
   logger.info('Zamolxis up');
 
