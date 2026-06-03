@@ -49,7 +49,27 @@ const pexec = promisify(execFile);
 // Resolve a usable `git` even when the daemon's PATH is minimal (common on macOS when started
 // detached / via a launcher — git is at /usr/bin/git but may not be on the inherited PATH).
 function resolveGit(): string {
-  const cands = process.platform === 'win32' ? ['git'] : ['git', '/usr/bin/git', '/opt/homebrew/bin/git', '/usr/local/bin/git'];
+  const cands: string[] = ['git'];
+  if (process.platform === 'win32') {
+    // Git is often NOT on the daemon's PATH (esp. when started via autostart/login). Probe the
+    // standard install locations and `where git` so update-check works regardless of PATH.
+    try {
+      const w = spawnSync('where', ['git'], { encoding: 'utf8', windowsHide: true });
+      if (w.status === 0) {
+        const first = (w.stdout || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0];
+        if (first) cands.push(first);
+      }
+    } catch {
+      /* where unavailable */
+    }
+    const pf = process.env['ProgramFiles'] || 'C:\\Program Files';
+    const pf86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+    const la = process.env['LOCALAPPDATA'] || '';
+    cands.push(path.join(pf, 'Git', 'cmd', 'git.exe'), path.join(pf, 'Git', 'bin', 'git.exe'), path.join(pf86, 'Git', 'cmd', 'git.exe'));
+    if (la) cands.push(path.join(la, 'Programs', 'Git', 'cmd', 'git.exe'));
+  } else {
+    cands.push('/usr/bin/git', '/opt/homebrew/bin/git', '/usr/local/bin/git');
+  }
   for (const c of cands) {
     try {
       if (spawnSync(c, ['--version'], { stdio: 'ignore', windowsHide: true }).status === 0) return c;
@@ -998,7 +1018,7 @@ function fmtTime(ts){try{return new Date(Number(ts)).toLocaleTimeString([], {hou
    is re-renderable so a name change relabels every past bubble too. */
 function renderWho(w){if(!w)return;var t=w.dataset.ts?fmtTime(w.dataset.ts):'';
   if(w.dataset.role==='you'){w.textContent='you'+(t?' · '+t:'')}
-  else{var s=w.dataset.secs,tok=w.dataset.tok,via=w.dataset.via;var x=(w.dataset.label||BOT_LABEL)+(t?' · '+t:'');if(s)x+=' · '+s+'s';if(tok)x+=' · '+tok+' tok';if(via)x+=' · via '+via;w.textContent=x;w.style.color=via?viaColor(via):''}}
+  else{var s=w.dataset.secs,tok=w.dataset.tok,via=w.dataset.via;var x=(w.dataset.label||BOT_LABEL)+(t?' · '+t:'');if(s)x+=' · '+s+'s';if(tok)x+=' · '+tok+' tok';if(via)x+=' · via '+via;w.textContent=x;var vid=w.dataset.vid||via;w.style.color=vid?viaColor(vid):''}}
 /* Human label for the model that produced an answer (from usage.last.model). */
 function viaLabel(id){if(!id)return '';id=String(id);
   var m=id.match(/^(?:free|paid):([^:]+):/);if(m){var pp=(RAIL&&RAIL.providers||[]).filter(function(p){return p.id===m[1]})[0];return pp?pp.label:m[1]}
@@ -1021,7 +1041,7 @@ function openWs(){
   sock.onmessage=function(ev){if(myGen!==gen)return;var m=JSON.parse(ev.data);
     if(m.type==='chunk'){if(!cur)cur=add('bot',BOT_LABEL,'');if(!curStarted){cur.textContent='';curStarted=true}cur.textContent+=m.text;el('log').scrollTop=el('log').scrollHeight}
     else if(m.type==='reply'){if(!cur)cur=add('bot',BOT_LABEL,'');cur.textContent=m.text;var w=cur.whoEl,secs=stopGen();setMeta(w,secs,null);cur=null;curStarted=false;setStatus('connected');
-      fetch('/api/status',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(!d)return;renderModels(d);if(d.last&&w)setMeta(w,secs,d.last.total,viaLabel(d.last.model));if(d.last)maybeStick(d.last.model)}).catch(function(){})}
+      fetch('/api/status',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(!d)return;renderModels(d);if(d.last&&w){w.dataset.vid=d.last.model||'';setMeta(w,secs,d.last.total,viaLabel(d.last.model))}if(d.last)maybeStick(d.last.model)}).catch(function(){})}
     else if(m.type==='status'){setStatus(m.text)}};
 }
 var routes={};try{routes=JSON.parse(localStorage.zx_routes||'{}')}catch(e){}
@@ -1357,7 +1377,7 @@ function renderSettings(s){var L=s.live,m=s.meta,h='';
   var unb=el('uninstallbtn');if(unb)unb.onclick=doUninstall;
   var cub=el('checkupd');if(cub)cub.onclick=function(){var r=el('updres');cub.disabled=true;if(r)r.textContent='checking...';
     fetch('/api/checkupdate',{method:'POST',headers:hdrs()}).then(function(x){return x.ok?x.json():null}).then(function(u){cub.disabled=false;if(!r)return;
-      if(!u||!u.isRepo){r.innerHTML='Not a git install - can\\'t auto-update here.';return}
+      if(!u||!u.isRepo){r.innerHTML='Can\\'t auto-update: no git checkout found, or git isn\\'t on the server\\'s PATH. Update manually in the install folder: git pull, npm run build, restart.';return}
       if(u.behind>0){r.innerHTML='<b style="color:var(--accent)">Update available: '+u.behind+' new.</b> ';var ub=document.createElement('button');ub.type='button';ub.textContent='Update now';ub.style.marginLeft='6px';ub.onclick=doUpdate;r.appendChild(ub);fetchStatus()}
       else{r.textContent='You are up to date (build matches GitHub).'}
     }).catch(function(){cub.disabled=false;if(r)r.textContent='check failed.'})};

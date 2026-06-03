@@ -206,7 +206,13 @@ function readManifest() {
 }
 function run(cmd, args) {
   try {
-    return spawnSync(cmd, args, { stdio: 'inherit', windowsHide: true, shell: process.platform === 'win32' }).status === 0;
+    if (process.platform === 'win32') {
+      // Windows needs a shell to run .cmd shims (npm.cmd etc.). Pass ONE quoted command string
+      // (not an args array) so shell:true doesn't trip the DEP0190 deprecation warning.
+      const line = [cmd, ...args].map((a) => (/[\s"^&|<>]/.test(a) ? '"' + String(a).replace(/"/g, '""') + '"' : a)).join(' ');
+      return spawnSync(line, { stdio: 'inherit', windowsHide: true, shell: true }).status === 0;
+    }
+    return spawnSync(cmd, args, { stdio: 'inherit' }).status === 0;
   } catch {
     return false;
   }
@@ -360,6 +366,87 @@ async function updateCmd() {
   start([]);
 }
 
+function canWrite(dir) {
+  try {
+    const f = path.join(dir, '.zx-wtest-' + process.pid);
+    fs.writeFileSync(f, '');
+    fs.unlinkSync(f);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Append a dir to the per-user PATH (HKCU\Environment) without elevation, preserving the existing value.
+function addToWindowsUserPath(dir) {
+  try {
+    const q = spawnSync('reg', ['query', 'HKCU\\Environment', '/v', 'Path'], { encoding: 'utf8', windowsHide: true });
+    let cur = '';
+    if (q.status === 0) {
+      const m = /Path\s+REG_[^\s]+\s+([^\r\n]*)/i.exec(q.stdout || '');
+      if (m) cur = m[1].trim();
+    }
+    if (cur.split(';').map((s) => s.trim().toLowerCase()).filter(Boolean).includes(dir.toLowerCase())) return true;
+    const next = cur ? cur.replace(/;+$/, '') + ';' + dir : dir;
+    const r = spawnSync('reg', ['add', 'HKCU\\Environment', '/v', 'Path', '/t', 'REG_EXPAND_SZ', '/d', next, '/f'], { stdio: 'ignore', windowsHide: true });
+    return r.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+// Install global `zam` / `zamolxis` commands onto PATH so they work from any terminal — no npm link.
+function setupPathCmd() {
+  const selfBin = path.join(root, 'bin', 'zamolxis.mjs');
+  const nodeExe = process.execPath;
+  if (process.platform === 'win32') {
+    const body = `@echo off\r\n"${nodeExe}" "${selfBin}" %*\r\n`;
+    const pathDirs = (process.env.PATH || '').split(';').map((s) => s.trim()).filter(Boolean);
+    const localApp = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    const winApps = path.join(localApp, 'Microsoft', 'WindowsApps');
+    let target = '';
+    let addedToPath = false;
+    if (fs.existsSync(winApps) && pathDirs.some((d) => d.toLowerCase() === winApps.toLowerCase()) && canWrite(winApps)) {
+      target = winApps; // already on PATH by default on Win10/11 — works in new shells immediately
+    }
+    if (!target) target = pathDirs.find((d) => /\\users\\/i.test(d) && fs.existsSync(d) && canWrite(d)) || '';
+    if (!target) {
+      target = path.join(localApp, 'zamolxis', 'bin');
+      fs.mkdirSync(target, { recursive: true });
+      addedToPath = addToWindowsUserPath(target);
+    }
+    try {
+      fs.writeFileSync(path.join(target, 'zamolxis.cmd'), body);
+      fs.writeFileSync(path.join(target, 'zam.cmd'), body);
+    } catch (err) {
+      console.error('Could not write the command shims: ' + String(err));
+      process.exit(1);
+    }
+    console.log(`Installed 'zam' and 'zamolxis' in: ${target}`);
+    console.log(addedToPath ? 'Added it to your user PATH. Open a NEW terminal, then:  zam status' : 'Open a new terminal, then:  zam status');
+    return;
+  }
+  // macOS / Linux: a tiny wrapper script in a PATH dir (no symlink — the entry is a .mjs run via node).
+  const wrapper = `#!/bin/sh\nexec "${nodeExe}" "${selfBin}" "$@"\n`;
+  const cands = ['/usr/local/bin', path.join(os.homedir(), '.local', 'bin')];
+  let target = cands.find((d) => fs.existsSync(d) && canWrite(d)) || '';
+  if (!target) {
+    target = path.join(os.homedir(), '.local', 'bin');
+    fs.mkdirSync(target, { recursive: true });
+  }
+  for (const name of ['zamolxis', 'zam']) {
+    const p = path.join(target, name);
+    fs.writeFileSync(p, wrapper);
+    fs.chmodSync(p, 0o755);
+  }
+  console.log(`Installed 'zam' and 'zamolxis' in: ${target}`);
+  if (!(process.env.PATH || '').split(':').includes(target)) {
+    console.log(`That folder isn't on your PATH. Add it (e.g. to ~/.zshrc or ~/.bashrc):  export PATH="${target}:$PATH"`);
+  } else {
+    console.log('Run:  zam status');
+  }
+}
+
 function usage() {
   console.log(`Zamolxis - self-hosted agent on your Claude subscription
 
@@ -377,6 +464,7 @@ Usage: zamolxis <command> [extra daemon args]   (alias: zam <command>)
   pack       bundle this setup (all skills; asks about SOUL/USER/teachings) for a new install
   unpack     apply a pack file into this install:  zamolxis unpack <file.json>
   uninstall  stop + remove service + unlink command (add --purge to also delete your data)
+  setup-path install the global 'zam' / 'zamolxis' commands onto your PATH
 
 Examples:
   zamolxis start
@@ -424,6 +512,9 @@ switch (cmd) {
     break;
   case 'uninstall':
     await uninstallCmd();
+    break;
+  case 'setup-path':
+    setupPathCmd();
     break;
   default:
     usage();
