@@ -927,7 +927,9 @@ function renderRail(){var box=el('provchain');if(!box)return;var d=RAIL;if(!d){b
   // Flatten (freecloud -> each configured free provider) into the displayed order, then color each
   // by its position so the gradient spans every model, not just two buckets.
   var flat=[];chain.forEach(function(tok){if(tok==='freecloud'){var fps=(d.providers||[]).filter(function(p){return p.kind==='free'&&p.configured});if(fps.length)fps.forEach(function(p){flat.push(p.id)});else flat.push('freecloud')}else flat.push(tok)});
-  var h='<div style="color:var(--mut);text-transform:uppercase;font-size:10px;letter-spacing:.5px;margin:2px 4px 8px">Active chain</div>';
+  // Order by capability (weakest/green at top -> smartest/blue at bottom) to match the color scale.
+  flat.sort(function(a,b){return rankForTok(d,a)-rankForTok(d,b)});
+  var h='<div style="color:var(--mut);text-transform:uppercase;font-size:10px;letter-spacing:.5px;margin:2px 4px 8px">Models (by capability)</div>';
   if(!flat.length)h+='<div style="color:var(--mut);padding:4px 7px">none</div>';
   flat.forEach(function(tok){h+=railItem(d,tok)});
   h+='<div id="raillink" style="color:var(--mut);font-size:10px;margin:9px 4px 4px;cursor:pointer">edit in Providers &#8594;</div>';
