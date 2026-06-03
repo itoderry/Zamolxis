@@ -25,6 +25,8 @@ import { SessionIndex } from './core/sessionIndex.js';
 import { TabsManager } from './core/tabs.js';
 import { UsageTracker } from './core/usage.js';
 import { initProviders } from './core/providers.js';
+import { BanStore, isSmartestModel } from './core/bans.js';
+import { configuredProviders } from './core/providers.js';
 import { buildToolServers } from './tools/index.js';
 
 /** Print a readiness report (`--doctor`/`--check`) and exit. Used by the installer. */
@@ -116,8 +118,10 @@ async function main(): Promise<void> {
   // Scheduler is created before the engine so the engine can drive it: auto-schedule an agent
   // when the planner extracts a recurring job from the story, and suspend/resume on Stop.
   const scheduler = new Scheduler(config.dataDir);
+  // Per-(model, skill) ban list: a banned model refuses that capability; auto-populated on escalate.
+  const bans = new BanStore(config.dataDir);
   const engine = new Engine({
-    config, sessions, throttle, memory, sessionIndex, usage, skills, agentStore, onAgentMessage: pushAgentMsg,
+    config, sessions, throttle, memory, sessionIndex, usage, skills, agentStore, bans, onAgentMessage: pushAgentMsg,
     scheduleAgent: (name, cron, task) => void scheduler.add({ name: `agent:${name}`, agent: name, prompt: task || '', cron, channel: 'agent', chatId: name, conversationKey: `agent:${name}` }),
     countAgentSchedules: (name) => scheduler.countByAgent(name),
     setAgentSchedulesEnabled: (name, enabled) => scheduler.setAgentEnabled(name, enabled),
@@ -158,7 +162,14 @@ async function main(): Promise<void> {
         (text) => engine.nlToCron(text),
         (n, stop) => engine.stopAgent(n, stop),
         (n) => engine.analyzeAgent(n),
-        (key) => sessionIndex.recent(key, 50))],
+        (key) => sessionIndex.recent(key, 50),
+        {
+          list: () => bans.list(),
+          add: (model: string, skill: string) => (isSmartestModel(model) ? { ok: false, reason: 'the smartest model cannot be banned' } : bans.add(model, skill)),
+          remove: (model: string, skill: string) => bans.remove(model, skill),
+          capabilities: () => engine.capabilityNames(),
+          models: () => ['local', ...configuredProviders().map((p) => p.id)],
+        })],
     ];
     for (const [enabled, make] of factories) {
       if (!enabled) continue;

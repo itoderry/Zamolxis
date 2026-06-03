@@ -177,9 +177,11 @@ export function loadConfig(): ZamolxisConfig {
     localRouting:
       (process.env.ZAMOLXIS_LOCAL_ROUTING as 'off' | 'auto') ||
       (process.env.ZAMOLXIS_LOCAL_MODEL ? 'auto' : 'off'),
+    // Free cloud first, on-device local LAST (it's the least reliable), Claude as the rescue tier.
+    // The engine additionally orders any paid providers between free and local (free → paid → local).
     routeChain: process.env.ZAMOLXIS_ROUTE_CHAIN
       ? process.env.ZAMOLXIS_ROUTE_CHAIN.split(',').map((s) => s.trim()).filter(Boolean)
-      : ['local', 'freecloud', 'claude'],
+      : ['freecloud', 'local', 'claude'],
     permissionMode: (process.env.ZAMOLXIS_PERMISSION_MODE as ZamolxisConfig['permissionMode']) || 'acceptEdits',
     allowedTools: process.env.ZAMOLXIS_ALLOWED_TOOLS
       ? process.env.ZAMOLXIS_ALLOWED_TOOLS.split(',').map((s) => s.trim()).filter(Boolean)

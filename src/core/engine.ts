@@ -21,6 +21,7 @@ import { buildLocalTools, localSearchAvailable, type LocalToolset } from './loca
 import { effectiveName } from './displayName.js';
 import { pickFreeProvider, freeProviderPool, providerById, recordProviderUse, configuredProviders, type ProviderDef } from './providers.js';
 import type { AgentStore } from './agents.js';
+import { BanStore, isSmartestModel } from './bans.js';
 
 export interface RunRequest {
   /** Stable per-conversation key, e.g. "telegram:12345". */
@@ -47,6 +48,9 @@ export interface RunRequest {
   agentTools?: string[];
   /** Agent run: allow falling back to Claude (smartest) even on a fixed tier / chain without it. */
   elevate?: boolean;
+  /** Internal: the user invoked a specific capability via "/skill ..." — route to the first
+   *  model NOT banned from it, and tell the model to use exactly this skill/tool. */
+  forcedSkill?: string;
 }
 
 /** Builds per-turn in-process MCP servers, closing over the live conversation context. */
@@ -64,6 +68,10 @@ export interface RunResult {
   errorKind?: string;
   /** Which backend produced this answer (e.g. "Groq (llama-3.3-70b-versatile)", "Claude (opus)", "Local"). */
   via?: string;
+  /** Internal: model token that answered ('local' | provider id | 'claude'), for auto-ban tracking. */
+  modelToken?: string;
+  /** Internal: capabilities (tool/skill names) this turn used, for auto-ban tracking. */
+  usedCaps?: string[];
 }
 
 export interface EngineDeps {
@@ -92,6 +100,8 @@ export interface EngineDeps {
   countAgentSchedules?: (name: string) => number;
   /** Suspend (enabled=false) or resume (true) ALL schedules for an agent. Returns the count affected. */
   setAgentSchedulesEnabled?: (name: string, enabled: boolean) => number;
+  /** Per-(model, skill) ban list — a banned model refuses that capability. */
+  bans?: BanStore;
 }
 
 function buildPersona(name: string): string {
@@ -122,6 +132,86 @@ function editDistance(a: string, b: string): number {
     }
   }
   return d[m]![n]!;
+}
+
+/** Safely evaluate a PURE arithmetic expression (digits, + - * / ( ) . ^ %). Returns the numeric
+ *  result, or null if the text isn't a self-contained formula. No eval(), no model — trivial math
+ *  must never touch an LLM. Tolerates a leading "what is"/"calculate" and a trailing "=" / "?". */
+function evalArithmetic(textRaw: string): number | null {
+  let t = (textRaw ?? '').trim();
+  t = t.replace(/^(?:what(?:'?s| is| are)?|calculate|compute|evaluate|eval|how much is)\s+/i, '').trim();
+  t = t.replace(/[=?\s]+$/, '').trim();
+  if (!t || !/^[0-9\s+\-*/().,^%]+$/.test(t) || !/[0-9]/.test(t) || !/[+\-*/^%]/.test(t)) return null;
+  const s = t.replace(/,/g, ''); // tolerate thousands separators
+  let i = 0;
+  const ws = (): void => { while (i < s.length && s[i] === ' ') i++; };
+  const num = (): number => {
+    ws();
+    const start = i;
+    while (i < s.length && /[0-9.]/.test(s[i]!)) i++;
+    if (i === start) throw new Error('num');
+    const n = parseFloat(s.slice(start, i));
+    if (!isFinite(n)) throw new Error('num');
+    return n;
+  };
+  const factor = (): number => {
+    ws();
+    if (s[i] === '+') { i++; return factor(); }
+    if (s[i] === '-') { i++; return -factor(); }
+    if (s[i] === '(') { i++; const v = expr(); ws(); if (s[i] !== ')') throw new Error('paren'); i++; return v; }
+    return num();
+  };
+  const power = (): number => {
+    const base = factor();
+    ws();
+    if (s[i] === '^') { i++; return Math.pow(base, power()); } // right-assoc
+    return base;
+  };
+  const term = (): number => {
+    let v = power();
+    for (;;) {
+      ws();
+      const c = s[i];
+      if (c === '*') { i++; v *= power(); }
+      else if (c === '/') { i++; const d = power(); if (d === 0) throw new Error('div0'); v /= d; }
+      else if (c === '%') { i++; const d = power(); if (d === 0) throw new Error('mod0'); v %= d; }
+      else break;
+    }
+    return v;
+  };
+  function expr(): number {
+    let v = term();
+    for (;;) {
+      ws();
+      const c = s[i];
+      if (c === '+') { i++; v += term(); }
+      else if (c === '-') { i++; v -= term(); }
+      else break;
+    }
+    return v;
+  }
+  try {
+    const v = expr();
+    ws();
+    if (i !== s.length || !isFinite(v)) return null;
+    return v;
+  } catch {
+    return null;
+  }
+}
+
+/** Format an arithmetic result without floating-point noise. */
+function formatNum(v: number): string {
+  if (Number.isInteger(v)) return String(v);
+  return String(parseFloat(v.toFixed(10)));
+}
+
+/** Parse a "/ban ..." or "/unban ..." chat command into its two tokens (order-insensitive). */
+function parseBanCommand(textRaw: string): { cmd: 'ban' | 'unban'; tokens: string[] } | null {
+  const m = (textRaw ?? '').trim().match(/^\/(ban|unban)\b\s*(.*)$/i);
+  if (!m) return null;
+  const tokens = (m[2] || '').trim().split(/[\s,]+/).filter(Boolean);
+  return { cmd: m[1]!.toLowerCase() as 'ban' | 'unban', tokens };
 }
 
 /** Did the local model ask to hand off? It was told to reply "ESCALATE", but small models rarely
@@ -325,6 +415,9 @@ export class Engine {
   private readonly tails = new Map<string, Promise<unknown>>();
   /** Last turn per conversation (in-memory) so "wrong"/"escalate" can redo it on the smart model. */
   private readonly lastByKey = new Map<string, { text: string; reply: string }>();
+  /** What the LAST turn in this conversation actually used (model token + capabilities it invoked),
+   *  so an immediate "escalate" can auto-ban that model from the skill it just botched. */
+  private readonly lastUseByKey = new Map<string, { model: string; caps: string[] }>();
   /** In-flight Claude turns keyed by conversationKey, so an agent's run can be aborted by Stop. */
   private readonly inFlight = new Map<string, AbortController>();
   /** Agents paused for THIS session by the startup restore policy (NOT persisted, unlike `stopped`),
@@ -375,6 +468,62 @@ export class Engine {
       (x) => x.token.toLowerCase() === q || x.label.toLowerCase().includes(q) || String(x.name).toLowerCase().includes(q) || (q.length >= 3 && q.includes(x.token.toLowerCase())),
     );
     return hit ? { escalate: true, route: hit.token, targetLabel: hit.label } : { escalate: true }; // unknown -> smartest
+  }
+
+  /** Every capability the user can ban / invoke with "/": tool names + saved skill names. */
+  capabilityNames(): string[] {
+    const tools = buildLocalTools().names;
+    const skills = (this.deps.skills?.list() ?? []).map((s) => s.name);
+    return Array.from(new Set([...tools, ...skills]));
+  }
+
+  /** Bannable model tokens (everything except the smartest, which is always allowed). */
+  private bannableModelTokens(): string[] {
+    return ['local', ...configuredProviders().map((p) => p.id)];
+  }
+
+  /** Is `tok` a recognizable model token (local / a provider id / a smartest alias)? */
+  private isModelToken(tok: string): boolean {
+    const x = (tok || '').toLowerCase();
+    return x === 'local' || isSmartestModel(x) || !!providerById(x);
+  }
+
+  /** From the two tokens of "/ban a b", decide which is the model and which is the skill.
+   *  Spec order is "/ban [skill] [model]", but we accept either order by recognizing model tokens. */
+  private resolveBanArgs(tokens: string[]): { model: string; skill: string } | null {
+    const [a, b] = [tokens[0], tokens[1]];
+    if (!a || !b) return null;
+    const aIsModel = this.isModelToken(a);
+    const bIsModel = this.isModelToken(b);
+    if (bIsModel && !aIsModel) return { skill: a, model: b };
+    if (aIsModel && !bIsModel) return { skill: b, model: a };
+    return { skill: a, model: b }; // ambiguous → spec order [skill] [model]
+  }
+
+  /** Execute "/ban" or "/unban" and return a user-facing confirmation line. */
+  private handleBanCommand(parsed: { cmd: 'ban' | 'unban'; tokens: string[] }): string {
+    const bans = this.deps.bans;
+    if (!bans) return 'Bans are not available.';
+    const args = this.resolveBanArgs(parsed.tokens);
+    if (!args) return `Usage: /${parsed.cmd} [skill] [model]  — e.g. "/${parsed.cmd} web_search local". Models: ${this.bannableModelTokens().join(', ')}.`;
+    const { model, skill } = args;
+    if (parsed.cmd === 'ban') {
+      if (isSmartestModel(model)) return `Can't ban "${model}" — the smartest model is the rescue tier and can never be banned.`;
+      const r = bans.add(model, skill);
+      if (!r.ok) return `Could not ban: ${r.reason}.`;
+      return `Banned: ${model} — ${skill}. ${model} will now refuse "${skill}" (routing prefers a non-banned model; the smartest model still can).`;
+    }
+    const removed = bans.remove(model, skill);
+    return removed ? `Unbanned: ${model} — ${skill}.` : `No such ban (${model} — ${skill}).`;
+  }
+
+  /** Map a routing tier token to the model token used for ban checks. freecloud is per-provider
+   *  (resolved inside answerFreeCloud), so it returns null here. */
+  private tierModelToken(tier: string): string | null {
+    if (tier === 'local') return 'local';
+    if (tier === 'claude') return 'claude';
+    if (providerById(tier)) return tier;
+    return null;
   }
 
   /** Run a named user-defined agent against a task, on its configured tier with only its tools.
@@ -703,13 +852,50 @@ export class Engine {
     const key = req.conversationKey;
     const { config } = this.deps;
 
+    // ── /ban & /unban: manage the per-(model, skill) ban list. Not routed to any model. ──
+    const banCmd = parseBanCommand(req.text);
+    if (banCmd) {
+      const reply = this.handleBanCommand(banCmd);
+      return { reply, sessionId: '', costUsd: 0, isError: false, via: 'Bans' };
+    }
+
+    // ── Deterministic arithmetic: a clear formula is computed directly — no model at all. ──
+    const mathVal = evalArithmetic(req.text);
+    if (mathVal !== null) {
+      const reply = formatNum(mathVal);
+      this.deps.sessionIndex?.record(key, 'user', req.text, Date.now());
+      this.deps.sessionIndex?.record(key, 'assistant', reply, Date.now());
+      this.lastByKey.set(key, { text: req.text, reply });
+      this.lastUseByKey.set(key, { model: 'calculator', caps: [] });
+      return { reply, sessionId: '', costUsd: 0, isError: false, via: 'Calculator' };
+    }
+
+    // ── "/skill ..." capability call: force that skill/tool, route to a non-banned model. ──
+    let baseReq = req;
+    const skillCall = req.text.match(/^\/([a-z0-9_-]{2,40})\b[ \t]*([\s\S]*)$/i);
+    if (skillCall) {
+      const cap = this.capabilityNames().find((c) => c.toLowerCase() === skillCall[1]!.toLowerCase());
+      if (cap) {
+        const rest = (skillCall[2] || '').trim();
+        baseReq = { ...req, forcedSkill: cap, text: rest ? `Use the "${cap}" skill/tool to handle this: ${rest}` : `Use the "${cap}" skill/tool now.` };
+      }
+    }
+
     // User-driven escalation: if the user rejects the previous answer with a short
     // "wrong" / "escalate" / "try again", redo the ORIGINAL request on the smart model.
     const prev = this.lastByKey.get(key);
-    let effReq = req;
-    let originalText = req.text;
+    let effReq = baseReq;
+    let originalText = baseReq.text;
     const esc = prev ? this.parseEscalation(req.text) : { escalate: false as boolean };
     if (prev && esc.escalate) {
+      // Auto-ban: the user escalated right after the local model used a capability → ban
+      // (local, that capability) so next time it goes straight to a stronger model.
+      const lastUse = this.lastUseByKey.get(key);
+      if (this.deps.bans && lastUse && lastUse.model === 'local' && lastUse.caps.length) {
+        for (const cap of lastUse.caps) {
+          if (this.deps.bans.add('local', cap).ok) logger.info({ skill: cap }, 'auto-banned local after escalation');
+        }
+      }
       originalText = prev.text;
       const toClaude = !esc.route || esc.route === 'claude';
       const who = toClaude ? 'you, the more capable model' : `the ${esc.targetLabel || esc.route} model`;
@@ -737,7 +923,10 @@ export class Engine {
     // "wrong"/"escalate" re-targets the same request.
     void result.then(
       (r) => {
-        if (r && !r.isError && r.reply) this.lastByKey.set(key, { text: originalText, reply: r.reply });
+        if (r && !r.isError && r.reply) {
+          this.lastByKey.set(key, { text: originalText, reply: r.reply });
+          if (r.modelToken) this.lastUseByKey.set(key, { model: r.modelToken, caps: r.usedCaps ?? [] });
+        }
       },
       () => {},
     );
@@ -779,7 +968,7 @@ export class Engine {
    * failure also escalates. Usage is recorded (summed across rounds) as "local:<model>".
    */
   /** Shared assistant system prompt + tools for the tool-using models (local & free cloud). */
-  private buildAssistant(allowEscalate: boolean, query = '', agent?: { job?: string; tools?: string[] }): { system: string; tools: LocalToolset } {
+  private buildAssistant(allowEscalate: boolean, query = '', agent?: { job?: string; tools?: string[] }, opts?: { bannedCaps?: string[]; forcedSkill?: string }): { system: string; tools: LocalToolset } {
     const { config } = this.deps;
     let tools = buildLocalTools();
     // Agent tool restriction: expose ONLY the tools this agent is allowed to use.
@@ -789,6 +978,15 @@ export class Engine {
       const names = tools.names.filter((n) => allow.has(n));
       const baseExec = tools.exec;
       tools = { names, defs, exec: (name: string, args: Record<string, unknown>) => (allow.has(name) ? baseExec(name, args) : Promise.resolve('That tool is not available to this agent.')) };
+    }
+    // Ban enforcement: this model is forbidden from these capabilities — strip banned TOOLS so it
+    // physically can't call them, and instruct it to refuse if asked to use a banned skill.
+    const banned = new Set((opts?.bannedCaps ?? []).map((c) => c.toLowerCase()));
+    if (banned.size) {
+      const defs = tools.defs.filter((d) => !banned.has(((d as { function?: { name?: string } }).function?.name ?? '').toLowerCase()));
+      const names = tools.names.filter((n) => !banned.has(n.toLowerCase()));
+      const baseExec = tools.exec;
+      tools = { names, defs, exec: (name: string, args: Record<string, unknown>) => (banned.has(name.toLowerCase()) ? Promise.resolve('BANNED') : baseExec(name, args)) };
     }
     const hasSearch = tools.names.includes('web_search');
     const noSearchNote =
@@ -801,10 +999,19 @@ export class Engine {
       : 'If you cannot complete the request with your tools, say briefly and honestly that you cannot — do not pretend or guess.';
     // Only the skills RELEVANT to this request (so a large external library — e.g. Hermes —
     // doesn't flood the prompt). Falls back to a capped list when there's no query.
-    const skills = query ? (this.deps.skills?.relevant(query, 8) ?? []) : (this.deps.skills?.list() ?? []).slice(0, 8);
+    const skills = (query ? (this.deps.skills?.relevant(query, 8) ?? []) : (this.deps.skills?.list() ?? []).slice(0, 8)).filter((s) => !banned.has(s.name.toLowerCase()));
     const skillsHint = skills.length
       ? `Relevant skills — these are PROCEDURES to follow, NOT tools to call. To use one, just DO what its description says using your real tools (http_get / web_search) or plain reasoning. Your ONLY callable tools are ${tools.names.join(', ')} — NEVER reply with a skill's name, and never emit a function/tool call as text.\n${skills.map((s) => `- ${s.name}: ${s.description}`).join('\n')}`
       : undefined;
+    // The user banned this model from the listed capabilities. When this is the LAST-resort tier
+    // (no stronger model can take over), it must REFUSE with the exact phrase. When a stronger
+    // model could still handle it (allowEscalate), the banned tool is simply stripped so the model
+    // hands off instead of refusing — the user only sees "banned" if nothing else can do it.
+    const banNote = banned.size && !allowEscalate
+      ? `You are BANNED from using these capabilities: ${[...banned].join(', ')}. If the request requires any of them, reply with EXACTLY: I can't, I am banned!`
+      : undefined;
+    // A "/skill" call forces a specific capability for this turn.
+    const forcedNote = opts?.forcedSkill ? `The user explicitly requested the "${opts.forcedSkill}" skill/tool — use exactly that to fulfill this turn.` : undefined;
     // Keep context LEAN: a small model loses tool results in a big prompt (then fabricates).
     const profile = this.deps.memory.getUser().replace(/^#.*$/m, '').trim();
     const profileHint = profile ? `About the user:\n${profile}` : undefined;
@@ -816,7 +1023,7 @@ export class Engine {
     const learned = query ? this.deps.memory.relevantLearningsBlock(query) : this.deps.memory.learningsBlock();
     // An agent's job leads the prompt so the model stays on its specific task.
     const agentRole = agent?.job ? `YOU ARE A FOCUSED AGENT. YOUR JOB:\n${agent.job}\nDo exactly this job using only your available tools; do not drift off-task.` : undefined;
-    const system = [agentRole, toolsLine, searchSynth, safety, escalateRule, persona, nowLine, profileHint, learned, skillsHint, config.systemPromptAppend]
+    const system = [agentRole, toolsLine, searchSynth, safety, escalateRule, banNote, forcedNote, persona, nowLine, profileHint, learned, skillsHint, config.systemPromptAppend]
       .filter(Boolean)
       .join('\n\n');
     return { system, tools };
@@ -830,6 +1037,7 @@ export class Engine {
     inTok: number;
     outTok: number;
     searched: boolean;
+    usedTools: string[];
   }> {
     // System, then the prior conversation (so a model that didn't answer earlier turns still
     // knows what was discussed), then this turn's user message.
@@ -844,6 +1052,7 @@ export class Engine {
     let finalText = '';
     let exhausted = false;
     let searched = false; // did the model actually fetch real data (web_search/http_get)?
+    const usedTools = new Set<string>();
     const ac = new AbortController();
     const timeout = setTimeout(() => ac.abort(), this.deps.config.turnTimeoutMs);
     try {
@@ -859,7 +1068,7 @@ export class Engine {
         if (!res.ok) {
           const body = await res.text().catch(() => '');
           logger.warn({ status: res.status, url: o.url, model: o.model, body: body.slice(0, 400) }, 'tool-model HTTP error');
-          return { failed: true, exhausted: false, finalText: '', inTok, outTok, searched };
+          return { failed: true, exhausted: false, finalText: '', inTok, outTok, searched, usedTools: [...usedTools] };
         }
         const data = (await res.json()) as {
           choices?: Array<{ message?: { content?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> } }>;
@@ -885,6 +1094,7 @@ export class Engine {
           }));
           messages.push({ role: 'assistant', content: m?.content ?? '', tool_calls: normCalls });
           for (const tc of normCalls) {
+            if (tc.function.name) usedTools.add(tc.function.name);
             if (tc.function.name === 'web_search' || tc.function.name === 'http_get') searched = true;
             let args: Record<string, unknown> = {};
             try {
@@ -903,15 +1113,15 @@ export class Engine {
     } catch (err) {
       clearTimeout(timeout);
       logger.warn({ err: String(err), url: o.url }, 'tool-model turn failed');
-      return { failed: true, exhausted: false, finalText: '', inTok, outTok, searched };
+      return { failed: true, exhausted: false, finalText: '', inTok, outTok, searched, usedTools: [...usedTools] };
     } finally {
       clearTimeout(timeout);
     }
-    return { failed: false, exhausted, finalText, inTok, outTok, searched };
+    return { failed: false, exhausted, finalText, inTok, outTok, searched, usedTools: [...usedTools] };
   }
 
   /** Decide hand-off vs answer from a tool-loop outcome (shared by local & cloud). */
-  private finishAssistantTurn(req: RunRequest, allowEscalate: boolean, r: { failed: boolean; exhausted: boolean; finalText: string; searched?: boolean }, isLocal = false): { escalate: boolean; result?: RunResult } {
+  private finishAssistantTurn(req: RunRequest, allowEscalate: boolean, r: { failed: boolean; exhausted: boolean; finalText: string; searched?: boolean; usedTools?: string[] }, isLocal = false): { escalate: boolean; result?: RunResult } {
     if (r.failed) return { escalate: true };
     let finalText = r.finalText;
     if (extractLeakedToolCall(finalText) || looksLikeLeakedCall(finalText)) {
@@ -928,7 +1138,8 @@ export class Engine {
     const now = Date.now();
     this.deps.sessionIndex?.record(req.conversationKey, 'user', req.text, now);
     this.deps.sessionIndex?.record(req.conversationKey, 'assistant', reply, now);
-    return { escalate: false, result: { reply, sessionId: '', costUsd: 0, isError: false } };
+    const usedCaps = Array.from(new Set([...(r.usedTools ?? []), ...(req.forcedSkill ? [req.forcedSkill] : [])]));
+    return { escalate: false, result: { reply, sessionId: '', costUsd: 0, isError: false, usedCaps } };
   }
 
   /** Prior turns of THIS conversation as OpenAI-style messages, so a model that didn't answer
@@ -944,12 +1155,13 @@ export class Engine {
   /** Answer with the on-device model via the shared tool loop (no subscription used). */
   private async answerLocal(req: RunRequest, allowEscalate: boolean): Promise<{ escalate: boolean; result?: RunResult }> {
     const lm = this.deps.config.localModel!;
-    const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools });
+    const bannedCaps = this.deps.bans?.bannedSkillsFor('local') ?? [];
+    const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill });
     const history = this.recentHistory(req.conversationKey);
     const r = await this.toolLoop({ url: `${lm.url}/chat/completions`, model: lm.model, system, userText: req.text, tools, history });
     if (!r.failed) this.deps.usage?.recordEngine({ [`local:${lm.model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
     const out = this.finishAssistantTurn(req, allowEscalate, r, /* isLocal */ true);
-    if (out.result) out.result.via = `Local (${lm.model})`;
+    if (out.result) { out.result.via = `Local (${lm.model})`; out.result.modelToken = 'local'; }
     return out;
   }
 
@@ -957,14 +1169,15 @@ export class Engine {
   private async answerProvider(req: RunRequest, p: ProviderDef, allowEscalate: boolean): Promise<{ escalate: boolean; result?: RunResult }> {
     const key = process.env[p.envKey];
     if (!key) return { escalate: true };
-    const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools });
+    const bannedCaps = this.deps.bans?.bannedSkillsFor(p.id) ?? [];
+    const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill });
     const history = this.recentHistory(req.conversationKey);
     const r = await this.toolLoop({ url: `${p.baseUrl}/chat/completions`, model: p.model, apiKey: key, system, userText: req.text, tools, history });
     recordProviderUse(p.id);
     if (!r.failed) this.deps.usage?.recordEngine({ [`${p.kind}:${p.id}:${p.model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
     if (!r.failed) logger.info({ provider: p.id, kind: p.kind }, 'cloud provider handled the turn');
     const out = this.finishAssistantTurn(req, allowEscalate, r);
-    if (out.result) out.result.via = `${p.label} (${p.model})`;
+    if (out.result) { out.result.via = `${p.label} (${p.model})`; out.result.modelToken = p.id; }
     return out;
   }
 
@@ -973,7 +1186,9 @@ export class Engine {
    *  Trying the whole pool first keeps live facts on the free tier instead of jumping to
    *  Claude the moment one provider is rate-limited or errors. */
   private async answerFreeCloud(req: RunRequest, allowEscalate: boolean): Promise<{ escalate: boolean; result?: RunResult }> {
-    const pool = freeProviderPool({ strongOnly: needsCurrentInfo(req.text) });
+    let pool = freeProviderPool({ strongOnly: needsCurrentInfo(req.text) });
+    // For a forced-skill call, drop free providers banned from that capability.
+    if (req.forcedSkill && this.deps.bans) pool = pool.filter((p) => !this.deps.bans!.isBanned(p.id, req.forcedSkill!));
     if (!pool.length) return { escalate: true };
     for (let i = 0; i < pool.length; i++) {
       const p = pool[i]!;
@@ -990,11 +1205,33 @@ export class Engine {
 
   /** Run one routing-chain tier ('local' | 'freecloud' | <providerId>). */
   private async attemptTier(tier: string, req: RunRequest, allowEscalate: boolean): Promise<{ escalate: boolean; result?: RunResult }> {
+    // Forced-skill ban: if this tier's model is banned from the requested capability, skip it so a
+    // non-banned model takes over. At the LAST resort (no escalation left), refuse deterministically.
+    if (req.forcedSkill && this.deps.bans) {
+      const mt = this.tierModelToken(tier);
+      if (mt && this.deps.bans.isBanned(mt, req.forcedSkill)) {
+        if (allowEscalate) return { escalate: true };
+        return { escalate: false, result: { reply: "I can't, I am banned!", sessionId: '', costUsd: 0, isError: false, via: `${mt} (banned)`, modelToken: mt } };
+      }
+    }
     if (tier === 'local') return this.deps.config.localModel ? this.answerLocal(req, allowEscalate) : { escalate: true };
     if (tier === 'freecloud') return this.answerFreeCloud(req, allowEscalate);
     const p = providerById(tier);
     if (p) return this.answerProvider(req, p, allowEscalate);
     return { escalate: true }; // unknown token (e.g. 'claude' is handled separately)
+  }
+
+  /** Order cheap tiers free → paid → local (local last; it's the least reliable). Reorders the
+   *  user's chain by capability class WITHOUT injecting providers they didn't enable (no surprise
+   *  paid usage): 'freecloud'/free-provider ids → paid-provider ids → 'local'. Stable otherwise. */
+  private cheapOrder(cloud: string[]): string[] {
+    const prio = (t: string): number => {
+      if (t === 'local') return 2;
+      const p = providerById(t);
+      if (p) return p.kind === 'paid' ? 1 : 0;
+      return 0; // 'freecloud' + free-provider ids
+    };
+    return cloud.map((t, i) => ({ t, i })).sort((a, b) => prio(a.t) - prio(b.t) || a.i - b.i).map((x) => x.t);
   }
 
   /** Plan the pre-Claude tiers to attempt + whether Claude is the final fallback. */
@@ -1004,8 +1241,9 @@ export class Engine {
     const claudeIn = chain.includes('claude');
     // An agent with canElevate may fall back to Claude even on a fixed tier / chain without it.
     const elev = !!req.elevate;
-    // Drop 'local' if the user turned local routing off (keeps that toggle meaningful).
-    const cloud = chain.filter((t) => t !== 'claude').filter((t) => !(t === 'local' && config.localRouting === 'off'));
+    // Drop 'local' if the user turned local routing off (keeps that toggle meaningful), then order
+    // the cheap tiers free → paid → local (local is the least reliable, so it's the last resort).
+    const cloud = this.cheapOrder(chain.filter((t) => t !== 'claude').filter((t) => !(t === 'local' && config.localRouting === 'off')));
     if (req.route === 'claude') return { tiers: [], claude: true }; // explicit → Claude
     if (req.escalated) return claudeIn ? { tiers: [], claude: true } : { tiers: cloud.slice(-1), claude: false };
     if (req.route === 'local') return { tiers: cloud.includes('local') ? ['local'] : cloud.slice(0, 1), claude: elev };

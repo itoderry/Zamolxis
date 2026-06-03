@@ -193,6 +193,14 @@ export class WebChannel implements Channel {
     private readonly analyzeAgent?: (name: string) => Promise<{ ok: boolean; assessment?: string; changed?: boolean; note?: string }>,
     /** Recent turns for a conversation key (to restore chat history when switching threads). */
     private readonly getHistory?: (conversationKey: string) => Array<{ role: string; text: string; ts: number }>,
+    /** Per-(model, skill) ban list management + the capability/model vocab (for the / autocomplete). */
+    private readonly banApi?: {
+      list: () => Array<{ model: string; skill: string }>;
+      add: (model: string, skill: string) => { ok: boolean; reason?: string };
+      remove: (model: string, skill: string) => boolean;
+      capabilities: () => string[];
+      models: () => string[];
+    },
   ) {
     const { bind, authToken } = config.web;
     if (!LOOPBACK.includes(bind) && !authToken) {
@@ -618,6 +626,30 @@ export class WebChannel implements Channel {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
       const since = Number(url.searchParams.get('since') || 0) || 0;
       return this.json(res, 200, (this.agentMsgs ?? []).filter((m) => m.ts > since).slice(-100));
+    }
+    if (url.pathname === '/api/bans') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      if (!this.banApi) return this.json(res, 200, { bans: [], capabilities: [], models: [] });
+      if (req.method === 'GET') return this.json(res, 200, { bans: this.banApi.list(), capabilities: this.banApi.capabilities(), models: this.banApi.models() });
+      if (req.method === 'POST') {
+        let body = '';
+        req.on('data', (c) => (body += c));
+        return void req.on('end', () => {
+          try {
+            const o = JSON.parse(body || '{}') as { action?: string; model?: string; skill?: string };
+            const model = String(o.model || '').trim();
+            const skill = String(o.skill || '').trim();
+            if (o.action === 'remove') {
+              const removed = this.banApi!.remove(model, skill);
+              return this.json(res, 200, { ok: removed, bans: this.banApi!.list() });
+            }
+            const r = this.banApi!.add(model, skill);
+            return this.json(res, r.ok ? 200 : 400, { ok: r.ok, reason: r.reason, bans: this.banApi!.list() });
+          } catch {
+            return this.json(res, 400, { error: 'bad request' });
+          }
+        });
+      }
     }
     if (url.pathname === '/api/skills') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
@@ -1134,16 +1166,28 @@ if(el('attach'))el('attach').onclick=function(){el('fileinput').click()};
 if(el('fileinput'))el('fileinput').onchange=function(){addFiles(this.files);this.value=''};
 el('in').addEventListener('paste',function(e){var f=e.clipboardData&&e.clipboardData.files;if(f&&f.length){e.preventDefault();addFiles(f)}});
 (function(){var cv=el('chatview');if(!cv)return;function over(e){e.preventDefault();cv.classList.add('drag')}cv.addEventListener('dragenter',over);cv.addEventListener('dragover',over);cv.addEventListener('dragleave',function(e){e.preventDefault();cv.classList.remove('drag')});cv.addEventListener('drop',function(e){e.preventDefault();cv.classList.remove('drag');if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length)addFiles(e.dataTransfer.files)})})();
-var ESC_OPEN=false,ESC_ITEMS=[],ESC_SEL=0;
+var ESC_OPEN=false,ESC_ITEMS=[],ESC_SEL=0,ESC_HEAD='',ESC_NUM=false;
+var CAPS=[],BANMODELS=[];
+function loadBanVocab(){fetch('/api/bans',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d){CAPS=d.capabilities||[];BANMODELS=d.models||[]}}).catch(function(){})}
 function escModels(){var d=RAIL;if(!d)return [];var list=[];if(d.localModel)list.push({label:'Local',name:String(d.localModel)});(d.providers||[]).filter(function(p){return p.configured}).forEach(function(p){list.push({label:p.label,name:p.model})});list.push({label:'Claude',name:'claude opus'});list.forEach(function(x){x.score=smartScore(x.name)});list.sort(function(a,b){return a.score-b.score});return list}
 function escBoxEl(){var b=el('escac');if(b)return b;b=document.createElement('div');b.id='escac';b.style.cssText='display:none;position:fixed;z-index:80;max-height:240px;overflow:auto;background:#161108;border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.5);font-size:13px';document.body.appendChild(b);return b}
 function escHide(){ESC_OPEN=false;var b=el('escac');if(b)b.style.display='none'}
 function escRender(){var b=escBoxEl();var r=el('in').getBoundingClientRect();b.style.left=r.left+'px';b.style.width=Math.min(460,r.width)+'px';b.style.bottom=(window.innerHeight-r.top+6)+'px';
-  b.innerHTML='<div style="padding:4px 9px;color:var(--mut);font-size:11px;border-bottom:1px solid var(--line)">escalate to \\u2014 \\u2191\\u2193 then Enter (or type a number)</div>'+ESC_ITEMS.map(function(it,i){return '<div class="escit" data-i="'+i+'" style="padding:6px 9px;cursor:pointer;display:flex;gap:8px;align-items:center;'+(i===ESC_SEL?'background:rgba(212,165,90,.18)':'')+'"><span style="color:var(--mut);width:14px;text-align:right">'+(i+1)+'</span><span style="flex:1;color:'+gradColor(smartScore(it.name))+'">'+esc(it.label)+'</span><span style="color:var(--mut);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:170px">'+esc(it.name)+'</span></div>'}).join('');
+  b.innerHTML='<div style="padding:4px 9px;color:var(--mut);font-size:11px;border-bottom:1px solid var(--line)">'+esc(ESC_HEAD||'escalate to')+' \\u2014 \\u2191\\u2193 then Enter</div>'+ESC_ITEMS.map(function(it,i){var col=it.color||(it.name?gradColor(smartScore(it.name)):'var(--ink)');return '<div class="escit" data-i="'+i+'" style="padding:6px 9px;cursor:pointer;display:flex;gap:8px;align-items:center;'+(i===ESC_SEL?'background:rgba(212,165,90,.18)':'')+'">'+(ESC_NUM?'<span style="color:var(--mut);width:14px;text-align:right">'+(i+1)+'</span>':'')+'<span style="flex:1;color:'+col+'">'+esc(it.label)+'</span><span style="color:var(--mut);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">'+esc(it.name||'')+'</span></div>'}).join('');
   b.style.display='block';[].slice.call(b.querySelectorAll('.escit')).forEach(function(x){x.onmousedown=function(ev){ev.preventDefault();escPick(+x.getAttribute('data-i'))}})}
-function escShow(partial){var all=escModels();if(!all.length){escHide();return}partial=(partial||'').trim().toLowerCase();var items=partial?all.filter(function(x){return x.label.toLowerCase().indexOf(partial)>=0||String(x.name).toLowerCase().indexOf(partial)>=0}):all;if(!items.length){escHide();return}ESC_ITEMS=items;ESC_SEL=0;ESC_OPEN=true;escRender()}
-function escPick(i){var it=ESC_ITEMS[i];if(!it)return;el('in').value='escalate '+it.label;escHide();el('in').focus()}
-el('in').addEventListener('input',function(){var m=el('in').value.match(/^(escalate|escalade|elevate)\s+(.*)$/i);if(!m){escHide();return}escShow(m[2]||'')});
+function escShow(partial){var all=escModels();if(!all.length){escHide();return}partial=(partial||'').trim().toLowerCase();var items=partial?all.filter(function(x){return x.label.toLowerCase().indexOf(partial)>=0||String(x.name).toLowerCase().indexOf(partial)>=0}):all;if(!items.length){escHide();return}items.forEach(function(it){it.fill='escalate '+it.label});ESC_ITEMS=items;ESC_SEL=0;ESC_OPEN=true;ESC_HEAD='escalate to';ESC_NUM=true;escRender()}
+function escShowSlash(partial){partial=(partial||'').toLowerCase();
+  var items=[];
+  ['ban','unban'].forEach(function(c){if(('/'+c).indexOf('/'+partial)===0)items.push({label:'/'+c,name:'manage skill bans',fill:'/'+c+' ',color:'var(--ink)'})});
+  CAPS.forEach(function(c){if(c.toLowerCase().indexOf(partial)===0)items.push({label:'/'+c,name:'run this skill/tool',fill:'/'+c+' ',color:'var(--ink)'})});
+  items=items.slice(0,40);
+  if(!items.length){escHide();return}
+  ESC_ITEMS=items;ESC_SEL=0;ESC_OPEN=true;ESC_HEAD='skills & commands';ESC_NUM=false;escRender()}
+function escPick(i){var it=ESC_ITEMS[i];if(!it)return;el('in').value=(it.fill||('escalate '+it.label));escHide();el('in').focus()}
+el('in').addEventListener('input',function(){var v=el('in').value;
+  var em=v.match(/^(escalate|escalade|elevate)\\s+(.*)$/i);if(em){escShow(em[2]||'');return}
+  var sl=v.match(/^[/]([a-z0-9_-]*)$/i);if(sl){escShowSlash(sl[1]||'');return}
+  escHide()});
 el('in').addEventListener('blur',function(){setTimeout(escHide,150)});
 el('in').addEventListener('keydown',function(e){var n=el('in');
   if(ESC_OPEN){
@@ -1519,6 +1563,19 @@ function loadMemory(){fetch('/api/settings',{headers:hdrs()}).then(function(r){i
     h+=id.memory.length?('<div style="white-space:pre-wrap;font-size:13px">'+esc(id.memory.map(function(e){return '- '+e}).join('\\n'))+'</div>'):'<div style="color:var(--mut)">(empty - it fills in as you talk)</div>';
     if(id.learnings){var lu=id.learningsUsage||{pct:0,max:0};h+='<div class="sec">Learned facts ('+lu.pct+'% of '+lu.max+' chars - taught by the smart model on escalation)</div>';
       h+=id.learnings.length?('<div style="white-space:pre-wrap;font-size:13px">'+esc(id.learnings.map(function(e){return '- '+e}).join('\\n'))+'</div>'):'<div style="color:var(--mut)">(none yet - fills when the smart model rescues an escalation)</div>'}
-    el('memview').innerHTML=h})}
-renderThreads();openWs();fetchTabs();setInterval(fetchTabs,6000);loadRail();setInterval(loadRail,60000);
+    h+='<div id="bansec"></div>';
+    el('memview').innerHTML=h;renderBans()})}
+function renderBans(){var box=el('bansec');if(!box)return;fetch('/api/bans',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(!d){box.innerHTML='';return}CAPS=d.capabilities||CAPS;BANMODELS=d.models||BANMODELS;
+  var h='<div class="sec">Skill bans (model \\u2014 skill)</div>';
+  h+='<div style="font-size:12px;color:var(--mut);margin-bottom:6px">A banned model refuses that skill and routing prefers a non-banned model. The smartest model can never be banned. Added automatically when you escalate after the local model used a skill.</div>';
+  if(d.bans&&d.bans.length){h+=d.bans.map(function(b){return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--line)"><b class="accent" style="min-width:84px">'+esc(b.model)+'</b><span style="flex:1">'+esc(b.skill)+'</span><button class="banx" data-m="'+esc(b.model)+'" data-s="'+esc(b.skill)+'" style="font-size:12px;padding:2px 8px">Unban</button></div>'}).join('')}
+  else{h+='<div style="color:var(--mut)">(no bans)</div>'}
+  h+='<div style="display:flex;gap:6px;margin-top:8px"><input id="ban_skill" list="ban_caps" placeholder="skill or tool" style="flex:1"><select id="ban_model" style="width:130px"></select><button id="ban_add" style="font-size:12px">Ban</button></div>';
+  h+='<datalist id="ban_caps">'+(CAPS||[]).map(function(c){return '<option value="'+esc(c)+'"></option>'}).join('')+'</datalist>';
+  box.innerHTML=h;
+  var ms=el('ban_model');if(ms)ms.innerHTML=(BANMODELS||[]).map(function(m){return '<option value="'+esc(m)+'">'+esc(m)+'</option>'}).join('');
+  [].slice.call(box.querySelectorAll('.banx')).forEach(function(x){x.onclick=function(){postBan('remove',x.getAttribute('data-m'),x.getAttribute('data-s'))}});
+  var ba=el('ban_add');if(ba)ba.onclick=function(){var sk=(el('ban_skill').value||'').trim();var md=(el('ban_model').value||'').trim();if(!sk||!md){return}postBan('add',md,sk)}})}
+function postBan(action,model,skill){fetch('/api/bans',{method:'POST',headers:hdrs(),body:JSON.stringify({action:action,model:model,skill:skill})}).then(function(r){return r.json()}).then(function(d){if(d&&d.ok===false&&d.reason)showToast(d.reason);renderBans()}).catch(function(){})}
+renderThreads();openWs();fetchTabs();setInterval(fetchTabs,6000);loadRail();setInterval(loadRail,60000);loadBanVocab();
 </script></body></html>`;
