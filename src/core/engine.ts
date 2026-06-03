@@ -19,7 +19,7 @@ import type { UsageTracker } from './usage.js';
 import type { SkillsManager } from '../skills/manager.js';
 import { buildLocalTools, localSearchAvailable, type LocalToolset } from './localTools.js';
 import { effectiveName } from './displayName.js';
-import { pickFreeProvider, freeProviderPool, providerById, recordProviderUse, type ProviderDef } from './providers.js';
+import { pickFreeProvider, freeProviderPool, providerById, recordProviderUse, configuredProviders, type ProviderDef } from './providers.js';
 import type { AgentStore } from './agents.js';
 
 export interface RunRequest {
@@ -159,6 +159,25 @@ function wantsEscalate(text: string): boolean {
   // Whole reply is basically just "escalate" (any case), possibly wrapped in punctuation/markdown/quotes.
   if (/^[\s>*_`"'[(<:.\-]*escalate[\s>*_`"'\])>:.!\-]*$/i.test(t)) return true;
   return false;
+}
+
+/** Capability score 0..1 from a model name (mirrors the web UI's smartScore). Used to order the
+ *  model list for "escalate <number>" targeting. */
+function modelSmartScore(name: string): number {
+  const n = (name ?? '').toLowerCase();
+  if (!n) return 0.5;
+  if (/opus/.test(n)) return 1;
+  if (/gpt-?4|gpt4o|\bo1\b|\bo3\b/.test(n)) return 0.92;
+  if (/sonnet/.test(n)) return 0.82;
+  if (/haiku|flash/.test(n)) return 0.55;
+  if (/gemini[-\s.]?(1\.5[-\s.]?)?pro|gemini[-\s.]?2|gemini[-\s.]?ultra/.test(n)) return 0.8;
+  if (/\blarge\b/.test(n)) return 0.68;
+  if (/deepseek[-\s.]?(v3|r1)|qwen[-\s.]?(2\.5[-\s.]?)?(72b|max)|405b|llama[-\s.]?3\.[13][-\s.]?70b/.test(n)) return 0.72;
+  if (/mixtral|8x7b|gemma2?[-\s.]?27b|command[-\s.]?r|32b/.test(n)) return 0.55;
+  const mm = n.match(/(\d+(?:\.\d+)?)\s*b(?![a-z0-9])/);
+  if (mm) { const b = parseFloat(mm[1] || '0'); if (b >= 180) return 0.85; if (b >= 60) return 0.7; if (b >= 27) return 0.5; if (b >= 12) return 0.35; if (b >= 6) return 0.22; return 0.15; }
+  if (/qwen|llama|gemma|phi|mistral[-\s.]?7|tinyllama|smollm/.test(n)) return 0.2;
+  return 0.5;
 }
 
 /** Local reply that "punts" — gives an excuse or asks the user to do the agent's
@@ -321,6 +340,41 @@ export class Engine {
     const w = t.replace(/[^a-z]+/g, '');
     if (w.length >= 6 && w.length <= 12 && editDistance(w, 'escalate') <= 2) return true;
     return false;
+  }
+
+  /** Available models the user can escalate to, ordered weakest→smartest (matches the web rail). */
+  escalationModels(): Array<{ token: string; name: string; label: string }> {
+    const { config } = this.deps;
+    const list: Array<{ token: string; name: string; label: string; score: number }> = [];
+    if (config.localModel) list.push({ token: 'local', name: config.localModel.model, label: 'Local', score: modelSmartScore(config.localModel.model) });
+    for (const p of configuredProviders()) list.push({ token: p.id, name: p.model, label: p.label, score: modelSmartScore(p.model) });
+    list.push({ token: 'claude', name: config.smartModel || config.model || 'claude opus', label: 'Claude', score: 1 });
+    list.sort((a, b) => a.score - b.score);
+    return list.map(({ token, name, label }) => ({ token, name, label }));
+  }
+
+  /** Parse a manual escalation message. Supports "escalate", "escalate <name>", "escalate <number>"
+   *  (position in escalationModels). Out-of-range number or unknown name -> smartest (Claude). */
+  private parseEscalation(text: string): { escalate: boolean; route?: string; targetLabel?: string } {
+    const t = normalizeHomoglyphs((text ?? '').trim()).toLowerCase();
+    if (!t || t.length > 60) return { escalate: false };
+    const m = t.match(/^(?:escalate|escalade|escalat\w*|elevate|raise|bump)\b\s*(?:to\s+)?(.*)$/);
+    if (!m) return { escalate: this.isEscalationTrigger(text) }; // "wrong"/"redo"/typo -> smartest
+    const rest = (m[1] || '').replace(/[.!?]+$/, '').trim();
+    if (!rest) return { escalate: true }; // bare escalate -> smartest
+    const list = this.escalationModels();
+    const num = rest.match(/^#?\s*(\d+)\b/);
+    if (num) {
+      const i = parseInt(num[1]!, 10);
+      if (i >= 1 && i <= list.length) return { escalate: true, route: list[i - 1]!.token, targetLabel: list[i - 1]!.label };
+      return { escalate: true }; // out of range -> smartest
+    }
+    const q = rest.replace(/[^a-z0-9.\- ]/g, '').trim();
+    if (q === 'claude' || q === 'smartest') return { escalate: true };
+    const hit = list.find(
+      (x) => x.token.toLowerCase() === q || x.label.toLowerCase().includes(q) || String(x.name).toLowerCase().includes(q) || (q.length >= 3 && q.includes(x.token.toLowerCase())),
+    );
+    return hit ? { escalate: true, route: hit.token, targetLabel: hit.label } : { escalate: true }; // unknown -> smartest
   }
 
   /** Run a named user-defined agent against a task, on its configured tier with only its tools.
@@ -654,18 +708,22 @@ export class Engine {
     const prev = this.lastByKey.get(key);
     let effReq = req;
     let originalText = req.text;
-    if (prev && this.isEscalationTrigger(req.text)) {
+    const esc = prev ? this.parseEscalation(req.text) : { escalate: false as boolean };
+    if (prev && esc.escalate) {
       originalText = prev.text;
+      const toClaude = !esc.route || esc.route === 'claude';
+      const who = toClaude ? 'you, the more capable model' : `the ${esc.targetLabel || esc.route} model`;
       effReq = {
         ...req,
-        route: 'claude',
-        escalated: true,
-        model: config.smartModel || config.model,
+        route: esc.route || 'claude',
+        // Only force smart-model behavior when going to Claude; a specific tier handles itself.
+        escalated: toClaude,
+        model: toClaude ? config.smartModel || config.model : undefined,
         text:
-          `The user replied "${req.text.trim()}" — they were NOT satisfied with the previous answer and want you, the more capable model, to handle it correctly.\n\n` +
+          `The user replied "${req.text.trim()}" — they were NOT satisfied with the previous answer and want ${who} to handle it correctly.\n\n` +
           `Their original request was:\n"${prev.text}"\n\nThe earlier (rejected) answer was:\n"${prev.reply.slice(0, 1500)}"\n\nCarry out the original request properly now.`,
       };
-      logger.info({ key }, 'user-requested escalation — redoing the previous request on the smart model');
+      logger.info({ key, route: effReq.route, target: esc.targetLabel || 'smartest' }, 'user-requested escalation');
     }
 
     const prior = this.tails.get(key) ?? Promise.resolve();

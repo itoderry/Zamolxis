@@ -1134,7 +1134,24 @@ if(el('attach'))el('attach').onclick=function(){el('fileinput').click()};
 if(el('fileinput'))el('fileinput').onchange=function(){addFiles(this.files);this.value=''};
 el('in').addEventListener('paste',function(e){var f=e.clipboardData&&e.clipboardData.files;if(f&&f.length){e.preventDefault();addFiles(f)}});
 (function(){var cv=el('chatview');if(!cv)return;function over(e){e.preventDefault();cv.classList.add('drag')}cv.addEventListener('dragenter',over);cv.addEventListener('dragover',over);cv.addEventListener('dragleave',function(e){e.preventDefault();cv.classList.remove('drag')});cv.addEventListener('drop',function(e){e.preventDefault();cv.classList.remove('drag');if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length)addFiles(e.dataTransfer.files)})})();
+var ESC_OPEN=false,ESC_ITEMS=[],ESC_SEL=0;
+function escModels(){var d=RAIL;if(!d)return [];var list=[];if(d.localModel)list.push({label:'Local',name:String(d.localModel)});(d.providers||[]).filter(function(p){return p.configured}).forEach(function(p){list.push({label:p.label,name:p.model})});list.push({label:'Claude',name:'claude opus'});list.forEach(function(x){x.score=smartScore(x.name)});list.sort(function(a,b){return a.score-b.score});return list}
+function escBoxEl(){var b=el('escac');if(b)return b;b=document.createElement('div');b.id='escac';b.style.cssText='display:none;position:fixed;z-index:80;max-height:240px;overflow:auto;background:#161108;border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.5);font-size:13px';document.body.appendChild(b);return b}
+function escHide(){ESC_OPEN=false;var b=el('escac');if(b)b.style.display='none'}
+function escRender(){var b=escBoxEl();var r=el('in').getBoundingClientRect();b.style.left=r.left+'px';b.style.width=Math.min(460,r.width)+'px';b.style.bottom=(window.innerHeight-r.top+6)+'px';
+  b.innerHTML='<div style="padding:4px 9px;color:var(--mut);font-size:11px;border-bottom:1px solid var(--line)">escalate to \\u2014 \\u2191\\u2193 then Enter (or type a number)</div>'+ESC_ITEMS.map(function(it,i){return '<div class="escit" data-i="'+i+'" style="padding:6px 9px;cursor:pointer;display:flex;gap:8px;align-items:center;'+(i===ESC_SEL?'background:rgba(212,165,90,.18)':'')+'"><span style="color:var(--mut);width:14px;text-align:right">'+(i+1)+'</span><span style="flex:1;color:'+gradColor(smartScore(it.name))+'">'+esc(it.label)+'</span><span style="color:var(--mut);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:170px">'+esc(it.name)+'</span></div>'}).join('');
+  b.style.display='block';[].slice.call(b.querySelectorAll('.escit')).forEach(function(x){x.onmousedown=function(ev){ev.preventDefault();escPick(+x.getAttribute('data-i'))}})}
+function escShow(partial){var all=escModels();if(!all.length){escHide();return}partial=(partial||'').trim().toLowerCase();var items=partial?all.filter(function(x){return x.label.toLowerCase().indexOf(partial)>=0||String(x.name).toLowerCase().indexOf(partial)>=0}):all;if(!items.length){escHide();return}ESC_ITEMS=items;ESC_SEL=0;ESC_OPEN=true;escRender()}
+function escPick(i){var it=ESC_ITEMS[i];if(!it)return;el('in').value='escalate '+it.label;escHide();el('in').focus()}
+el('in').addEventListener('input',function(){var m=el('in').value.match(/^(escalate|escalade|elevate)\s+(.*)$/i);if(!m){escHide();return}escShow(m[2]||'')});
+el('in').addEventListener('blur',function(){setTimeout(escHide,150)});
 el('in').addEventListener('keydown',function(e){var n=el('in');
+  if(ESC_OPEN){
+    if(e.key==='ArrowDown'){ESC_SEL=Math.min(ESC_ITEMS.length-1,ESC_SEL+1);escRender();e.preventDefault();return}
+    if(e.key==='ArrowUp'){ESC_SEL=Math.max(0,ESC_SEL-1);escRender();e.preventDefault();return}
+    if((e.key==='Enter'&&!e.shiftKey)||e.key==='Tab'){escPick(ESC_SEL);e.preventDefault();return}
+    if(e.key==='Escape'){escHide();e.preventDefault();return}
+  }
   if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg();return}
   // Shell-style history: Up at the very start of the field, Down at the very end.
   if(e.key==='ArrowUp'&&n.selectionStart===0&&n.selectionEnd===0&&inHist.length){
