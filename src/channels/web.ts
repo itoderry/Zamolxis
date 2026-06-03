@@ -1018,7 +1018,7 @@ function fmtTime(ts){try{return new Date(Number(ts)).toLocaleTimeString([], {hou
    is re-renderable so a name change relabels every past bubble too. */
 function renderWho(w){if(!w)return;var t=w.dataset.ts?fmtTime(w.dataset.ts):'';
   if(w.dataset.role==='you'){w.textContent='you'+(t?' · '+t:'')}
-  else{var s=w.dataset.secs,tok=w.dataset.tok,via=w.dataset.via;var x=(w.dataset.label||BOT_LABEL)+(t?' · '+t:'');if(s)x+=' · '+s+'s';if(tok)x+=' · '+tok+' tok';if(via)x+=' · via '+via;w.textContent=x;w.style.color=via?viaColor(via):''}}
+  else{var s=w.dataset.secs,tok=w.dataset.tok,via=w.dataset.via;var x=(w.dataset.label||BOT_LABEL)+(t?' · '+t:'');if(s)x+=' · '+s+'s';if(tok)x+=' · '+tok+' tok';if(via)x+=' · via '+via;w.textContent=x;var vid=w.dataset.vid||via;w.style.color=vid?viaColor(vid):''}}
 /* Human label for the model that produced an answer (from usage.last.model). */
 function viaLabel(id){if(!id)return '';id=String(id);
   var m=id.match(/^(?:free|paid):([^:]+):/);if(m){var pp=(RAIL&&RAIL.providers||[]).filter(function(p){return p.id===m[1]})[0];return pp?pp.label:m[1]}
@@ -1041,7 +1041,7 @@ function openWs(){
   sock.onmessage=function(ev){if(myGen!==gen)return;var m=JSON.parse(ev.data);
     if(m.type==='chunk'){if(!cur)cur=add('bot',BOT_LABEL,'');if(!curStarted){cur.textContent='';curStarted=true}cur.textContent+=m.text;el('log').scrollTop=el('log').scrollHeight}
     else if(m.type==='reply'){if(!cur)cur=add('bot',BOT_LABEL,'');cur.textContent=m.text;var w=cur.whoEl,secs=stopGen();setMeta(w,secs,null);cur=null;curStarted=false;setStatus('connected');
-      fetch('/api/status',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(!d)return;renderModels(d);if(d.last&&w)setMeta(w,secs,d.last.total,viaLabel(d.last.model));if(d.last)maybeStick(d.last.model)}).catch(function(){})}
+      fetch('/api/status',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(!d)return;renderModels(d);if(d.last&&w){w.dataset.vid=d.last.model||'';setMeta(w,secs,d.last.total,viaLabel(d.last.model))}if(d.last)maybeStick(d.last.model)}).catch(function(){})}
     else if(m.type==='status'){setStatus(m.text)}};
 }
 var routes={};try{routes=JSON.parse(localStorage.zx_routes||'{}')}catch(e){}
