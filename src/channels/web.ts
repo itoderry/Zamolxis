@@ -1021,12 +1021,20 @@ function openWs(){
   sock.onmessage=function(ev){if(myGen!==gen)return;var m=JSON.parse(ev.data);
     if(m.type==='chunk'){if(!cur)cur=add('bot',BOT_LABEL,'');if(!curStarted){cur.textContent='';curStarted=true}cur.textContent+=m.text;el('log').scrollTop=el('log').scrollHeight}
     else if(m.type==='reply'){if(!cur)cur=add('bot',BOT_LABEL,'');cur.textContent=m.text;var w=cur.whoEl,secs=stopGen();setMeta(w,secs,null);cur=null;curStarted=false;setStatus('connected');
-      fetch('/api/status',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(!d)return;renderModels(d);if(d.last&&w)setMeta(w,secs,d.last.total,viaLabel(d.last.model))}).catch(function(){})}
+      fetch('/api/status',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(!d)return;renderModels(d);if(d.last&&w)setMeta(w,secs,d.last.total,viaLabel(d.last.model));if(d.last)maybeStick(d.last.model)}).catch(function(){})}
     else if(m.type==='status'){setStatus(m.text)}};
 }
 var routes={};try{routes=JSON.parse(localStorage.zx_routes||'{}')}catch(e){}
 function curRoute(){return routes[cid]||'auto'}
 function applyRoute(){var r=el('route');if(r)r.value=curRoute();updateModelVis()}
+function tierFromModel(id){id=String(id||'').toLowerCase();return /claude|opus|sonnet|haiku/.test(id)?'claude':''}
+function stickyOn(){return localStorage.zx_stickyesc!=='0'}
+/* Sticky escalation: when an Auto chat is answered by the smart model (Claude took over), pin the
+   chat to Claude so it doesn't bounce back to the local model. The user resets to Auto to undo. */
+function maybeStick(modelId){if(!stickyOn())return;if(curRoute()!=='auto')return;if(tierFromModel(modelId)!=='claude')return;
+  routes[cid]='claude';try{localStorage.zx_routes=JSON.stringify(routes)}catch(e){}
+  var sel=el('route');if(sel){sel.value='claude';updateModelVis()}
+  showToast('This chat escalated — pinned to Claude. Set the route back to Auto to undo.');setTimeout(hideToast,3500)}
 var models={};try{models=JSON.parse(localStorage.zx_models||'{}')}catch(e){}
 function curModel(){return models[cid]||''}
 function applyModel(){var n=el('model');if(n)n.value=curModel()}
@@ -1274,6 +1282,7 @@ function renderSettings(s){var L=s.live,m=s.meta,h='';
   h+=credInputs('claude');
   h+=sec('Agents');
   h+='<label class="chk" style="font-size:13px;display:block"><input type="checkbox" id="mirroragents"> Mirror agent messages into the active chat (on by default)</label>';
+  h+='<label class="chk" style="font-size:13px;display:block"><input type="checkbox" id="stickyesc"> Sticky escalation: when a chat escalates to Claude, keep it on Claude until you set the route back to Auto (on by default)</label>';
   h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">Create/run agents in the left rail (under Providers). Messages between agents and to you appear in the active chat when mirroring is on.</div>';
   h+='<label class="chk" style="font-size:13px;display:block;margin-top:6px"><input type="checkbox" id="s_live_agentRestore"'+(L.agentRestore!==false?' checked':'')+'> Restore agents to their last state on startup</label>';
   h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">On (default): stopped agents stay stopped, scheduled agents keep running after a restart. Off: all agents start paused until you resume them. (A per-agent setting at creation can override this.)</div>';
@@ -1342,6 +1351,7 @@ function renderSettings(s){var L=s.live,m=s.meta,h='';
   el('settings').innerHTML=h;el('ro').innerHTML='Data dir: '+m.dataDir+'<br>'+m.restartNote;fetchUsage();
   var pkb=el('packbtn');if(pkb)pkb.onclick=doPack;
   var ma=el('mirroragents');if(ma){ma.checked=(localStorage.zx_mirror!=='0');ma.onchange=function(){localStorage.zx_mirror=ma.checked?'1':'0'}}
+  var se=el('stickyesc');if(se){se.checked=stickyOn();se.onchange=function(){localStorage.zx_stickyesc=se.checked?'1':'0'}}
   var asb=el('autostart');if(asb){fetch('/api/autostart',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(st){if(!st)return;asb.checked=!!st.enabled;if(!st.supported)asb.disabled=true;var ad=el('autostatus');if(ad)ad.textContent=st.note||''}).catch(function(){});
     asb.onchange=function(){var ad=el('autostatus');if(ad)ad.textContent='...';fetch('/api/autostart',{method:'POST',headers:hdrs(),body:JSON.stringify({enabled:asb.checked})}).then(function(r){return r.json()}).then(function(st){asb.checked=!!st.enabled;if(ad)ad.textContent=st.note||''}).catch(function(){if(ad)ad.textContent='Failed.'})}}
   var unb=el('uninstallbtn');if(unb)unb.onclick=doUninstall;
