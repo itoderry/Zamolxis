@@ -73,6 +73,10 @@ const ConfigSchema = z.object({
   localModel: z.object({ url: z.string(), model: z.string() }).optional(),
   /** Optional context window (num_ctx) for the local Ollama model; undefined = use the model default. */
   localContext: z.number().optional(),
+  /** Optional Ollama keep_alive (e.g. "5m", "30m", "-1" = keep loaded forever, "0" = unload after). */
+  localKeepAlive: z.string().optional(),
+  /** Optional sampling temperature for the local model; undefined = model default. */
+  localTemp: z.number().optional(),
   /**
    * How aggressively to use the local model to spare the subscription:
    *  - 'off'  : never route whole turns locally (local stays an offload tool only)
@@ -175,6 +179,8 @@ export function loadConfig(): ZamolxisConfig {
       ? { url: process.env.ZAMOLXIS_LOCAL_MODEL_URL || 'http://localhost:11434/v1', model: process.env.ZAMOLXIS_LOCAL_MODEL }
       : undefined,
     localContext: process.env.ZAMOLXIS_LOCAL_CONTEXT ? Number(process.env.ZAMOLXIS_LOCAL_CONTEXT) || undefined : undefined,
+    localKeepAlive: process.env.ZAMOLXIS_LOCAL_KEEPALIVE || undefined,
+    localTemp: process.env.ZAMOLXIS_LOCAL_TEMP ? Number(process.env.ZAMOLXIS_LOCAL_TEMP) : undefined,
     // Default to 'auto' when a local model exists (the point of installing one is
     // to use the subscription less), else 'off'. Overridable via env / settings.
     localRouting:
@@ -276,6 +282,8 @@ export function applyPersistedSettings(config: ZamolxisConfig): void {
         config.localModel = { url, model: s.localModel.trim() };
       }
       if (typeof s.localContext === 'number' && s.localContext > 0) config.localContext = Math.floor(s.localContext);
+      if (typeof s.localKeepAlive === 'string' && s.localKeepAlive.trim()) config.localKeepAlive = s.localKeepAlive.trim();
+      if (typeof s.localTemp === 'number' && s.localTemp >= 0) config.localTemp = s.localTemp;
       if (Array.isArray(s.routeChain) && s.routeChain.length) config.routeChain = s.routeChain.filter((t: unknown) => typeof t === 'string');
 
       if (s.channels && argvChannels === null) {
