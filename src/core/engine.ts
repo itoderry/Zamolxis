@@ -12,7 +12,7 @@ import type { ZamolxisConfig } from '../config.js';
 import { logger } from '../logger.js';
 import { SessionStore } from './session.js';
 import { Throttle } from './throttle.js';
-import { engineEnv } from './auth.js';
+import { engineEnv, checkAuth, oauthExpiry } from './auth.js';
 import type { MemoryManager } from './memory.js';
 import type { SessionIndex } from './sessionIndex.js';
 import type { UsageTracker } from './usage.js';
@@ -534,6 +534,9 @@ export class Engine {
     if (!def) return { reply: `No agent named "${name}".`, sessionId: '', costUsd: 0, isError: true, agent: name };
     if (def.stopped) return { reply: `Agent "${def.name}" is stopped — resume it to run.`, sessionId: '', costUsd: 0, isError: true, agent: def.name };
     if (this.sessionPaused.has(def.name)) return { reply: `Agent "${def.name}" is paused by the startup policy — resume it to run.`, sessionId: '', costUsd: 0, isError: true, agent: def.name };
+    // Inactive: the pinned model isn't available — don't attempt/escalate, tell the user to Fix it.
+    const avail = this.agentModelAvailable(def.name);
+    if (!avail.ok) return { reply: `Agent "${def.name}" is inactive: ${avail.reason}. Use Fix (or its Job) to switch its model.`, sessionId: '', costUsd: 0, isError: true, agent: def.name };
     // The executor follows the planner-compiled spec verbatim (falls back to the raw job if not compiled).
     let agentJob = def.spec && def.spec.trim() ? def.spec : def.job;
     // A task is "ad-hoc" only if it genuinely DIFFERS from the standing job. A scheduled fire that
@@ -589,10 +592,31 @@ export class Engine {
     if (this.sessionPaused.size) logger.info({ paused: [...this.sessionPaused] }, 'agents paused at startup (restore policy)');
   }
 
-  /** Can this agent run right now? False if manually stopped or paused by the startup policy. */
+  /** Is the model an agent is pinned to actually available right now? 'auto' (and unknown free-form
+   *  models) are always considered available — the engine resolves them at run time. */
+  agentModelAvailable(name: string): { ok: boolean; reason?: string } {
+    const def = this.deps.agentStore?.get(name);
+    if (!def) return { ok: false, reason: 'no such agent' };
+    const tok = (def.model || 'auto').trim().toLowerCase();
+    if (tok === 'auto' || tok === '') return { ok: true };
+    if (tok === 'local') return this.deps.config.localModel ? { ok: true } : { ok: false, reason: 'the local model is not configured (Tools -> Local model)' };
+    if (tok === 'freecloud') return configuredProviders().some((p) => p.kind === 'free') ? { ok: true } : { ok: false, reason: 'no free cloud provider is configured (AI Providers)' };
+    if (tok === 'claude' || /claude|opus|sonnet|haiku/.test(tok)) {
+      const exp = oauthExpiry();
+      if (!checkAuth().credentialsFound) return { ok: false, reason: 'Claude is not logged in (run claude auth login)' };
+      if (exp?.expired) return { ok: false, reason: 'the Claude subscription login expired (run claude auth login)' };
+      return { ok: true };
+    }
+    const p = providerById(tok);
+    if (p) return process.env[p.envKey] ? { ok: true } : { ok: false, reason: `the ${p.label} API key is missing (AI Providers)` };
+    return { ok: true }; // unknown free-form model — let the run resolve it
+  }
+
+  /** Can this agent run right now? False if manually stopped, paused by the startup policy, OR its
+   *  pinned model is unavailable — so the scheduler skips firing it (the UI shows [inactive] + Fix). */
   isAgentRunnable(name: string): boolean {
     const def = this.deps.agentStore?.get(name);
-    return !!def && !def.stopped && !this.sessionPaused.has(name);
+    return !!def && !def.stopped && !this.sessionPaused.has(name) && this.agentModelAvailable(name).ok;
   }
 
   async stopAgent(name: string, stop = true): Promise<{ ok: boolean; suspended: number; stopped: boolean }> {
