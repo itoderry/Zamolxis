@@ -66,6 +66,8 @@ interface PersistedSettings {
   localRouting?: 'off' | 'auto';
   localModel?: string;
   localContext?: number;
+  localKeepAlive?: string;
+  localTemp?: number;
   routeChain?: string[];
   lawsEnabled?: boolean;
   agentRestore?: boolean;
@@ -126,6 +128,8 @@ export class SettingsManager {
         sandboxBackend: this.sandbox.defaultBackend,
         localModel: this.config.localModel?.model ?? '',
         localContext: this.config.localContext ?? 0,
+        localKeepAlive: this.config.localKeepAlive ?? '',
+        localTemp: this.config.localTemp ?? null,
         localRouting: this.config.localRouting,
         routeChain: this.config.routeChain,
         lawsEnabled: this.config.lawsEnabled,
@@ -227,6 +231,17 @@ export class SettingsManager {
     if (typeof live.localContext === 'number' && live.localContext >= 0) {
       this.config.localContext = live.localContext > 0 ? Math.floor(live.localContext) : undefined;
       p.localContext = this.config.localContext;
+    }
+    if (typeof live.localKeepAlive === 'string') {
+      this.config.localKeepAlive = live.localKeepAlive.trim() || undefined;
+      p.localKeepAlive = this.config.localKeepAlive;
+    }
+    if (typeof live.localTemp === 'number' && live.localTemp >= 0) {
+      this.config.localTemp = live.localTemp;
+      p.localTemp = live.localTemp;
+    } else if (live.localTemp === null) {
+      this.config.localTemp = undefined;
+      p.localTemp = undefined;
     }
     if (live.routeChain !== undefined) {
       // Accept an array or a comma-separated string of tier tokens.

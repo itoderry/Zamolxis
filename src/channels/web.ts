@@ -681,6 +681,9 @@ export class WebChannel implements Channel {
             if (o.action === 'use' && model) { this.settings.update({ live: { localModel: model } }); return this.json(res, 200, await this.localStatus()); }
             if (o.action === 'routing') { this.settings.update({ live: { localRouting: o.value === 'auto' ? 'auto' : 'off' } }); return this.json(res, 200, await this.localStatus()); }
             if (o.action === 'context') { this.settings.update({ live: { localContext: Number(o.value) || 0 } }); return this.json(res, 200, await this.localStatus()); }
+            if (o.action === 'keepalive') { this.settings.update({ live: { localKeepAlive: String(o.value ?? '') } }); return this.json(res, 200, await this.localStatus()); }
+            if (o.action === 'temp') { this.settings.update({ live: { localTemp: o.value === '' || o.value === null ? null : Number(o.value) } }); return this.json(res, 200, await this.localStatus()); }
+            if (o.action === 'test' && model) { return this.json(res, 200, await this.testLocalModel(model)); }
             if (o.action === 'pull' && model) { this.startOllamaPull(model); return this.json(res, 200, await this.localStatus()); }
             if (o.action === 'delete' && model) {
               if (this.config.localModel?.model === model) return this.json(res, 400, { error: 'That is the active model; switch to another first.' });
@@ -820,6 +823,23 @@ export class WebChannel implements Channel {
     } catch {
       /* server down */
     }
+    // Currently-loaded models + their GPU/CPU split (native /api/ps).
+    const loaded: Record<string, { gpuPct: number }> = {};
+    if (running) {
+      try {
+        const pr = await fetch(base + '/api/ps', { signal: AbortSignal.timeout(4000) });
+        if (pr.ok) {
+          const pd = (await pr.json()) as { models?: Array<{ name: string; size?: number; size_vram?: number }> };
+          for (const m of pd.models ?? []) {
+            const total = m.size || 0;
+            const vram = m.size_vram || 0;
+            loaded[m.name] = { gpuPct: total > 0 ? Math.round((vram / total) * 100) : 0 };
+          }
+        }
+      } catch {
+        /* ps unavailable */
+      }
+    }
     const has = (id: string): boolean => installed.some((m) => m.name === id || m.name === id + ':latest' || m.name.startsWith(id + ':'));
     return {
       ollamaInstalled: running || this.ollamaOnPath(),
@@ -828,11 +848,34 @@ export class WebChannel implements Channel {
       active: this.config.localModel?.model || '',
       localRouting: this.config.localRouting,
       localContext: this.config.localContext ?? 0,
+      localKeepAlive: this.config.localKeepAlive ?? '',
+      localTemp: this.config.localTemp ?? null,
       installed,
+      loaded,
       catalog: OLLAMA_CATALOG.map((c) => ({ ...c, installed: has(c.id) })),
       pulls: Object.fromEntries(this.ollamaPulls),
       install: this.ollamaInstall,
     };
+  }
+
+  /** Send a tiny prompt to a specific local model and time it (the panel's "Test" button). */
+  private async testLocalModel(model: string): Promise<{ ok: boolean; reply?: string; ms?: number; error?: string }> {
+    const url = (this.config.localModel?.url || process.env.ZAMOLXIS_LOCAL_MODEL_URL || 'http://localhost:11434/v1') + '/chat/completions';
+    const t0 = Date.now();
+    try {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model, stream: false, messages: [{ role: 'user', content: 'Reply with a short friendly hello (one sentence).' }], ...(this.config.localKeepAlive ? { keep_alive: this.config.localKeepAlive } : {}) }),
+        signal: AbortSignal.timeout(60000),
+      });
+      if (!r.ok) return { ok: false, error: 'HTTP ' + r.status + ' ' + (await r.text()).slice(0, 200) };
+      const d = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      const reply = (d.choices?.[0]?.message?.content || '').trim();
+      return { ok: true, reply: reply.slice(0, 300), ms: Date.now() - t0 };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
   }
 
   /** Background `ollama pull` via the native streaming API; progress lands in `ollamaPulls`. */
@@ -1514,14 +1557,21 @@ function renderLocal(d){var v=el('localview');if(!v)return;var h='';
   if(!d.ollamaRunning){h+='<div style="font-size:12px;color:#e0a55f;margin-bottom:10px">Ollama is installed but not responding at '+esc(d.base)+'. Start it ("ollama serve"); models appear once it is up.</div>'}
   h+='<div class="sec">Active local model</div>';
   h+='<div style="font-size:13px;margin-bottom:8px">'+(d.active?('<b class="accent">'+esc(d.active)+'</b>'):'<span style="color:var(--mut)">none selected - pull one below, then Use it</span>')+'</div>';
-  h+='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:4px">';
+  h+='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:6px">';
   h+='<label style="font-size:12px;color:var(--mut)">Routing</label><select id="lc_routing" style="width:auto"><option value="off"'+(d.localRouting==='off'?' selected':'')+'>off (only when forced)</option><option value="auto"'+(d.localRouting==='auto'?' selected':'')+'>auto (last-resort tier)</option></select>';
-  h+='<label style="font-size:12px;color:var(--mut)">Context</label><input id="lc_ctx" type="number" min="0" step="512" value="'+(d.localContext||0)+'" style="width:88px" title="num_ctx for Ollama; 0 = model default"><button id="lc_ctxset" style="font-size:12px">Set</button>';
   h+='</div>';
-  h+='<div style="font-size:11px;color:var(--mut);margin-bottom:12px">Routing "auto" = local is the last-resort tier (free cloud is tried first). Context 0 = model default; larger needs more VRAM/RAM.</div>';
+  var kaOpts=[['','model default'],['5m','5 min'],['15m','15 min'],['30m','30 min'],['1h','1 hour'],['-1','keep loaded'],['0','unload after']];
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:4px">';
+  h+='<label style="font-size:12px;color:var(--mut)">Context</label><input id="lc_ctx" type="number" min="0" step="512" value="'+(d.localContext||0)+'" style="width:80px" title="num_ctx; 0 = model default">';
+  h+='<label style="font-size:12px;color:var(--mut)">Keep-alive</label><select id="lc_ka" style="width:auto">'+kaOpts.map(function(o){return '<option value="'+o[0]+'"'+((d.localKeepAlive||'')===o[0]?' selected':'')+'>'+o[1]+'</option>'}).join('')+'</select>';
+  h+='<label style="font-size:12px;color:var(--mut)">Temp</label><input id="lc_temp" type="number" min="0" max="2" step="0.1" value="'+(d.localTemp===null||d.localTemp===undefined?'':d.localTemp)+'" placeholder="default" style="width:74px" title="sampling temperature; blank = model default">';
+  h+='<button id="lc_apply" style="font-size:12px">Apply</button>';
+  h+='</div>';
+  h+='<div style="font-size:11px;color:var(--mut);margin-bottom:12px">Routing "auto" = local is the last-resort tier (free cloud first). Context 0 / Temp blank = model default. Keep-alive = how long Ollama keeps the model in VRAM.</div>';
   h+='<div class="sec">Installed models</div>';
-  if(d.installed&&d.installed.length){h+=d.installed.map(function(m){var act=m.name===d.active;
-    return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--line)"><b style="flex:1'+(act?';color:#7dd08a':'')+'">'+esc(m.name)+(act?' (active)':'')+'</b><span style="font-size:11px;color:var(--mut)">'+fmtGB(m.size)+'</span>'+(act?'':'<button class="lc_use" data-m="'+esc(m.name)+'" style="font-size:12px;padding:2px 8px">Use</button><button class="lc_del" data-m="'+esc(m.name)+'" style="font-size:12px;padding:2px 8px">Delete</button>')+'</div>'}).join('')}
+  if(d.installed&&d.installed.length){h+=d.installed.map(function(m){var act=m.name===d.active;var ld=(d.loaded||{})[m.name];
+    var meta=fmtGB(m.size)+(ld?(' \\u00b7 '+ld.gpuPct+'% GPU'):'');
+    return '<div class="lc_irow"><div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--line)"><b style="flex:1'+(act?';color:#7dd08a':'')+'">'+esc(m.name)+(act?' (active)':'')+(ld?' \\u25cf':'')+'</b><span style="font-size:11px;color:var(--mut)">'+meta+'</span>'+(act?'':'<button class="lc_use" data-m="'+esc(m.name)+'" style="font-size:12px;padding:2px 8px">Use</button>')+'<button class="lc_test" data-m="'+esc(m.name)+'" style="font-size:12px;padding:2px 8px">Test</button>'+(act?'':'<button class="lc_del" data-m="'+esc(m.name)+'" style="font-size:12px;padding:2px 8px">Delete</button>')+'</div><div class="lc_tres" style="display:none;font-size:11px;color:var(--mut);padding:2px 0 6px"></div></div>'}).join('')}
   else{h+='<div style="color:var(--mut)">(none yet - pull one below)</div>'}
   h+='<div class="sec" style="margin-top:14px">Add a model (general-chat all-rounders, tool-capable)</div>';
   h+=(d.catalog||[]).map(function(c){var pull=(d.pulls||{})[c.id];var right;
@@ -1534,8 +1584,11 @@ function renderLocal(d){var v=el('localview');if(!v)return;var h='';
   h+='<div style="font-size:11px;color:var(--mut);margin-top:4px">Browse the full library at <a href="https://ollama.com/library" target="_blank" style="color:var(--mut)">ollama.com/library</a>. Pull several and switch any time with Use.</div>';
   v.innerHTML=h;
   if(el('lc_routing'))el('lc_routing').onchange=function(){postLocal('routing',null,el('lc_routing').value).then(function(){loadRail()})};
-  if(el('lc_ctxset'))el('lc_ctxset').onclick=function(){postLocal('context',null,Number(el('lc_ctx').value)||0).then(function(){showToast('Context set');setTimeout(hideToast,1200)})};
+  if(el('lc_apply'))el('lc_apply').onclick=function(){var ctx=Number(el('lc_ctx').value)||0;var ka=el('lc_ka').value;var tv=el('lc_temp').value;
+    postLocal('context',null,ctx).then(function(){return postLocal('keepalive',null,ka)}).then(function(){return postLocal('temp',null,tv===''?'':Number(tv))}).then(function(){showToast('Local settings applied');setTimeout(hideToast,1300)})};
   Array.prototype.forEach.call(v.querySelectorAll('.lc_use'),function(b){b.onclick=function(){showToast('Switching to '+b.getAttribute('data-m')+'...');postLocal('use',b.getAttribute('data-m')).then(function(){loadRail();setTimeout(hideToast,1500)})}});
+  Array.prototype.forEach.call(v.querySelectorAll('.lc_test'),function(b){b.onclick=function(){var m=b.getAttribute('data-m');var row=b.parentNode.parentNode;var out=row.querySelector('.lc_tres');b.disabled=true;b.textContent='testing...';if(out){out.style.display='block';out.textContent='running...'}
+    fetch('/api/local',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'test',model:m})}).then(function(r){return r.json()}).then(function(t){b.disabled=false;b.textContent='Test';if(out){out.textContent=t.ok?('\\u2713 '+(t.ms||0)+' ms: '+(t.reply||'(empty)')):('\\u2717 '+(t.error||'failed'));out.style.color=t.ok?'#7dd08a':'#e07a5f'}}).catch(function(){b.disabled=false;b.textContent='Test';if(out)out.textContent='(request failed)'})}});
   Array.prototype.forEach.call(v.querySelectorAll('.lc_del'),function(b){b.onclick=function(){if(confirm('Delete '+b.getAttribute('data-m')+' from disk?'))postLocal('delete',b.getAttribute('data-m'))}});
   Array.prototype.forEach.call(v.querySelectorAll('.lc_pull'),function(b){b.onclick=function(){postLocal('pull',b.getAttribute('data-m'));startLocalPoll()}});
   if(el('lc_pullcustom'))el('lc_pullcustom').onclick=function(){var t=(el('lc_custom').value||'').trim();if(t){postLocal('pull',t);startLocalPoll()}};
