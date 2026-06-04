@@ -1057,13 +1057,8 @@ footer{border-top:1px solid var(--line);background:#120f0a}
 .tabbody ul{margin:6px 0;padding-left:22px}.tabbody p{margin:6px 0}
 /* slide-in panels */
 .side{position:fixed;top:0;height:100%;background:var(--panel);transition:transform .2s;z-index:15;display:flex;flex-direction:column}
-/* Chats panel is an in-flow left column inside #maininner: opening it PUSHES the chat
-   (and its message field) to the right instead of overlaying — never covers header, the
-   providers rail, or the input. Animates width; content is a fixed-width inner so it
-   doesn't reflow during the slide. */
-#threadpanel{flex:none;width:0;height:100%;overflow:hidden;transition:width .2s;background:var(--panel)}
-#threadpanel.open{width:290px;border-right:1px solid var(--line)}
-#threadbody{width:290px;height:100%;overflow:auto;padding:18px;box-sizing:border-box}
+/* Chats is now a permanent section of the left rail (alongside Models and Agents). */
+#chatsec{overflow:auto;padding:8px 8px 10px;flex:1 1 0;min-height:42px;border-top:1px solid var(--line)}
 #panel{right:0;width:420px;border-left:1px solid var(--line);transform:translateX(100%)}
 #mempanel{right:0;width:420px;border-left:1px solid var(--line);transform:translateX(100%);z-index:16}
 #localpanel{right:0;width:480px;border-left:1px solid var(--line);transform:translateX(100%);z-index:16}
@@ -1096,13 +1091,12 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 <div id="toast"></div>
 <header><svg id="emblem" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="eg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8c87a"/><stop offset="1" stop-color="#b8893f"/></linearGradient></defs><path d="M32 3 58 18 V46 L32 61 6 46 V18 Z" fill="#1a150d" stroke="url(#eg)" stroke-width="3" stroke-linejoin="round"/><path d="M22 22 H42 L24 40 H43" fill="none" stroke="url(#eg)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg><b id="brand">__AGENT_NAME__</b><span id="version" title=""></span>
   <span id="clock"></span><span id="build" title="" style="display:none"></span><span id="auth" title="">login ...</span><span id="status">connecting...</span>
-  <div id="toolsmenu"><button id="toolsbtn">Tools ▾</button><div id="toolsdrop"><button id="chats">Chats</button><button id="skillsbtn">Skills</button><button id="provbtn">Providers</button><button id="localbtn">Local model</button><button id="mem">Memory</button><button id="cog">Settings</button></div></div></header>
+  <div id="toolsmenu"><button id="toolsbtn">Tools ▾</button><div id="toolsdrop"><button id="skillsbtn">Skills</button><button id="provbtn">Providers</button><button id="localbtn">Local model</button><button id="mem">Memory</button><button id="cog">Settings</button></div></div></header>
 <div id="modelsbar"><span id="models"></span></div>
 <div id="tabbar"></div>
 <div id="main">
-  <aside id="provrail"><div id="provsec"><div id="provchain"></div></div><div id="railsplit" title="Drag to resize Providers / Agents"></div><div id="agentsec"><div style="text-transform:uppercase;font-size:10px;letter-spacing:.5px;color:var(--mut);margin:2px 4px 6px">Agents</div><div id="agentrail"></div><div id="newagent" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new agent</div></div><div id="railwidth" title="Drag to resize the panel width"></div></aside>
+  <aside id="provrail"><div id="provsec"><div id="provchain"></div></div><div id="railsplit" title="Drag to resize Providers / Agents"></div><div id="agentsec"><div style="text-transform:uppercase;font-size:10px;letter-spacing:.5px;color:var(--mut);margin:2px 4px 6px">Agents</div><div id="agentrail"></div><div id="newagent" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new agent</div></div><div id="chatsec"><div style="text-transform:uppercase;font-size:10px;letter-spacing:.5px;color:var(--mut);margin:2px 4px 6px">Chats</div><div id="threadlist"></div><div id="newchat" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new chat</div></div><div id="railwidth" title="Drag to resize the panel width"></div></aside>
   <div id="maininner">
-  <div id="threadpanel"><div id="threadbody"><div style="display:flex;align-items:center;justify-content:space-between;margin-top:0"><h3 style="margin:0">Chats</h3><button id="threadclose" title="Close" style="background:none;border:none;color:var(--mut);font-size:20px;line-height:1;cursor:pointer;padding:0 4px">&times;</button></div><button id="newchat" style="width:100%;margin:10px 0">+ New chat</button><div id="threadlist"></div></div></div>
   <div id="chatwrap">
   <div id="chatview">
     <div id="log"><div id="loginner"></div></div>
@@ -1337,7 +1331,7 @@ function loadThread(id){cid=id;saveThreads();applyRoute();applyModel();el('login
 function renderThreads(){var h='';threads.forEach(function(t){var del=(t.id==='main'||t.agent)?'':'<span class="del" data-del="'+t.id+'">delete</span>';h+='<div class="thread'+(t.id===cid?' cur':'')+'" data-id="'+t.id+'"><span class="lbl">'+esc(t.label)+'</span>'+del+'</div>'});el('threadlist').innerHTML=h;
   Array.prototype.forEach.call(el('threadlist').querySelectorAll('.thread'),function(n){n.onclick=function(e){if(e.target.getAttribute('data-del'))return;loadThread(n.getAttribute('data-id'))}});
   Array.prototype.forEach.call(el('threadlist').querySelectorAll('[data-del]'),function(n){n.onclick=function(e){e.stopPropagation();deleteThread(n.getAttribute('data-del'))}})}
-function newChat(){var id=uuid();threads.unshift({id:id,label:'New chat'});loadThread(id);el('threadpanel').classList.remove('open');switchView('chat')}
+function newChat(){var id=uuid();threads.unshift({id:id,label:'New chat'});loadThread(id);switchView('chat')}
 function openAgentChat(name){var id='agent:'+name;if(!threads.some(function(t){return t.id===id})){threads.push({id:id,label:'\\uD83E\\uDD16 '+name,agent:name});saveThreads()}switchView('chat');loadThread(id)}
 function deleteThread(id){if(id==='main')return; /* the Main chat is permanent */
   if(!isAgentCid(id))fetch('/api/forget',{method:'POST',headers:hdrs(),body:JSON.stringify({cid:id})}).catch(function(){});
@@ -1426,8 +1420,6 @@ function closePanels(){if(panelDirty&&!confirm('You have unsaved changes in this
 function closeTools(){var d=el('toolsdrop');if(d)d.classList.remove('open')}
 el('toolsbtn').onclick=function(e){e.stopPropagation();el('toolsdrop').classList.toggle('open')};
 document.addEventListener('click',function(){closeTools()});
-el('chats').onclick=function(){var open=el('threadpanel').classList.contains('open');closePanels();closeTools();if(!open){renderThreads();el('threadpanel').classList.add('open')}};
-el('threadclose').onclick=function(){el('threadpanel').classList.remove('open')};
 if(el('newagent'))el('newagent').onclick=createAgentPrompt;
 var JM_NAME='';
 function openJobModal(name){var a=AGENTS.filter(function(x){return x.name===name})[0];if(!a)return;JM_NAME=name;el('jm_name').textContent=name;el('jm_job').value=a.job||'';el('jm_spec').textContent=a.spec||'(not compiled yet)';el('jobmodal').style.display='flex';setTimeout(function(){el('jm_job').focus()},30)}
@@ -1837,7 +1829,7 @@ function pollAgentMsgs(){fetch('/api/agentmsgs?since='+agentSince,{headers:hdrs(
   if(isAgentCid(cid)&&(m.from===agentNameOf(cid)||m.to===agentNameOf(cid))){add('bot',lbl,m.text)}
 })}).catch(function(){})}
 // One-time notice in the Main chat: "<agent> started" as a clickable link that opens its chat.
-function announceAgentInMain(name){if(cid!=='main'||!mirrorOn())return;var note=add('bot','\\uD83E\\uDD16 '+name,name+' started \\u2014 click to open its chat.');if(note){note.style.cursor='pointer';note.style.textDecoration='underline';note.title='Open '+name+' chat';note.onclick=function(){el('threadpanel').classList.add('open');openAgentChat(name);renderThreads()}}}
+function announceAgentInMain(name){if(cid!=='main'||!mirrorOn())return;var note=add('bot','\\uD83E\\uDD16 '+name,name+' started \\u2014 click to open its chat.');if(note){note.style.cursor='pointer';note.style.textDecoration='underline';note.title='Open '+name+' chat';note.onclick=function(){openAgentChat(name);renderThreads()}}}
 setInterval(pollAgentMsgs,4000);
 function loadMemory(){fetch('/api/settings',{headers:hdrs()}).then(function(r){if(r.status===401)return null;return r.json()}).then(function(s){
     if(!s||!s.identity){el('memview').textContent='(memory unavailable)';return}
