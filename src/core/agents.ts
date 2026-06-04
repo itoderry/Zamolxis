@@ -49,6 +49,9 @@ export interface AgentDef {
   /** Who created this agent: 'user' (via the web UI) or 'agent' (Zamolxis made it mid-job).
    *  Agent-created agents are purged on restart unless the persistAgentCreated setting is on. */
   createdBy?: 'user' | 'agent';
+  /** The backend that produced this agent's most recent answer (e.g. "Cerebras (gpt-oss-120b)").
+   *  Shown in the panel so a rotating tier like 'freecloud' reveals the actual model it used. */
+  lastVia?: string;
 }
 
 function slug(name: string): string {
@@ -162,6 +165,14 @@ export class AgentStore {
       logger.info({ removed }, 'purged agent-created agents (not persisted per setting)');
     }
     return removed;
+  }
+
+  /** Record the backend that last answered for this agent (for the panel's model display). */
+  setLastVia(name: string, via: string): void {
+    const a = this.get(name);
+    if (!a || !via || a.lastVia === via) return;
+    a.lastVia = via;
+    this.persist();
   }
 
   /** Stop (suspend) or resume an agent. Returns the stored def, or undefined if not found. */

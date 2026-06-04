@@ -100,7 +100,7 @@ export class Scheduler {
       } else if (job.agent) {
         // Agent-scheduled jobs carry channel:'agent', which is not a real channel — deliver the
         // result back through the agent message bus (surfaced to the web UI + CLI, mirrored into chat).
-        await this.engine.sendAgentMessage(job.agent, 'user', result.reply);
+        await this.engine.sendAgentMessage(job.agent, 'user', result.reply, (result as { via?: string }).via);
       }
     } catch (err) {
       logger.error({ id, err: String(err) }, 'job failed');

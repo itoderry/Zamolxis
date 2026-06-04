@@ -94,7 +94,7 @@ export interface EngineDeps {
   /** User-defined agents (named jobs that run on any tier). */
   agentStore?: AgentStore;
   /** Sink for agent messages (to other agents or the user) - delivered to channels + logged. */
-  onAgentMessage?: (msg: { from: string; to: string; text: string; ts: number }) => void;
+  onAgentMessage?: (msg: { from: string; to: string; text: string; ts: number; via?: string }) => void;
   /** Schedule a named agent on a cron (deterministic). Late-bound to the scheduler. */
   scheduleAgent?: (name: string, cron: string, task?: string) => void;
   /** How many schedules currently exist for an agent. Late-bound to the scheduler. */
@@ -566,6 +566,7 @@ export class Engine {
       agentTools: def.tools,
       elevate: def.canElevate,
     });
+    if (!r.isError && r.via) this.deps.agentStore?.setLastVia(def.name, r.via);
     return { ...r, agent: def.name };
   }
 
@@ -846,21 +847,21 @@ export class Engine {
 
   /** Deliver a message from an agent (or the assistant) to the user or another agent. To the user:
    *  surfaced to the UI/CLI via onAgentMessage. To an agent: bounded follow-up run (loop guard). */
-  async sendAgentMessage(from: string, to: string, text: string): Promise<string> {
+  async sendAgentMessage(from: string, to: string, text: string, via?: string): Promise<string> {
     const t = (text || '').trim();
     if (!t) return 'Nothing to send (empty message).';
     const ts = Date.now();
     if (/^user$/i.test(to)) {
-      this.deps.onAgentMessage?.({ from, to: 'user', text: t, ts });
+      this.deps.onAgentMessage?.({ from, to: 'user', text: t, ts, via });
       return 'Delivered to the user.';
     }
     const target = this.deps.agentStore?.get(to);
     if (!target) return `No agent named "${to}" (use "user" to message the user).`;
-    this.deps.onAgentMessage?.({ from, to: target.name, text: t, ts }); // surface inter-agent traffic too
+    this.deps.onAgentMessage?.({ from, to: target.name, text: t, ts, via }); // surface inter-agent traffic too
     if (AGENT_HOPS >= MAX_AGENT_HOPS) return `Loop guard: too many agent hops in flight, not running ${target.name}.`;
     AGENT_HOPS++;
     void this.runAgent(target.name, `Message from ${from}: ${t}`)
-      .then((r) => this.deps.onAgentMessage?.({ from: target.name, to: from, text: r.reply, ts: Date.now() }))
+      .then((r) => this.deps.onAgentMessage?.({ from: target.name, to: from, text: r.reply, ts: Date.now(), via: r.via }))
       .catch((err) => logger.warn({ err: String(err) }, 'agent-to-agent run failed'))
       .finally(() => { AGENT_HOPS = Math.max(0, AGENT_HOPS - 1); });
     return `Sent to agent "${target.name}"; it will act on it.`;

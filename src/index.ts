@@ -108,8 +108,8 @@ async function main(): Promise<void> {
   const agentStore = new AgentStore(config.dataDir);
   // In-memory log of agent messages (agent->agent and agent->user), polled by the web UI's
   // Agents chat and mirrored into the active chat. Capped; also archived for search.
-  const agentMsgs: Array<{ from: string; to: string; text: string; ts: number }> = [];
-  const pushAgentMsg = (m: { from: string; to: string; text: string; ts: number }) => {
+  const agentMsgs: Array<{ from: string; to: string; text: string; ts: number; via?: string }> = [];
+  const pushAgentMsg = (m: { from: string; to: string; text: string; ts: number; via?: string }) => {
     agentMsgs.push(m);
     if (agentMsgs.length > 500) agentMsgs.shift();
     try { sessionIndex.record('agents', m.from, `-> ${m.to}: ${m.text}`, m.ts); } catch { /* best-effort */ }
