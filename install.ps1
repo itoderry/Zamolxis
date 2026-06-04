@@ -85,7 +85,7 @@ if ($nodeMajor -lt 20) { throw "Node $(node -v) is too old; need 20+. Install a 
 if ($needNode -and $nodeWasAbsent) { Mark-Installed node $true }
 Write-Host "    Node $(node -v)"
 
-# Claude Code CLI - the engine Zamolxis runs on (subscription via 'claude login').
+# Claude Code CLI - the engine Zamolxis runs on (subscription via 'claude auth login').
 if (-not (Test-Cmd claude)) {
   Step "Installing Claude Code CLI (npm)"
   try { npm install -g @anthropic-ai/claude-code 2>&1 | Out-Null } catch {}
@@ -94,10 +94,10 @@ if (-not (Test-Cmd claude)) {
 }
 if (Test-Cmd claude) {
   $creds = Join-Path $env:USERPROFILE ".claude\.credentials.json"
-  if (-not (Test-Path $creds)) { Warn "Claude Code is installed. Run 'claude login' with your Pro/Max account before starting." }
+  if (-not (Test-Path $creds)) { Warn "Claude Code is installed. Run 'claude auth login' with your Pro/Max account before starting." }
   else { Write-Host "    Claude credentials found" }
 } else {
-  Warn "Could not install the Claude Code CLI automatically. Install it, then run 'claude login' (Pro/Max) so Zamolxis can use your subscription."
+  Warn "Could not install the Claude Code CLI automatically. Install it, then run 'claude auth login' (Pro/Max) so Zamolxis can use your subscription."
 }
 
 Step "Installing dependencies (npm)"

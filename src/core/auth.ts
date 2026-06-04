@@ -58,9 +58,9 @@ export function checkAuth(): AuthStatus {
   }
   if (!credsFound) {
     if (process.platform === 'darwin') {
-      logger.warn('No Claude credentials found. On macOS `claude login` stores the token in the Keychain, which the engine often cannot read. Run `claude setup-token` and put the result in .env as CLAUDE_CODE_OAUTH_TOKEN=..., then restart.');
+      logger.warn('No Claude credentials found. On macOS `claude auth login` stores the token in the Keychain, which the engine often cannot read. Run `claude setup-token` and put the result in .env as CLAUDE_CODE_OAUTH_TOKEN=..., then restart.');
     } else {
-      logger.warn('No Claude credentials found. Run `claude login` (Pro/Max), or set CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) in .env, before starting.');
+      logger.warn('No Claude credentials found. Run `claude auth login` (Pro/Max/Team/Enterprise; older CLI: `claude login`), or set CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) in .env, before starting.');
     }
   }
   return {

@@ -110,7 +110,7 @@ function buildPersona(name: string): string {
 }
 
 const AUTH_EXPIRED_MSG =
-  'My Claude subscription login has expired or is invalid. On the host machine, run `claude login`, then restart Zamolxis.';
+  'My Claude subscription login has expired or is invalid. On the host machine, run `claude auth login` (older Claude Code versions used `claude login`), then restart Zamolxis.';
 
 // Loop guard for agent->agent messaging: at most this many agent-triggered runs in flight at once.
 let AGENT_HOPS = 0;
