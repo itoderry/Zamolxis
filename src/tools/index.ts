@@ -356,7 +356,7 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
     async (args) => {
       if (!deps.agentStore) return text('Agents are not available in this build.');
       try {
-        const n = deps.agentStore.upsert({ name: args.name, job: args.job, tools: args.tools, model: args.model, canElevate: args.canElevate });
+        const n = deps.agentStore.upsert({ name: args.name, job: args.job, tools: args.tools, model: args.model, canElevate: args.canElevate, createdBy: 'agent' });
         let extra = '';
         if (deps.compileAgent) {
           try {

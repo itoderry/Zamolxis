@@ -45,6 +45,18 @@ If a tier can't confidently do something, it **hands off upward automatically**.
 
 ---
 
+## Sign in
+
+Zamolxis runs on the Claude Code engine using your **subscription** (flat-rate, no metered API key). Sign in on the host with:
+
+```
+claude auth login
+```
+
+- This is the command in **current Claude Code (CLI v2.x)** — authentication moved under the `auth` subcommand (`claude auth login` / `logout` / `status`). **Older versions used the top-level `claude login`, which no longer exists** (it's now treated as a prompt), so any guide that still says `claude login` is out of date.
+- The same command covers **Pro, Max, Team, and Enterprise/Business** subscriptions. On Team/Business/Enterprise you sign in with the Claude.ai account your admin invited you to (Enterprise adds SSO/domain capture) — the command is identical; only the account differs.
+- **Headless, background, CI, or macOS** (where the interactive login stores the token in the Keychain, which a background process can't read): run `claude setup-token`, copy the `sk-ant-oat01-…` line, and set `CLAUDE_CODE_OAUTH_TOKEN=…` in `.env` (or paste it in Settings → Engine). Check state with `claude auth status` or the web header's login indicator.
+
 ## Disclaimer
 
 Zamolxis is provided **"as is", without warranty of any kind**, express or implied. You run it on your own hardware, under your own accounts, at your own risk.

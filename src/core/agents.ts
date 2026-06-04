@@ -46,6 +46,9 @@ export interface AgentDef {
   /** Per-agent restart behavior, overriding the global agentRestore setting:
    *  true = always resume on startup, false = always start paused, undefined = follow global. */
   autostart?: boolean;
+  /** Who created this agent: 'user' (via the web UI) or 'agent' (Zamolxis made it mid-job).
+   *  Agent-created agents are purged on restart unless the persistAgentCreated setting is on. */
+  createdBy?: 'user' | 'agent';
 }
 
 function slug(name: string): string {
@@ -103,6 +106,7 @@ export class AgentStore {
     schedule?: { cron?: string; at?: string };
     open?: boolean;
     autostart?: boolean;
+    createdBy?: 'user' | 'agent';
   }): string {
     const name = slug(input.name);
     if (!name) throw new Error('invalid agent name');
@@ -118,6 +122,7 @@ export class AgentStore {
       schedule: input.schedule ?? existing?.schedule,
       open: typeof input.open === 'boolean' ? input.open : existing?.open,
       autostart: typeof input.autostart === 'boolean' ? input.autostart : existing?.autostart,
+      createdBy: input.createdBy ?? existing?.createdBy ?? 'user',
       createdAt: existing?.createdAt ?? Date.now(),
     };
     if (existing) Object.assign(existing, def);
@@ -145,6 +150,18 @@ export class AgentStore {
       { name: a.name, risk: a.risk?.level, skills: a.skills?.length ?? 0, codeTools: a.codeTools?.length ?? 0, model: a.model },
       'agent plan compiled',
     );
+  }
+
+  /** Remove all agent-CREATED agents (createdBy='agent'). Called at startup when the user has NOT
+   *  opted to persist them. Returns the names removed. */
+  purgeAgentCreated(): string[] {
+    const removed = this.agents.filter((a) => a.createdBy === 'agent').map((a) => a.name);
+    if (removed.length) {
+      this.agents = this.agents.filter((a) => a.createdBy !== 'agent');
+      this.persist();
+      logger.info({ removed }, 'purged agent-created agents (not persisted per setting)');
+    }
+    return removed;
   }
 
   /** Stop (suspend) or resume an agent. Returns the stored def, or undefined if not found. */

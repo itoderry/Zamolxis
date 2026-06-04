@@ -59,6 +59,9 @@ const ConfigSchema = z.object({
    *  agents keep their schedules). When false, all agents start paused until manually resumed.
    *  A per-agent `autostart` overrides this. */
   agentRestore: z.boolean(),
+  /** Keep agents that Zamolxis created itself (mid-job) across restarts. Default false = they are
+   *  ephemeral (purged on startup); user-created agents always persist. */
+  persistAgentCreated: z.boolean(),
 
   /** Primary Claude model (alias 'opus'|'sonnet'|'haiku' or full id). Undefined = CLI default. */
   model: z.string().optional(),
@@ -171,6 +174,7 @@ export function loadConfig(): ZamolxisConfig {
     agentName: process.env.ZAMOLXIS_AGENT_NAME || 'Zamolxis',
     lawsEnabled: bool(process.env.ZAMOLXIS_LAWS_ENABLED, true),
     agentRestore: bool(process.env.ZAMOLXIS_AGENT_RESTORE, true),
+    persistAgentCreated: bool(process.env.ZAMOLXIS_PERSIST_AGENT_CREATED, false),
     model: process.env.ZAMOLXIS_MODEL || undefined,
     fastModel: process.env.ZAMOLXIS_FAST_MODEL || 'haiku',
     smartModel: process.env.ZAMOLXIS_SMART_MODEL || 'opus',
@@ -265,6 +269,7 @@ export function applyPersistedSettings(config: ZamolxisConfig): void {
       if (typeof s.agentName === 'string' && s.agentName.trim()) config.agentName = s.agentName.trim();
       if (typeof s.lawsEnabled === 'boolean') config.lawsEnabled = s.lawsEnabled;
       if (typeof s.agentRestore === 'boolean') config.agentRestore = s.agentRestore;
+      if (typeof s.persistAgentCreated === 'boolean') config.persistAgentCreated = s.persistAgentCreated;
       if (typeof s.model === 'string') config.model = s.model || undefined;
       if (typeof s.fastModel === 'string') config.fastModel = s.fastModel || undefined;
       if (typeof s.smartModel === 'string') config.smartModel = s.smartModel || undefined;

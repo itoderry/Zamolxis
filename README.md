@@ -17,7 +17,7 @@ A few things worth keeping in mind:
 
 ## What powers it: your subscription (and friends)
 
-A Claude subscription doesn't hand you metered API access. What it does give you is the Claude Code engine, which the Agent SDK drives using the login you create with `claude login`. Zamolxis is built on that engine, so:
+A Claude subscription doesn't hand you metered API access. What it does give you is the Claude Code engine, which the Agent SDK drives using the login you create with `claude auth login`. Zamolxis is built on that engine, so:
 
 - The agent runs on your subscription. Don't set `ANTHROPIC_API_KEY` - if it's there, Zamolxis hides it so your subscription is used instead. (If you genuinely want metered billing, set `ZAMOLXIS_ALLOW_API_KEY=1`.)
 - You live within your plan's rate limits, not pay-as-you-go. Zamolxis caps how many turns run at once (`ZAMOLXIS_MAX_CONCURRENT`) so an always-on agent doesn't burn through your quota.
@@ -32,14 +32,14 @@ Every message flows through a routing chain you control, so most work can run fo
 - Paid providers, if you want them. OpenAI or DeepSeek (billed to you) work too; just add them to the chain. Completely optional.
 - Claude, on your subscription. The default top tier and the brains behind the agent's tool use.
 
-You arrange these in the web Providers panel. For example: `local, freecloud, claude` (the default), `local, freecloud` (no Claude at all - local and free only), or `local, deepseek, claude` (a paid provider in the middle). The tool-using core does need `claude login`, but everyday replies can come from the local model or other providers, so you save - or completely skip - subscription usage. There's more detail in the local model section below.
+You arrange these in the web Providers panel. For example: `local, freecloud, claude` (the default), `local, freecloud` (no Claude at all - local and free only), or `local, deepseek, claude` (a paid provider in the middle). The tool-using core does need `claude auth login`, but everyday replies can come from the local model or other providers, so you save - or completely skip - subscription usage. There's more detail in the local model section below.
 
 ## Install
 
 You'll need [Node.js](https://nodejs.org) 20 or newer, [git](https://git-scm.com), and Claude Code logged in with a Pro/Max subscription. Log in once:
 
 ```
-claude login
+claude auth login
 ```
 
 Then clone the repo and run the installer for your system. It checks prerequisites, installs dependencies, builds, creates a `.env`, and runs a quick readiness check. (Every code block here has a copy button - just click it.)
@@ -180,7 +180,7 @@ Background instances run detached and are tracked by a pidfile (`~/.zamolxis/zam
 
 ## Running it as a service (start at logon)
 
-The daemon is happy running unattended: with no terminal it logs JSON and stands the CLI down, and a heartbeat keeps a process manager from restart-looping it while idle. Run it as yourself, not as a system or root service - the engine needs to read your `claude login` credentials from your home folder, which a LocalSystem or root account won't have.
+The daemon is happy running unattended: with no terminal it logs JSON and stands the CLI down, and a heartbeat keeps a process manager from restart-looping it while idle. Run it as yourself, not as a system or root service - the engine needs to read your `claude auth login` credentials from your home folder, which a LocalSystem or root account won't have.
 
 Windows (Task Scheduler, no admin needed):
 
@@ -255,7 +255,7 @@ Turn channels on with `ZAMOLXIS_CHANNEL_*=true` (or `--channels=cli,web`). A cha
 
 ### The web interface
 
-Turn it on with `ZAMOLXIS_CHANNEL_WEB=true` and open http://127.0.0.1:8787. The header shows a live clock (your machine's local time) and a login indicator: green "login ok" while your Claude token is valid (hover to see when it renews), or red "login expired" telling you to run `claude login`. It's a streaming chat page plus a full Settings panel (the gear icon):
+Turn it on with `ZAMOLXIS_CHANNEL_WEB=true` and open http://127.0.0.1:8787. The header shows a live clock (your machine's local time) and a login indicator: green "login ok" while your Claude token is valid (hover to see when it renews), or red "login expired" telling you to run `claude auth login`. It's a streaming chat page plus a full Settings panel (the gear icon):
 
 - Engine (applies on your next message): the agent's name (the single source of truth for what it calls itself, used in the persona and shown everywhere), main and fast models, permission mode, default sandbox, max turns and concurrency, and extra system-prompt text.
 - Identity & memory (applies on your next message): `LAWS.md` (the safety rules, above), `SOUL.md` (its persona and voice - this one's yours, the agent won't rewrite it), `USER.md` (your profile, which the agent keeps up to date as it learns about you, but you can edit), and a read-only view of its working `MEMORY`.
@@ -283,7 +283,7 @@ The feature set is complete across memory, skills, scheduling, delegation, multi
 
 ## Requirements
 
-Node 20 or newer, and Claude Code logged in (`claude login`) with a Pro/Max subscription. Needs `@anthropic-ai/claude-agent-sdk` 0.3 or later (the older 0.1.x has a tool-call serialization bug).
+Node 20 or newer, and Claude Code logged in (`claude auth login`) with a Pro/Max subscription. Needs `@anthropic-ai/claude-agent-sdk` 0.3 or later (the older 0.1.x has a tool-call serialization bug).
 
 ## License
 

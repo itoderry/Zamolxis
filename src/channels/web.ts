@@ -300,6 +300,15 @@ export class WebChannel implements Channel {
       res.end('ok');
       return;
     }
+    if (url.pathname === '/help') {
+      let md = 'Help is unavailable (HELP.md not found).';
+      try { md = fs.readFileSync(path.join(REPO_ROOT, 'HELP.md'), 'utf8'); } catch { /* missing */ }
+      const escd = md.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const html = `<!doctype html><meta charset="utf-8"><title>Zamolxis — Help</title><style>body{margin:0;background:#0c0a07;color:#e8e2d4;font:15px/1.6 system-ui,Segoe UI,Roboto,sans-serif}main{max-width:860px;margin:0 auto;padding:28px 22px}pre{white-space:pre-wrap;word-wrap:break-word;font:inherit}a{color:#d4a55a}code{background:#1a150d;padding:1px 5px;border-radius:5px}</style><main><pre>${escd}</pre></main>`;
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(html);
+      return;
+    }
     if (url.pathname === '/api/settings') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
       if (req.method === 'GET') return this.json(res, 200, this.settings.snapshot());
@@ -549,7 +558,7 @@ export class WebChannel implements Channel {
             const action = String(o.action || '');
             if (!this.agentStore) return this.json(res, 400, { error: 'agents unavailable' });
             if (action === 'create') {
-              const name = this.agentStore.upsert({ name: String(o.name || ''), job: String(o.job || ''), tools: Array.isArray(o.tools) ? o.tools : undefined, model: o.model ? String(o.model) : undefined, canElevate: typeof o.canElevate === 'boolean' ? o.canElevate : undefined, open: typeof o.open === 'boolean' ? o.open : undefined, autostart: typeof o.autostart === 'boolean' ? o.autostart : undefined });
+              const name = this.agentStore.upsert({ name: String(o.name || ''), job: String(o.job || ''), tools: Array.isArray(o.tools) ? o.tools : undefined, model: o.model ? String(o.model) : undefined, canElevate: typeof o.canElevate === 'boolean' ? o.canElevate : undefined, open: typeof o.open === 'boolean' ? o.open : undefined, autostart: typeof o.autostart === 'boolean' ? o.autostart : undefined, createdBy: 'user' });
               // Planner: the smart model compiles the NL job into an executable plan (skills, code tools,
               // executor tier, risk) so the cheap executor follows a script instead of improvising.
               let plan = null;
@@ -1091,7 +1100,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 <div id="toast"></div>
 <header><svg id="emblem" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="eg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8c87a"/><stop offset="1" stop-color="#b8893f"/></linearGradient></defs><path d="M32 3 58 18 V46 L32 61 6 46 V18 Z" fill="#1a150d" stroke="url(#eg)" stroke-width="3" stroke-linejoin="round"/><path d="M22 22 H42 L24 40 H43" fill="none" stroke="url(#eg)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg><b id="brand">__AGENT_NAME__</b><span id="version" title=""></span>
   <span id="clock"></span><span id="build" title="" style="display:none"></span><span id="auth" title="">login ...</span><span id="status">connecting...</span>
-  <div id="toolsmenu"><button id="toolsbtn">Tools ▾</button><div id="toolsdrop"><button id="skillsbtn">Skills</button><button id="provbtn">Providers</button><button id="localbtn">Local model</button><button id="mem">Memory</button><button id="cog">Settings</button></div></div></header>
+  <div id="toolsmenu"><button id="toolsbtn">Tools ▾</button><div id="toolsdrop"><button id="skillsbtn">Skills</button><button id="provbtn">Providers</button><button id="localbtn">Local model</button><button id="mem">Memory</button><button id="cog">Settings</button><button id="helpbtn">Help</button></div></div></header>
 <div id="modelsbar"><span id="models"></span></div>
 <div id="tabbar"></div>
 <div id="main">
@@ -1194,14 +1203,14 @@ function modelAvail(tok){var d=RAIL||{};tok=tok||'auto';
 function modelWhy(tok){var d=RAIL||{};tok=tok||'auto';
   if(tok==='local')return 'The local model is not configured \\u2014 open Tools \\u2192 Local model to install/select one (or switch this agent to another model).';
   if(tok==='freecloud')return 'No free cloud provider is configured \\u2014 add a key in AI Providers (or switch this agent).';
-  if(tok==='claude'||/claude|opus|sonnet|haiku/i.test(tok))return (d.claude&&d.claude.expired)?'Your Claude subscription login expired \\u2014 run claude login (claude auth login on Business). Or switch this agent.':'Claude is not logged in.';
+  if(tok==='claude'||/claude|opus|sonnet|haiku/i.test(tok))return (d.claude&&d.claude.expired)?'Your Claude subscription login expired \\u2014 run "claude auth login" on the host (older CLI: "claude login"). Or switch this agent.':'Claude is not logged in.';
   return 'The model "'+tok+'" is unavailable \\u2014 its provider key is missing in AI Providers (or switch this agent).'}
 function renderAgents(){var box=el('agentrail');if(!box)return;
   if(!AGENTS.length){box.innerHTML='<div style="color:var(--mut);font-size:11px;padding:2px 7px">none yet</div>';return}
   box.innerHTML=AGENTS.map(function(a){
     var sl=schedsFor(a.name).map(function(s){return '<div style="font-size:10px;color:var(--mut);margin-left:8px;margin-top:1px">\\u23F0 '+esc(s.cron||s.at||'')+' <span class="ascd" data-id="'+esc(s.id)+'" title="cancel" style="color:#e88;cursor:pointer">\\u00d7</span></div>'}).join('');
     var avail=modelAvail(a.model);var why=avail?'':modelWhy(a.model);
-    return '<div style="padding:4px 7px"><div style="font-size:12px" title="'+esc(a.job)+'"><span class="aopen" data-n="'+esc(a.name)+'" style="cursor:pointer;text-decoration:underline" title="open '+esc(a.name)+' chat">'+esc(a.label||a.name)+'</span> <span style="color:var(--mut);font-size:10px">['+esc(a.model)+(a.canElevate?'\\u2191':'')+']</span>'+(!avail?(' <span title="'+esc(why)+'" style="color:#e06a5f;font-size:10px">[inactive]</span>'):'')+((a.risk&&a.risk.level&&a.risk.level!=='low')?(' <span title="'+esc(a.risk.note||'')+'" style="color:'+(a.risk.level==='high'?'#e06a5f':'#e0a55f')+';font-size:10px">\\u26A0 '+esc(a.risk.level)+'</span>'):'')+((a.stopped)?' <span style="color:var(--mut);font-size:10px">[stopped]</span>':'')+'</div><div style="margin-top:1px">'+(!avail?'<span class="afix" data-n="'+esc(a.name)+'" title="'+esc(why)+'" style="color:#e0a55f;cursor:pointer;font-size:11px;margin-right:10px;font-weight:600">fix</span>':'')+'<span class="arun" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px">run</span><span class="ajob" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">job</span><span class="aana" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">analyze</span><span class="asch" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">schedule</span><span class="astp" data-n="'+esc(a.name)+'" data-stop="'+(a.stopped?'0':'1')+'" style="color:'+(a.stopped?'#7dd08a':'#e0a55f')+';cursor:pointer;font-size:11px;margin-left:10px">'+(a.stopped?'resume':'stop')+'</span><span class="adel" data-n="'+esc(a.name)+'" style="color:#e88;cursor:pointer;font-size:11px;margin-left:10px">delete</span></div>'+sl+'</div>'}).join('');
+    return '<div style="padding:4px 7px"><div style="font-size:12px" title="'+esc(a.job)+'"><span class="aopen" data-n="'+esc(a.name)+'" style="cursor:pointer;text-decoration:underline" title="open '+esc(a.name)+' chat">'+esc(a.label||a.name)+'</span> <span style="color:var(--mut);font-size:10px">['+esc(a.model)+(a.canElevate?'\\u2191':'')+']</span>'+(a.createdBy==='agent'?' <span title="Created by Zamolxis. Temporary unless you enable persistence in Settings." style="color:var(--mut);font-size:9px">auto</span>':'')+(!avail?(' <span title="'+esc(why)+'" style="color:#e06a5f;font-size:10px">[inactive]</span>'):'')+((a.risk&&a.risk.level&&a.risk.level!=='low')?(' <span title="'+esc(a.risk.note||'')+'" style="color:'+(a.risk.level==='high'?'#e06a5f':'#e0a55f')+';font-size:10px">\\u26A0 '+esc(a.risk.level)+'</span>'):'')+((a.stopped)?' <span style="color:var(--mut);font-size:10px">[stopped]</span>':'')+'</div><div style="margin-top:1px">'+(!avail?'<span class="afix" data-n="'+esc(a.name)+'" title="'+esc(why)+'" style="color:#e0a55f;cursor:pointer;font-size:11px;margin-right:10px;font-weight:600">fix</span>':'')+'<span class="arun" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px">run</span><span class="ajob" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">job</span><span class="aana" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">analyze</span><span class="asch" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">schedule</span><span class="astp" data-n="'+esc(a.name)+'" data-stop="'+(a.stopped?'0':'1')+'" style="color:'+(a.stopped?'#7dd08a':'#e0a55f')+';cursor:pointer;font-size:11px;margin-left:10px">'+(a.stopped?'resume':'stop')+'</span><span class="adel" data-n="'+esc(a.name)+'" style="color:#e88;cursor:pointer;font-size:11px;margin-left:10px">delete</span></div>'+sl+'</div>'}).join('');
   [].slice.call(box.querySelectorAll('.afix')).forEach(function(x){x.onclick=function(){openJobModal(x.getAttribute('data-n'))}});
   [].slice.call(box.querySelectorAll('.arun')).forEach(function(x){x.onclick=function(){runAgentUI(x.getAttribute('data-n'))}});
   [].slice.call(box.querySelectorAll('.aopen')).forEach(function(x){x.onclick=function(){openAgentChat(x.getAttribute('data-n'))}});
@@ -1542,7 +1551,7 @@ function renderProviders(d){var provs=d.providers||[];var h='';
   var single=activeCli.length<=1;
   var clColor=cl.found?(cl.expired?C_BAD:C_OK):C_WARN;
   var clText=cl.found?(cl.expired?'login expired':'login ok'):'login unknown';
-  h+=pcard('<div style="display:flex;gap:8px;align-items:center">'+dotHtml(clColor,clText)+'<b style="flex:1;color:'+clColor+'">Claude - your Pro/Max subscription</b>'+(single?'<span style="color:'+clColor+';font-size:12px">'+clText+'</span>':'')+'<span style="font-size:11px;color:var(--mut)">token: claude</span></div><div style="font-size:12px;color:var(--mut);margin-top:3px">Runs via Claude Code (<code>claude login</code>) on your subscription - no API key, flat rate. Models: '+esc(cl.primary||'')+' · fast '+esc(cl.fast||'')+' · smart '+esc(cl.smart||'')+' (change in Settings &#8594; Engine).</div>');
+  h+=pcard('<div style="display:flex;gap:8px;align-items:center">'+dotHtml(clColor,clText)+'<b style="flex:1;color:'+clColor+'">Claude - your Pro/Max subscription</b>'+(single?'<span style="color:'+clColor+';font-size:12px">'+clText+'</span>':'')+'<span style="font-size:11px;color:var(--mut)">token: claude</span></div><div style="font-size:12px;color:var(--mut);margin-top:3px">Runs via Claude Code (<code>claude auth login</code>) on your subscription - no API key, flat rate. Models: '+esc(cl.primary||'')+' · fast '+esc(cl.fast||'')+' · smart '+esc(cl.smart||'')+' (change in Settings &#8594; Engine).</div>');
   clis.forEach(function(c){
     var color=!c.installed?C_OFF:(c.loggedIn?C_OK:C_WARN);
     var txt=!c.installed?'not installed':(c.loggedIn?'login ok':'not logged in');
@@ -1637,6 +1646,7 @@ function renderLocal(d){var v=el('localview');if(!v)return;var h='';
 function startLocalPoll(){if(LOCALPOLL)return;LOCALPOLL=setInterval(function(){if(!el('localpanel').classList.contains('open')){stopLocalPoll();return}loadLocal()},1500)}
 function stopLocalPoll(){if(LOCALPOLL){clearInterval(LOCALPOLL);LOCALPOLL=null}}
 el('localbtn').onclick=function(){if(closePanels()===false)return;closeTools();loadLocal();el('localpanel').classList.add('open');pushAside(el('localpanel'))};
+if(el('helpbtn'))el('helpbtn').onclick=function(){closeTools();window.open('/help','_blank')};
 el('localclose').onclick=function(){clearPanels();stopLocalPoll()};
 /* ---- tabs ---- */
 function ago(ts){if(!ts)return'';var s=Math.floor((Date.now()-ts)/1000);if(s<60)return s+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago'}
@@ -1675,13 +1685,14 @@ function loadSettings(){fetch('/api/settings',{headers:hdrs()}).then(function(r)
     return r.json()}).then(function(s){if(!s)return;renderSettings(s)})}
 function renderSettings(s){var L=s.live,m=s.meta,h='';
   h+=sec('Claude subscription (login)');
-  h+='<div style="font-size:12px;color:var(--mut);margin-bottom:6px">Zamolxis answers on your Claude Pro/Max subscription. On macOS the usual <code>claude login</code> stores the token in the Keychain, which the background engine cannot read - so paste a token here instead. In a terminal run <code>claude setup-token</code>, copy the line that starts with <code>sk-ant-oat01-</code>, and paste it below. Applies immediately on Save - no restart, no file editing.</div>';
+  h+='<div style="font-size:12px;color:var(--mut);margin-bottom:6px">Zamolxis answers on your Claude Pro/Max subscription. On macOS the usual <code>claude auth login</code> stores the token in the Keychain, which the background engine cannot read - so paste a token here instead. In a terminal run <code>claude setup-token</code>, copy the line that starts with <code>sk-ant-oat01-</code>, and paste it below. Applies immediately on Save - no restart, no file editing.</div>';
   h+=credInputs('claude');
   h+=sec('Agents');
   h+='<label class="chk" style="font-size:13px;display:block"><input type="checkbox" id="mirroragents"> Mirror agent messages into the active chat (on by default)</label>';
   h+='<label class="chk" style="font-size:13px;display:block"><input type="checkbox" id="stickyesc"> Sticky escalation: when a chat escalates to Claude, keep it on Claude until you set the route back to Auto (on by default)</label>';
   h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">Create/run agents in the left rail (under Providers). Messages between agents and to you appear in the active chat when mirroring is on.</div>';
   h+='<label class="chk" style="font-size:13px;display:block;margin-top:6px"><input type="checkbox" id="s_live_agentRestore"'+(L.agentRestore!==false?' checked':'')+'> Restore agents to their last state on startup</label>';
+  h+='<label class="chk" style="font-size:13px;display:block;margin-top:6px"><input type="checkbox" id="s_live_persistAgentCreated"'+(L.persistAgentCreated?' checked':'')+'> Keep agents that Zamolxis created itself after restart (off = they are temporary)</label>';
   h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">On (default): stopped agents stay stopped, scheduled agents keep running after a restart. Off: all agents start paused until you resume them. (A per-agent setting at creation can override this.)</div>';
   h+=sec('Startup');
   h+='<label class="chk" style="font-size:13px;display:block"><input type="checkbox" id="autostart"> Start Zamolxis automatically when I log in</label>';
@@ -1780,7 +1791,7 @@ el('save').onclick=function(){
   panelDirty=false;
   var v=function(id){var n=el('s_'+id);return n?n.value:undefined};
   var ck=function(id){var n=el('s_'+id);return n?n.checked:undefined};
-  var patch={live:{agentName:v('live_agentName'),model:v('live_model'),fastModel:v('live_fastModel'),smartModel:v('live_smartModel'),timezone:v('live_timezone'),localRouting:v('live_localRouting'),lawsEnabled:ck('live_lawsEnabled'),agentRestore:ck('live_agentRestore'),permissionMode:v('live_permissionMode'),sandboxBackend:v('live_sandboxBackend'),systemPromptAppend:v('live_systemPromptAppend'),maxTurns:Number(v('live_maxTurns')),maxConcurrent:Number(v('live_maxConcurrent'))},
+  var patch={live:{agentName:v('live_agentName'),model:v('live_model'),fastModel:v('live_fastModel'),smartModel:v('live_smartModel'),timezone:v('live_timezone'),localRouting:v('live_localRouting'),lawsEnabled:ck('live_lawsEnabled'),agentRestore:ck('live_agentRestore'),persistAgentCreated:ck('live_persistAgentCreated'),permissionMode:v('live_permissionMode'),sandboxBackend:v('live_sandboxBackend'),systemPromptAppend:v('live_systemPromptAppend'),maxTurns:Number(v('live_maxTurns')),maxConcurrent:Number(v('live_maxConcurrent'))},
     identity:{laws:v('id_laws'),soul:v('id_soul'),user:v('id_user')},channels:{},web:{port:Number(v('web_port')),bind:v('web_bind'),authToken:v('web_authToken')},
     sandbox:{dockerImage:v('sb_dockerImage'),dockerContainer:v('sb_dockerContainer'),sshHost:v('sb_sshHost'),sshUser:v('sb_sshUser'),sshPort:v('sb_sshPort'),sshIdentity:v('sb_sshIdentity')},credentials:{}};
   ['cli','telegram','discord','slack','whatsapp','signal','email','web'].forEach(function(c){var x=ck('ch_'+c);if(x!==undefined)patch.channels[c]=x});
@@ -1839,9 +1850,9 @@ function fetchStatus(){fetch('/api/status',{headers:hdrs()}).then(function(r){re
     else{b.style.display='none';b.onclick=null}}
   var a=el('auth');if(!a)return;var au=d.auth||{};
   if(!au.found){a.className='warn';a.textContent='login: unknown';a.title='Could not read the Claude credentials file (it may be in an OS keychain).'}
-  else if(au.expired){a.className='bad';a.textContent='login expired';a.title='Subscription login expired. On the host run: claude login  then restart Zamolxis.'}
+  else if(au.expired){a.className='bad';a.textContent='login expired';a.title='Subscription login expired. On the host run: claude auth login  (older Claude Code used: claude login)  then restart Zamolxis.'}
   else{a.className='ok';a.textContent='login ok';var t=new Date(au.expiresAt);
-    a.title='Subscription login is valid. The short-lived access token renews automatically (~'+t.toLocaleTimeString()+'); you only need to run claude login again if this shows expired.'}
+    a.title='Subscription login is valid. The short-lived access token renews automatically (~'+t.toLocaleTimeString()+'); you only need to sign in again (run "claude auth login" on the host \\u2014 older Claude Code used "claude login") if this shows expired.'}
 }).catch(function(){})}
 setInterval(tickClock,1000);fetchStatus();setInterval(fetchStatus,30000);
 // Agent messages (agent->agent / agent->user): poll and mirror into the active chat (default on).

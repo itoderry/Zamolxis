@@ -110,7 +110,7 @@ function buildPersona(name: string): string {
 }
 
 const AUTH_EXPIRED_MSG =
-  'My Claude subscription login has expired or is invalid. On the host machine, run `claude login`, then restart Zamolxis.';
+  'My Claude subscription login has expired or is invalid. On the host machine, run `claude auth login` (older Claude Code versions used `claude login`), then restart Zamolxis.';
 
 // Loop guard for agent->agent messaging: at most this many agent-triggered runs in flight at once.
 let AGENT_HOPS = 0;
@@ -574,6 +574,11 @@ export class Engine {
   /** Apply the restart policy ONCE at startup: agents whose effective autostart resolves to false
    *  are paused for this session only (per-agent `autostart` overrides the global agentRestore). */
   applyAgentStartupPolicy(): void {
+    // Agent-CREATED agents are ephemeral unless the user opted to persist them — drop them on boot.
+    if (!this.deps.config.persistAgentCreated) {
+      const purged = this.deps.agentStore?.purgeAgentCreated() ?? [];
+      for (const n of purged) this.deps.setAgentSchedulesEnabled?.(n, false); // suspend any orphaned schedules
+    }
     const restore = this.deps.config.agentRestore !== false;
     this.sessionPaused.clear();
     for (const a of this.deps.agentStore?.list() ?? []) {

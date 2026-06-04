@@ -97,13 +97,13 @@ mark_installed() { # key value(true|false|string) - records what THIS installer 
 if [ "$GIT_WAS_ABSENT" -eq 1 ] && command -v git >/dev/null 2>&1; then echo "    git installed"; mark_installed git true; fi
 [ "$NODE_WAS_ABSENT" -eq 1 ] && mark_installed node true
 
-# Claude Code CLI - the engine Zamolxis runs on (subscription via 'claude login').
+# Claude Code CLI - the engine Zamolxis runs on (subscription via 'claude auth login').
 if ! command -v claude >/dev/null 2>&1; then step "Installing Claude Code CLI (npm)"; npm install -g @anthropic-ai/claude-code >/dev/null 2>&1 || true; fi
 if command -v claude >/dev/null 2>&1; then
   [ "$CLAUDE_WAS_ABSENT" -eq 1 ] && mark_installed claudeCode true
-  if [ ! -f "$HOME/.claude/.credentials.json" ]; then warn "Claude Code is installed. Run 'claude login' with your Pro/Max account before starting."; else echo "    Claude credentials found"; fi
+  if [ ! -f "$HOME/.claude/.credentials.json" ]; then warn "Claude Code is installed. Run 'claude auth login' with your Pro/Max account before starting."; else echo "    Claude credentials found"; fi
 else
-  warn "Could not auto-install the Claude Code CLI. Install it, then run 'claude login' (Pro/Max) for subscription auth."
+  warn "Could not auto-install the Claude Code CLI. Install it, then run 'claude auth login' (Pro/Max) for subscription auth."
 fi
 
 step "Installing dependencies (npm)"

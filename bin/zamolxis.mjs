@@ -465,6 +465,15 @@ Usage: zamolxis <command> [extra daemon args]   (alias: zam <command>)
   unpack     apply a pack file into this install:  zamolxis unpack <file.json>
   uninstall  stop + remove service + unlink command (add --purge to also delete your data)
   setup-path install the global 'zam' / 'zamolxis' commands onto your PATH
+  help       show this help
+
+Sign in (subscription, no API key):
+  claude auth login      current Claude Code (v2.x); older versions used 'claude login'.
+                         Works for Pro / Max / Team / Enterprise (Business). Check: claude auth status.
+  claude setup-token     headless/CI/macOS: prints a token -> set CLAUDE_CODE_OAUTH_TOKEN in .env.
+
+Web UI: http://127.0.0.1:8787  (when ZAMOLXIS_CHANNEL_WEB=true)
+Full guide (web + CLI): HELP.md   |   Overview: DESCRIPTION.md
 
 Examples:
   zamolxis start
