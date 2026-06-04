@@ -1811,7 +1811,7 @@ function waitForServer(tries,startedBefore){if(tries>90){showToast('Update is st
     else{waitForServer(tries+1,startedBefore)}}).catch(function(){waitForServer(tries+1,startedBefore)})},4000);}
 function fetchStatus(){fetch('/api/status',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(!d)return;
   LASTD=d;applyName(d.agentName);renderModels(d);srvAnchor=d.time;cliAnchor=Date.now();clockTz=d.tz;tickClock();
-  var vr=el('version');if(vr&&d.version){vr.textContent='v'+d.version.pkg+(d.version.build?' · build '+d.version.build:'');vr.title=(d.version.commit?'commit '+d.version.commit:'')+(d.version.build?' (build '+d.version.build+')':'')}
+  var vr=el('version');if(vr&&d.version){var bn=String(d.version.build==null?0:d.version.build);while(bn.length<3)bn='0'+bn;vr.textContent='v'+d.version.pkg+' · build '+bn;vr.title=(d.version.commit?'commit '+d.version.commit:'')+' (build '+bn+')'}
   if(d.tempUntil){var ms=d.tempUntil-Date.now();if(ms>0&&ms<3600000)setTimeout(fetchStatus,ms+800)}
   if(d.build&&d.build.started)buildStarted=d.build.started;
   var b=el('build');if(b){var up=d.update;

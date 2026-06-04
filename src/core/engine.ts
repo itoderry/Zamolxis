@@ -706,9 +706,14 @@ export class Engine {
       'Assess risk: destructive, ambiguous, security-sensitive, or beyond-a-small-model jobs are medium/high — set recommendedModel to a stronger tier (up to "claude"). ' +
       '"executor" = the CHEAPEST tier that can reliably run the spec; low risk -> cheapest available, higher risk -> stronger. "executor" and "recommendedModel" MUST be one of the AVAILABLE TIERS tokens. ' +
       'SCHEDULE: if the STORY says the job should run repeatedly or at a time ("every minute", "each morning at 8", "hourly", "weekdays at 9"), set "schedule" to a 5-field cron expression + the task to run each time + a humanReadable phrase; otherwise schedule = null. ' +
-      'The executor is ALWAYS given the authoritative current date/time at run time, so it can answer "what time is it" type jobs from that value — your spec can rely on it and must NOT tell the executor to guess the time.';
+      'The executor is ALWAYS given the authoritative current date/time at run time, so it can answer "what time is it" type jobs from that value — your spec can rely on it and must NOT tell the executor to guess the time. ' +
+      'IMPORTANT: the executor sees ONLY your spec + its tools (NOT the user profile, persona, memories, or learnings). So BAKE any relevant user context directly into the spec — e.g. the user\'s name, timezone, language, tone/format preferences, and any standing facts the job depends on.';
+    const profile = this.deps.memory.getUser().replace(/^#.*$/m, '').trim();
+    const learned = this.deps.memory.relevantLearningsBlock(def.job) || '';
     const prompt =
       `AGENT NAME: ${def.name}\nUSER'S JOB DESCRIPTION:\n${def.job}\n\n` +
+      (profile ? `USER PROFILE (bake anything relevant into the spec; the executor will NOT see this):\n${profile}\n\n` : '') +
+      (learned ? `RELEVANT LEARNINGS (bake in if useful; the executor will NOT see these):\n${learned}\n\n` : '') +
       `AVAILABLE TOOLS: ${toolNames}\n\nAVAILABLE SKILLS:\n${skillIndex || '(none)'}\n\nAVAILABLE TIERS: ${tiers.join(', ')}\n\n` +
       'Compile the plan now. Output ONLY the JSON object.';
     const raw = await this.oneShotClaude(system, prompt, this.deps.config.smartModel || this.deps.config.model);
@@ -1038,7 +1043,13 @@ export class Engine {
     const learned = query ? this.deps.memory.relevantLearningsBlock(query) : this.deps.memory.learningsBlock();
     // An agent's job leads the prompt so the model stays on its specific task.
     const agentRole = agent?.job ? `YOU ARE A FOCUSED AGENT. YOUR JOB:\n${agent.job}\nDo exactly this job using only your available tools; do not drift off-task.` : undefined;
-    const system = [agentRole, toolsLine, searchSynth, safety, escalateRule, banNote, forcedNote, persona, nowLine, profileHint, learned, skillsHint, config.systemPromptAppend]
+    // Agent EXECUTORS get ONLY their compiled spec + run mechanics (tools, time, safety/escalate/ban)
+    // — NO persona, user profile, learnings, broad skills index, or global prompt append. The smart
+    // model already baked any relevant user context into the spec at compile time; a lean prompt keeps
+    // weak executors on-task and avoids shipping the user's profile to third-party providers each run.
+    const system = (agent?.job
+      ? [agentRole, toolsLine, searchSynth, safety, escalateRule, banNote, forcedNote, nowLine]
+      : [agentRole, toolsLine, searchSynth, safety, escalateRule, banNote, forcedNote, persona, nowLine, profileHint, learned, skillsHint, config.systemPromptAppend])
       .filter(Boolean)
       .join('\n\n');
     return { system, tools };
