@@ -1014,9 +1014,9 @@ button:hover{border-color:var(--accent);color:var(--accent)}
 #main{flex:1;display:flex;overflow:hidden}
 #provrail{width:158px;flex:none;border-right:1px solid var(--line);background:#120f0a;display:flex;flex-direction:column;position:relative}
 #provsec{overflow:auto;padding:10px 8px;flex:none;height:50%}
-#railsplit{height:7px;flex:none;cursor:row-resize;background:var(--line);opacity:.45}
-#railsplit:hover{opacity:1;background:var(--accent)}
-#agentsec{overflow:auto;padding:8px 8px 10px;flex:1 1 0;min-height:42px}
+#railsplit,#railsplit2{height:7px;flex:none;cursor:row-resize;background:var(--line);opacity:.45}
+#railsplit:hover,#railsplit2:hover{opacity:1;background:var(--accent)}
+#agentsec{overflow:auto;padding:8px 8px 10px;flex:none;height:25%;min-height:42px}
 #railwidth{position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:6}
 #railwidth:hover{background:var(--accent);opacity:.5}
 #maininner{flex:1;display:flex;overflow:hidden}
@@ -1095,7 +1095,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 <div id="modelsbar"><span id="models"></span></div>
 <div id="tabbar"></div>
 <div id="main">
-  <aside id="provrail"><div id="provsec"><div id="provchain"></div></div><div id="railsplit" title="Drag to resize Providers / Agents"></div><div id="agentsec"><div style="text-transform:uppercase;font-size:10px;letter-spacing:.5px;color:var(--mut);margin:2px 4px 6px">Agents</div><div id="agentrail"></div><div id="newagent" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new agent</div></div><div id="chatsec"><div style="text-transform:uppercase;font-size:10px;letter-spacing:.5px;color:var(--mut);margin:2px 4px 6px">Chats</div><div id="threadlist"></div><div id="newchat" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new chat</div></div><div id="railwidth" title="Drag to resize the panel width"></div></aside>
+  <aside id="provrail"><div id="provsec"><div id="provchain"></div></div><div id="railsplit" title="Drag to resize Providers / Agents"></div><div id="agentsec"><div style="text-transform:uppercase;font-size:10px;letter-spacing:.5px;color:var(--mut);margin:2px 4px 6px">Agents</div><div id="agentrail"></div><div id="newagent" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new agent</div></div><div id="railsplit2" title="Drag to resize Agents / Chats"></div><div id="chatsec"><div style="text-transform:uppercase;font-size:10px;letter-spacing:.5px;color:var(--mut);margin:2px 4px 6px">Chats</div><div id="threadlist"></div><div id="newchat" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new chat</div></div><div id="railwidth" title="Drag to resize the panel width"></div></aside>
   <div id="maininner">
   <div id="chatwrap">
   <div id="chatview">
@@ -1433,16 +1433,19 @@ if(el('am_create'))el('am_create').onclick=function(){var nm=el('am_name').value
   else{showToast('Creating open agent...');postCreateAgent(nm,'Open agent: carry out whatever task you are given when you are run.','auto',undefined,true,as)}};
 // Auto-detect the user's timezone and persist it (once) so agents report LOCAL time even on a UTC host.
 (function autoTz(){try{var tz=Intl.DateTimeFormat().resolvedOptions().timeZone;if(!tz)return;fetch('/api/settings',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(s){if(s&&s.live&&!s.live.timezone){fetch('/api/settings',{method:'POST',headers:hdrs(),body:JSON.stringify({live:{timezone:tz}})}).catch(function(){})}}).catch(function(){})}catch(e){}})();
-(function setupRailResize(){var rail=el('provrail'),sec=el('provsec'),split=el('railsplit'),wh=el('railwidth');if(!rail||!sec||!split||!wh)return;
+(function setupRailResize(){var rail=el('provrail'),sec=el('provsec'),split=el('railsplit'),sec2=el('agentsec'),split2=el('railsplit2'),wh=el('railwidth');if(!rail||!sec||!split||!wh)return;
   try{if(localStorage.zx_railsplit)sec.style.height=localStorage.zx_railsplit}catch(e){}
+  try{if(localStorage.zx_railsplit2&&sec2)sec2.style.height=localStorage.zx_railsplit2}catch(e){}
   try{if(localStorage.zx_railw)rail.style.width=localStorage.zx_railw}catch(e){}
-  var dragY=false,dragX=false;
+  var dragY=false,dragY2=false,dragX=false;
   split.addEventListener('mousedown',function(e){dragY=true;e.preventDefault();document.body.style.userSelect='none'});
+  if(split2)split2.addEventListener('mousedown',function(e){dragY2=true;e.preventDefault();document.body.style.userSelect='none'});
   wh.addEventListener('mousedown',function(e){dragX=true;e.preventDefault();document.body.style.userSelect='none'});
   document.addEventListener('mousemove',function(e){
-    if(dragY){var top=rail.getBoundingClientRect().top;var h=Math.max(42,Math.min(rail.clientHeight-70,e.clientY-top));sec.style.height=h+'px'}
+    if(dragY){var top=rail.getBoundingClientRect().top;var h=Math.max(42,Math.min(rail.clientHeight-120,e.clientY-top));sec.style.height=h+'px'}
+    if(dragY2&&sec2){var t2=sec2.getBoundingClientRect().top;var h2=Math.max(42,Math.min(rail.clientHeight-70,e.clientY-t2));sec2.style.height=h2+'px'}
     if(dragX){var left=rail.getBoundingClientRect().left;var w=Math.max(120,Math.min(440,e.clientX-left));rail.style.width=w+'px'}});
-  document.addEventListener('mouseup',function(){if(dragY){try{localStorage.zx_railsplit=sec.style.height}catch(e){}}if(dragX){try{localStorage.zx_railw=rail.style.width}catch(e){}}if(dragY||dragX)document.body.style.userSelect='';dragY=false;dragX=false});
+  document.addEventListener('mouseup',function(){if(dragY){try{localStorage.zx_railsplit=sec.style.height}catch(e){}}if(dragY2&&sec2){try{localStorage.zx_railsplit2=sec2.style.height}catch(e){}}if(dragX){try{localStorage.zx_railw=rail.style.width}catch(e){}}if(dragY||dragY2||dragX)document.body.style.userSelect='';dragY=false;dragY2=false;dragX=false});
 })();
 el('newchat').onclick=newChat;
 el('cog').onclick=function(){if(closePanels()===false)return;closeTools();el('panel').classList.add('open');pushAside(el('panel'));loadSettings()};
