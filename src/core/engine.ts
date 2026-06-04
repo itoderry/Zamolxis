@@ -536,16 +536,22 @@ export class Engine {
     if (this.sessionPaused.has(def.name)) return { reply: `Agent "${def.name}" is paused by the startup policy — resume it to run.`, sessionId: '', costUsd: 0, isError: true, agent: def.name };
     // The executor follows the planner-compiled spec verbatim (falls back to the raw job if not compiled).
     let agentJob = def.spec && def.spec.trim() ? def.spec : def.job;
-    // Hybrid planning: when handed a specific task that differs from the standing job, the smart model
-    // re-plans THAT task into literal steps before the cheap executor runs it.
-    if (task && task.trim() && task.trim() !== def.job.trim()) {
-      const adhoc = await this.replanTask(def, task).catch(() => undefined);
-      if (adhoc) agentJob = adhoc;
+    // A task is "ad-hoc" only if it genuinely DIFFERS from the standing job. A scheduled fire that
+    // just echoes the recurring job ("Every minute tell me the time") is NOT ad-hoc — running the
+    // spec with that phrase as the prompt makes weak models enumerate a fake sequence. So the
+    // standing job always runs from the spec with neutral prompt text.
+    const adhoc = !!(task && task.trim() && task.trim() !== def.job.trim());
+    if (adhoc) {
+      const replanned = await this.replanTask(def, task!).catch(() => undefined);
+      if (replanned) agentJob = replanned;
     }
     // Tell the executor about any generated code tools and exactly how to invoke them.
     if (def.codeTools && def.codeTools.length) {
       agentJob += '\n\nGENERATED TOOLS (invoke via the sandbox_exec tool):\n' + def.codeTools.map((t) => `- ${t.name}: run \`${t.run}\``).join('\n');
     }
+    // Spec discipline: weak local executors otherwise pad the output (e.g. listing a whole minute
+    // sequence). Bind them tightly to the instructions.
+    agentJob += '\n\nFollow the instructions above EXACTLY and output ONLY what they ask for. Do NOT restate the request, add commentary, or produce a list/sequence of values unless explicitly told to.';
     // Authoritative current time from the host clock — so time-sensitive agents (e.g. "tell me the
     // time every minute") report the REAL time instead of hallucinating one. Computed fresh per run.
     agentJob = `CURRENT DATE/TIME = ${this.nowString()}\nThis is the ONLY correct current time. It OVERRIDES any other date/time you may have been given or trained on. If the user asks the time, answer with exactly this value (this timezone) — never convert it, guess, or use a different timezone.\n\n${agentJob}`;
@@ -554,7 +560,7 @@ export class Engine {
       conversationKey: `agent:${def.name}`,
       channel: 'agent',
       chatId: def.name,
-      text: (task && task.trim()) || `Do your job now.`,
+      text: adhoc ? task! : `Do your job now.`,
       route,
       agentJob,
       agentTools: def.tools,
@@ -735,8 +741,10 @@ export class Engine {
     let scheduled: { cron: string; task?: string; humanReadable?: string } | undefined;
     const sched = (plan.schedule ?? null) as { cron?: string; task?: string; humanReadable?: string } | null;
     if (sched && typeof sched.cron === 'string' && sched.cron.trim() && (this.deps.countAgentSchedules?.(def.name) ?? 0) === 0) {
-      this.deps.scheduleAgent?.(def.name, sched.cron.trim(), sched.task);
-      scheduled = { cron: sched.cron.trim(), task: sched.task, humanReadable: sched.humanReadable };
+      // Fire the standing job (spec) each time — do NOT pass the recurring phrase as the per-run
+      // task, or weak executors enumerate a fake sequence instead of doing the job once.
+      this.deps.scheduleAgent?.(def.name, sched.cron.trim(), undefined);
+      scheduled = { cron: sched.cron.trim(), humanReadable: sched.humanReadable };
       logger.info({ name: def.name, cron: scheduled.cron }, 'planner auto-scheduled agent from story');
     }
     // Deterministic fallback: the planner sometimes omits the schedule even when the story clearly
@@ -1288,10 +1296,11 @@ export class Engine {
       if (!r.escalate && r.result) {
         // Profile capture runs for ANY tier that answers (not just Claude), so durable
         // facts about the user are recorded even when local/free-cloud handled the turn.
-        if (mentionsSelf(req.text)) void this.captureProfile(req).catch((err) => logger.warn({ err: String(err) }, 'profile-capture failed'));
+        // NEVER on agent runs — an agent's own task text ("every minute tell me…") is not a user fact.
+        if (!req.agentJob && mentionsSelf(req.text)) void this.captureProfile(req).catch((err) => logger.warn({ err: String(err) }, 'profile-capture failed'));
         // Remember the ANSWER to a live/factual question (from a trustworthy tier) so the local
         // model can answer it from the knowledge store next time instead of re-searching/guessing.
-        if (needsCurrentInfo(req.text) && r.result.via && !/^Local/.test(r.result.via)) {
+        if (!req.agentJob && needsCurrentInfo(req.text) && r.result.via && !/^Local/.test(r.result.via)) {
           void this.captureFact(req, r.result.reply).catch((err) => logger.warn({ err: String(err) }, 'fact-capture failed'));
         }
         return r.result;
@@ -1551,10 +1560,10 @@ export class Engine {
     }
     // Profile capture: if the user revealed something durable about themselves and the
     // model didn't already record it to the profile, distill and save it to USER.md.
-    if (!isError && !profileWroteThisTurn && mentionsSelf(req.text)) {
+    if (!isError && !req.agentJob && !profileWroteThisTurn && mentionsSelf(req.text)) {
       void this.captureProfile(req).catch((err) => logger.warn({ err: String(err) }, 'profile-capture failed'));
     }
-    if (!isError && needsCurrentInfo(req.text) && reply.trim().length > 8) {
+    if (!isError && !req.agentJob && needsCurrentInfo(req.text) && reply.trim().length > 8) {
       void this.captureFact(req, reply).catch((err) => logger.warn({ err: String(err) }, 'fact-capture failed'));
     }
     return { reply: reply.trim() || '(no reply)', sessionId, costUsd, isError, errorKind, via: `Claude${chosenModel ? ` (${chosenModel})` : ''}` };
@@ -1585,6 +1594,11 @@ export class Engine {
     const out = await this.oneShotClaude(sys, prompt, this.deps.config.fastModel || this.deps.config.model);
     const fact = out.replace(/^[-*\s`'"]+/, '').replace(/[`'"\s]+$/, '').trim();
     if (!fact || /^none\b/i.test(fact) || fact.length > 180) return;
+    // Junk guard: a real profile fact is a short STATEMENT, not a stray word/number the extractor
+    // hallucinated (e.g. "Four"). Require >= 3 words, a letter, and reject lone number-words/ordinals.
+    const words = fact.split(/\s+/).filter(Boolean);
+    if (words.length < 3 || !/[a-z]/i.test(fact)) return;
+    if (/^(zero|one|two|three|four|five|six|seven|eight|nine|ten|first|second|third|\d+)\.?$/i.test(fact)) return;
     const res = this.deps.memory.addUser(fact);
     logger.info({ key: req.conversationKey, fact, ok: res.ok }, 'profile-capture: recorded a user fact');
   }

@@ -81,9 +81,9 @@ function resolveGit(): string {
 }
 const GIT_BIN = resolveGit();
 
-// Version shown in the UI: package.json semver (human-bumped per release) + an auto-increasing
-// build number = the git commit count + the short commit SHA. Computed ONCE at startup. The build
-// number rises on every commit with zero maintenance; a non-git install falls back to pkg + 0.
+// Version shown in the UI: package.json semver (human-bumped per release) + a build number that
+// counts commits SINCE the current version was set in package.json (so a version bump resets the
+// build to 0) + the short commit SHA. Computed ONCE at startup. Non-git installs fall back to 0.
 const VERSION = (() => {
   let pkg = '0.0.0';
   try {
@@ -94,7 +94,11 @@ const VERSION = (() => {
   let commit = '';
   let build = 0;
   try {
-    const r = spawnSync(GIT_BIN, ['rev-list', '--count', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8', windowsHide: true });
+    // The commit that last set this version in package.json — build counts commits AFTER it.
+    const bump = spawnSync(GIT_BIN, ['log', '-1', '--format=%H', '-S', `"version": "${pkg}"`, '--', 'package.json'], { cwd: REPO_ROOT, encoding: 'utf8', windowsHide: true });
+    const since = bump.status === 0 ? (bump.stdout || '').trim() : '';
+    const range = since ? [`${since}..HEAD`] : ['HEAD'];
+    const r = spawnSync(GIT_BIN, ['rev-list', '--count', ...range], { cwd: REPO_ROOT, encoding: 'utf8', windowsHide: true });
     if (r.status === 0) build = parseInt((r.stdout || '').trim(), 10) || 0;
     const s = spawnSync(GIT_BIN, ['rev-parse', '--short', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8', windowsHide: true });
     if (s.status === 0) commit = (s.stdout || '').trim();
@@ -184,7 +188,7 @@ export class WebChannel implements Channel {
     private readonly skills?: SkillsManager,
     private readonly memory?: MemoryManager,
     private readonly agentStore?: AgentStore,
-    private readonly runAgent?: (name: string, task?: string) => Promise<{ reply: string }>,
+    private readonly runAgent?: (name: string, task?: string) => Promise<{ reply: string; via?: string }>,
     /** Live agent-message log (agent->agent and agent->user), polled by the Agents chat. */
     private readonly agentMsgs?: Array<{ from: string; to: string; text: string; ts: number }>,
     /** Schedule a named agent on a cron expression (deterministic — does not rely on the model). */
@@ -568,10 +572,10 @@ export class WebChannel implements Channel {
               if (task && this.scheduleAgent && this.nlToCron && !hasSchedule &&
                   /\b(every|each|hourly|daily|weekly|minute|minutes|hour|hours|morning|evening|night|noon|midnight|weekday|weekdays|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(task)) {
                 const c = await this.nlToCron(task);
-                if (c.cron) { this.scheduleAgent(name, c.cron, task); scheduled = { cron: c.cron, note: c.note }; }
+                if (c.cron) { this.scheduleAgent(name, c.cron, undefined); scheduled = { cron: c.cron, note: c.note }; }
               }
               const r = await this.runAgent(name, task);
-              return this.json(res, 200, { ok: true, reply: r.reply, scheduled, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
+              return this.json(res, 200, { ok: true, reply: r.reply, via: r.via, scheduled, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
             }
             if (action === 'schedule') {
               if (!this.scheduleAgent) return this.json(res, 400, { error: 'scheduling unavailable' });
@@ -976,7 +980,7 @@ const PAGE = `<!doctype html>
   --user:#cda34920; --userline:#cda34955; --bot:#1b160f;
 }
 *{box-sizing:border-box}
-body{margin:0;font:15px/1.55 system-ui,Segoe UI,Roboto,sans-serif;color:var(--ink);height:100vh;display:flex;flex-direction:column;
+body{margin:0;font:15px/1.55 system-ui,Segoe UI,Roboto,sans-serif;color:var(--ink);height:100vh;display:flex;flex-direction:column;transition:padding-right .2s;box-sizing:border-box;
   background:radial-gradient(1200px 700px at 50% -10%,#1a150d 0%,var(--bg) 60%) fixed;}
 ::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:#2c261c;border-radius:6px}::-webkit-scrollbar-thumb:hover{background:#3a3225}
 header{display:flex;align-items:center;gap:10px;padding:11px 18px;border-bottom:1px solid var(--line);background:linear-gradient(#1a150d,#120f0a);flex-wrap:wrap}
@@ -1114,6 +1118,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 <div id="provpanel" class="side"><div class="phead"><h3>AI Providers</h3><button id="provsave">Save</button><button id="provclose">Close</button></div><div class="pbody" id="provview">loading...</div></div>
 <div id="localpanel" class="side"><div class="phead"><h3>Local model</h3><button id="localclose">Close</button></div><div class="pbody" id="localview">loading...</div></div>
 <div id="agentmodal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.55);align-items:center;justify-content:center"><div style="background:#161108;border:1px solid var(--line);border-radius:12px;padding:18px 18px 16px;width:min(600px,94vw);box-shadow:0 12px 40px rgba(0,0,0,.5)"><h3 style="margin:0 0 12px;color:var(--accent)">New agent</h3><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Name</label><input id="am_name" placeholder="e.g. mailproc" style="width:100%;box-sizing:border-box;margin-bottom:12px"><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Instructions &mdash; what it does, and how often if it repeats. Leave blank for an <b>open</b> agent you task each time.</label><textarea id="am_job" rows="9" placeholder="e.g. Every morning at 8, read my gmail and Slack me a 5-bullet digest of anything that needs a reply." style="width:100%;box-sizing:border-box;resize:vertical;margin-bottom:12px"></textarea><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">On restart</label><select id="am_autostart" style="margin-bottom:14px"><option value="">Use global default</option><option value="resume">Always resume</option><option value="pause">Start paused</option></select><div style="display:flex;gap:8px;justify-content:flex-end"><button id="am_cancel" type="button">Cancel</button><button id="am_create" type="button">Create</button></div></div></div>
+<div id="jobmodal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.55);align-items:center;justify-content:center"><div style="background:#161108;border:1px solid var(--line);border-radius:12px;padding:18px;width:min(660px,94vw);box-shadow:0 12px 40px rgba(0,0,0,.5)"><h3 style="margin:0 0 10px;color:var(--accent)">Edit job &mdash; <span id="jm_name"></span></h3><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Instructions in plain language (incl. how often if it repeats). On save, the smartest model recompiles the plan, skills and schedule &mdash; just like when you create an agent.</label><textarea id="jm_job" rows="8" style="width:100%;box-sizing:border-box;resize:vertical;margin-bottom:10px"></textarea><details style="margin-bottom:12px"><summary style="cursor:pointer;font-size:12px;color:var(--mut)">Current compiled plan (read-only)</summary><pre id="jm_spec" style="white-space:pre-wrap;font-size:11px;color:var(--mut);max-height:220px;overflow:auto;background:#0c0a07;border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:6px"></pre></details><div style="display:flex;gap:8px;justify-content:flex-end"><button id="jm_cancel" type="button">Cancel</button><button id="jm_save" type="button">Save &amp; recompile</button></div></div></div>
 <script>
 function uuid(){return crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random()}
 /* ---- shared status helpers (masked keys, status dots, active-provider rail, installer) ---- */
@@ -1180,9 +1185,10 @@ function renderAgents(){var box=el('agentrail');if(!box)return;
   if(!AGENTS.length){box.innerHTML='<div style="color:var(--mut);font-size:11px;padding:2px 7px">none yet</div>';return}
   box.innerHTML=AGENTS.map(function(a){
     var sl=schedsFor(a.name).map(function(s){return '<div style="font-size:10px;color:var(--mut);margin-left:8px;margin-top:1px">\\u23F0 '+esc(s.cron||s.at||'')+' <span class="ascd" data-id="'+esc(s.id)+'" title="cancel" style="color:#e88;cursor:pointer">\\u00d7</span></div>'}).join('');
-    return '<div style="padding:4px 7px"><div style="font-size:12px" title="'+esc(a.job)+'"><span class="aopen" data-n="'+esc(a.name)+'" style="cursor:pointer;text-decoration:underline" title="open '+esc(a.name)+' chat">'+esc(a.label||a.name)+'</span> <span style="color:var(--mut);font-size:10px">['+esc(a.model)+(a.canElevate?'\\u2191':'')+']</span>'+((a.risk&&a.risk.level&&a.risk.level!=='low')?(' <span title="'+esc(a.risk.note||'')+'" style="color:'+(a.risk.level==='high'?'#e06a5f':'#e0a55f')+';font-size:10px">\\u26A0 '+esc(a.risk.level)+'</span>'):'')+((a.stopped)?' <span style="color:var(--mut);font-size:10px">[stopped]</span>':'')+'</div><div style="margin-top:1px"><span class="arun" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px">run</span><span class="aana" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">analyze</span><span class="asch" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">schedule</span><span class="astp" data-n="'+esc(a.name)+'" data-stop="'+(a.stopped?'0':'1')+'" style="color:'+(a.stopped?'#7dd08a':'#e0a55f')+';cursor:pointer;font-size:11px;margin-left:10px">'+(a.stopped?'resume':'stop')+'</span><span class="adel" data-n="'+esc(a.name)+'" style="color:#e88;cursor:pointer;font-size:11px;margin-left:10px">delete</span></div>'+sl+'</div>'}).join('');
+    return '<div style="padding:4px 7px"><div style="font-size:12px" title="'+esc(a.job)+'"><span class="aopen" data-n="'+esc(a.name)+'" style="cursor:pointer;text-decoration:underline" title="open '+esc(a.name)+' chat">'+esc(a.label||a.name)+'</span> <span style="color:var(--mut);font-size:10px">['+esc(a.model)+(a.canElevate?'\\u2191':'')+']</span>'+((a.risk&&a.risk.level&&a.risk.level!=='low')?(' <span title="'+esc(a.risk.note||'')+'" style="color:'+(a.risk.level==='high'?'#e06a5f':'#e0a55f')+';font-size:10px">\\u26A0 '+esc(a.risk.level)+'</span>'):'')+((a.stopped)?' <span style="color:var(--mut);font-size:10px">[stopped]</span>':'')+'</div><div style="margin-top:1px"><span class="arun" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px">run</span><span class="ajob" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">job</span><span class="aana" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">analyze</span><span class="asch" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">schedule</span><span class="astp" data-n="'+esc(a.name)+'" data-stop="'+(a.stopped?'0':'1')+'" style="color:'+(a.stopped?'#7dd08a':'#e0a55f')+';cursor:pointer;font-size:11px;margin-left:10px">'+(a.stopped?'resume':'stop')+'</span><span class="adel" data-n="'+esc(a.name)+'" style="color:#e88;cursor:pointer;font-size:11px;margin-left:10px">delete</span></div>'+sl+'</div>'}).join('');
   [].slice.call(box.querySelectorAll('.arun')).forEach(function(x){x.onclick=function(){runAgentUI(x.getAttribute('data-n'))}});
   [].slice.call(box.querySelectorAll('.aopen')).forEach(function(x){x.onclick=function(){openAgentChat(x.getAttribute('data-n'))}});
+  [].slice.call(box.querySelectorAll('.ajob')).forEach(function(x){x.onclick=function(){openJobModal(x.getAttribute('data-n'))}});
   [].slice.call(box.querySelectorAll('.aana')).forEach(function(x){x.onclick=function(){analyzeAgentUI(x.getAttribute('data-n'))}});
   [].slice.call(box.querySelectorAll('.asch')).forEach(function(x){x.onclick=function(){scheduleAgentUI(x.getAttribute('data-n'))}});
   [].slice.call(box.querySelectorAll('.astp')).forEach(function(x){x.onclick=function(){stopAgentUI(x.getAttribute('data-n'),x.getAttribute('data-stop')==='1')}});
@@ -1195,7 +1201,9 @@ function stopAgentUI(name,stop){fetch('/api/agents',{method:'POST',headers:hdrs(
 function analyzeAgentUI(name){showToast('Analyzing "'+name+'" with the smart model...');fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'analyze',name:name})}).then(function(r){return r.json()}).then(function(d){loadAgents();hideToast();if(d&&d.ok){alert('Analysis of "'+name+'":\\n\\n'+(d.assessment||'(no assessment)')+'\\n\\n'+(d.changed?'\\u2713 The prompt was improved.':'No change needed.'))}else{showToast((d&&d.note)?d.note:'Analyze failed.');setTimeout(hideToast,3000)}}).catch(function(){showToast('Analyze failed.')})}
 function cancelSched(id){if(!confirm('Cancel this schedule?'))return;fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'unschedule',id:id})}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.schedules){SCHEDS=d.schedules;renderAgents()}}).catch(function(){})}
 function doRunAgent(name,task){switchView('chat');var m=add('bot',name,'(running '+name+'...)');setStatus('agent '+name+' running...');
-  fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'run',name:name,task:task||undefined})}).then(function(r){return r.ok?r.json():null}).then(function(d){setStatus('');if(m)m.textContent=(d&&d.reply)?d.reply:'(no reply)';if(d&&d.schedules){SCHEDS=d.schedules;renderAgents()}if(d&&d.scheduled){showToast('Also scheduled: '+(d.scheduled.note||d.scheduled.cron));setTimeout(hideToast,3000)}}).catch(function(){setStatus('');if(m)m.textContent='(agent run failed)'})}
+  fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'run',name:name,task:task||undefined})}).then(function(r){return r.ok?r.json():null}).then(function(d){setStatus('');if(m)m.textContent=(d&&d.reply)?d.reply:'(no reply)';agentVia(m,d&&d.via);if(d&&d.schedules){SCHEDS=d.schedules;renderAgents()}if(d&&d.scheduled){showToast('Also scheduled: '+(d.scheduled.note||d.scheduled.cron));setTimeout(hideToast,3000)}}).catch(function(){setStatus('');if(m)m.textContent='(agent run failed)'})}
+/* Stamp an agent reply's header with the model that produced it (name + capability color). */
+function agentVia(m,via){if(!m||!m.whoEl||!via)return;var inner=String(via).replace(/^[^(]*\\(/,'').replace(/[)]$/,'');m.whoEl.dataset.vid=inner;setMeta(m.whoEl,null,null,via)}
 function runAgentUI(name){var a=AGENTS.filter(function(x){return x.name===name})[0];
   if(a&&!a.open){doRunAgent(name,undefined);return} /* dedicated agent: run its standing job, no prompt */
   var task=prompt('Task for "'+name+'" (this is an open agent). Tip: say "every minute ..." and it will also be scheduled.','');if(task===null)return;doRunAgent(name,task||undefined)}
@@ -1341,7 +1349,7 @@ var pending=[];var MAXUP=20*1024*1024;
 function renameThreadFrom(t){if(!t)return;var th=threads.filter(function(x){return x.id===cid})[0];if(th&&(th.label==='New chat'||th.label==='Chat 1')){th.label=t.slice(0,32);saveThreads();renderThreads()}}
 function sendMsg(){var t=el('in').value.trim();var files=pending.slice();if(!t&&!files.length)return;
   if(isAgentCid(cid)){if(!t)return;switchView('chat');add('user','you',t);pushHist(t);el('in').value='';var nm=agentNameOf(cid);var mm=add('bot','\\uD83E\\uDD16 '+nm,'(running...)');setStatus('agent '+nm+' running...');
-    fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'run',name:nm,task:t})}).then(function(r){return r.ok?r.json():null}).then(function(d){setStatus('');if(mm)mm.textContent=(d&&d.reply)?d.reply:'(no reply)'}).catch(function(){setStatus('');if(mm)mm.textContent='(run failed)'});return}
+    fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'run',name:nm,task:t})}).then(function(r){return r.ok?r.json():null}).then(function(d){setStatus('');if(mm)mm.textContent=(d&&d.reply)?d.reply:'(no reply)';agentVia(mm,d&&d.via)}).catch(function(){setStatus('');if(mm)mm.textContent='(run failed)'});return}
   if(!ws||ws.readyState!==1){setStatus('not connected');return}
   switchView('chat');
   var shown=t+(files.length?((t?'\\n':'')+files.map(function(f){return '📎 '+f.name}).join('\\n')):'');
@@ -1407,13 +1415,25 @@ el('in').addEventListener('keydown',function(e){var n=el('in');
     e.preventDefault();
   }});
 // Only ONE panel/overlay open at a time (prevents Settings opening UNDER Memory, etc.).
-function closePanels(){['panel','mempanel','skillpanel','provpanel','localpanel','threadpanel'].forEach(function(id){var e=el(id);if(e)e.classList.remove('open')})}
+var panelDirty=false;
+// Shift the page content aside by the open panel's width (the fixed panel then sits in the gap),
+// so a tool panel pushes the chat over instead of covering it.
+function pushAside(p){document.body.style.paddingRight=p?(p.getBoundingClientRect().width+'px'):''}
+// Hard close: drop all tool panels + un-shift the content. No prompt (used by each panel's X).
+function clearPanels(){['panel','mempanel','skillpanel','provpanel','localpanel','threadpanel'].forEach(function(id){var e=el(id);if(e)e.classList.remove('open')});document.body.style.paddingRight='';panelDirty=false}
+// Switch close: when opening another tool, warn first if the current panel has unsaved edits.
+function closePanels(){if(panelDirty&&!confirm('You have unsaved changes in this panel. Discard them and switch?'))return false;clearPanels();return true}
 function closeTools(){var d=el('toolsdrop');if(d)d.classList.remove('open')}
 el('toolsbtn').onclick=function(e){e.stopPropagation();el('toolsdrop').classList.toggle('open')};
 document.addEventListener('click',function(){closeTools()});
 el('chats').onclick=function(){var open=el('threadpanel').classList.contains('open');closePanels();closeTools();if(!open){renderThreads();el('threadpanel').classList.add('open')}};
 el('threadclose').onclick=function(){el('threadpanel').classList.remove('open')};
 if(el('newagent'))el('newagent').onclick=createAgentPrompt;
+var JM_NAME='';
+function openJobModal(name){var a=AGENTS.filter(function(x){return x.name===name})[0];if(!a)return;JM_NAME=name;el('jm_name').textContent=name;el('jm_job').value=a.job||'';el('jm_spec').textContent=a.spec||'(not compiled yet)';el('jobmodal').style.display='flex';setTimeout(function(){el('jm_job').focus()},30)}
+if(el('jm_cancel'))el('jm_cancel').onclick=function(){el('jobmodal').style.display='none'};
+if(el('jobmodal'))el('jobmodal').onclick=function(e){if(e.target===el('jobmodal'))el('jobmodal').style.display='none'};
+if(el('jm_save'))el('jm_save').onclick=function(){var nj=el('jm_job').value.trim();if(!nj){el('jm_job').focus();return}var a=AGENTS.filter(function(x){return x.name===JM_NAME})[0];var mdl=(a&&a.model)||'auto';var tl=(a&&a.tools&&a.tools.length)?a.tools:undefined;el('jobmodal').style.display='none';showToast('Recompiling "'+JM_NAME+'" with the smart model...');postCreateAgent(JM_NAME,nj,mdl,tl,false,undefined)};
 if(el('am_cancel'))el('am_cancel').onclick=function(){el('agentmodal').style.display='none'};
 if(el('agentmodal'))el('agentmodal').onclick=function(e){if(e.target===el('agentmodal'))el('agentmodal').style.display='none'};
 if(el('am_create'))el('am_create').onclick=function(){var nm=el('am_name').value.trim();if(!nm){el('am_name').focus();return}var jb=el('am_job').value.trim();var asv=el('am_autostart')?el('am_autostart').value:'';var as=asv==='resume'?true:asv==='pause'?false:undefined;el('agentmodal').style.display='none';
@@ -1433,10 +1453,10 @@ if(el('am_create'))el('am_create').onclick=function(){var nm=el('am_name').value
   document.addEventListener('mouseup',function(){if(dragY){try{localStorage.zx_railsplit=sec.style.height}catch(e){}}if(dragX){try{localStorage.zx_railw=rail.style.width}catch(e){}}if(dragY||dragX)document.body.style.userSelect='';dragY=false;dragX=false});
 })();
 el('newchat').onclick=newChat;
-el('cog').onclick=function(){closePanels();closeTools();el('panel').classList.add('open');loadSettings()};
-el('close').onclick=function(){el('panel').classList.remove('open')};
-el('mem').onclick=function(){closePanels();closeTools();loadMemory();el('mempanel').classList.add('open')};
-el('memclose').onclick=function(){el('mempanel').classList.remove('open')};
+el('cog').onclick=function(){if(closePanels()===false)return;closeTools();el('panel').classList.add('open');pushAside(el('panel'));loadSettings()};
+el('close').onclick=function(){clearPanels()};
+el('mem').onclick=function(){if(closePanels()===false)return;closeTools();loadMemory();el('mempanel').classList.add('open');pushAside(el('mempanel'))};
+el('memclose').onclick=function(){clearPanels()};
 /* ---- skills ---- */
 function renderSkills(list){var arr=list||[];
   var own=arr.filter(function(s){return s.source!=='external'}).length, ext=arr.length-own;
@@ -1473,8 +1493,8 @@ function importShown(){var names=[];
   fetch('/api/skills',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'import',slugs:names})}).then(function(r){return r.json()}).then(function(d){if(d&&d.skills)renderSkills(d.skills);showToast('Imported '+names.length+' skill(s).');setTimeout(hideToast,2400)}).catch(function(){showToast('Import failed.');setTimeout(hideToast,2000)})}
 function loadSkills(){fetch('/api/skills',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){renderSkills(d)})}
 function skillAction(action,slug){fetch('/api/skills',{method:'POST',headers:hdrs(),body:JSON.stringify({action:action,slug:slug})}).then(function(r){return r.json()}).then(function(d){if(d&&d.skills)renderSkills(d.skills)}).catch(function(){})}
-el('skillsbtn').onclick=function(){closePanels();closeTools();loadSkills();el('skillpanel').classList.add('open')};
-el('skillclose').onclick=function(){el('skillpanel').classList.remove('open')};
+el('skillsbtn').onclick=function(){if(closePanels()===false)return;closeTools();loadSkills();el('skillpanel').classList.add('open');pushAside(el('skillpanel'))};
+el('skillclose').onclick=function(){clearPanels()};
 /* ---- AI providers ---- */
 function provRow(p){var lim=(p.kind==='free'&&p.freeDaily&&p.used>=p.freeDaily);
   var color=!p.configured?C_OFF:(lim?C_BAD:C_OK);var lbl=!p.configured?'no key':(lim?'limit reached':'ready');
@@ -1530,11 +1550,11 @@ function renderProviders(d){var provs=d.providers||[];var h='';
   Array.prototype.forEach.call(el('provview').querySelectorAll('.preset'),function(a){a.onclick=function(e){e.preventDefault();el('prov_chain').value=a.getAttribute('data-c').split(',').join(', ')}});
   Array.prototype.forEach.call(el('provview').querySelectorAll('.instbtn'),function(b){b.onclick=function(){var id=b.getAttribute('data-inst');doInstall(id,'instout_'+id,b)}})}
 function loadProviders(){fetch('/api/providers',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d)renderProviders(d)})}
-function saveProviders(){var creds={};Array.prototype.forEach.call(document.querySelectorAll('[id^="prov_"]'),function(n){if(n.id==='prov_chain')return;if(n.value&&n.value!==KEYMASK)creds[n.id.slice(5)]=n.value});
+function saveProviders(){panelDirty=false;var creds={};Array.prototype.forEach.call(document.querySelectorAll('[id^="prov_"]'),function(n){if(n.id==='prov_chain')return;if(n.value&&n.value!==KEYMASK)creds[n.id.slice(5)]=n.value});
   fetch('/api/settings',{method:'POST',headers:hdrs(),body:JSON.stringify({live:{routeChain:el('prov_chain').value},credentials:creds})}).then(function(r){return r.json()}).then(function(s){
     if(s&&s.restartRequired){awaitingReload=true;el('provpanel').classList.remove('open');showToast('Saved. Applying and reconnecting...')}else{showToast('Saved.');loadProviders();loadRail();setTimeout(hideToast,2000)}}).catch(function(){})}
-el('provbtn').onclick=function(){closePanels();closeTools();loadProviders();el('provpanel').classList.add('open')};
-el('provclose').onclick=function(){el('provpanel').classList.remove('open')};
+el('provbtn').onclick=function(){if(closePanels()===false)return;closeTools();loadProviders();el('provpanel').classList.add('open');pushAside(el('provpanel'))};
+el('provclose').onclick=function(){clearPanels()};
 el('provsave').onclick=saveProviders;
 /* ---- local model ---- */
 var LOCALPOLL=null;
@@ -1597,8 +1617,8 @@ function renderLocal(d){var v=el('localview');if(!v)return;var h='';
 }
 function startLocalPoll(){if(LOCALPOLL)return;LOCALPOLL=setInterval(function(){if(!el('localpanel').classList.contains('open')){stopLocalPoll();return}loadLocal()},1500)}
 function stopLocalPoll(){if(LOCALPOLL){clearInterval(LOCALPOLL);LOCALPOLL=null}}
-el('localbtn').onclick=function(){closePanels();closeTools();loadLocal();el('localpanel').classList.add('open')};
-el('localclose').onclick=function(){el('localpanel').classList.remove('open');stopLocalPoll()};
+el('localbtn').onclick=function(){if(closePanels()===false)return;closeTools();loadLocal();el('localpanel').classList.add('open');pushAside(el('localpanel'))};
+el('localclose').onclick=function(){clearPanels();stopLocalPoll()};
 /* ---- tabs ---- */
 function ago(ts){if(!ts)return'';var s=Math.floor((Date.now()-ts)/1000);if(s<60)return s+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago'}
 function md(s){s=String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -1738,6 +1758,7 @@ function fetchUsage(){fetch('/api/usage',{headers:hdrs()}).then(function(r){retu
   h+='all time: '+fmtNum(d.total.totals.total)+' tok, '+d.total.totals.calls+' call(s)'+usageRows(d.total.models);
   box.innerHTML=h}).catch(function(){})}
 el('save').onclick=function(){
+  panelDirty=false;
   var v=function(id){var n=el('s_'+id);return n?n.value:undefined};
   var ck=function(id){var n=el('s_'+id);return n?n.checked:undefined};
   var patch={live:{agentName:v('live_agentName'),model:v('live_model'),fastModel:v('live_fastModel'),smartModel:v('live_smartModel'),timezone:v('live_timezone'),localRouting:v('live_localRouting'),lawsEnabled:ck('live_lawsEnabled'),agentRestore:ck('live_agentRestore'),permissionMode:v('live_permissionMode'),sandboxBackend:v('live_sandboxBackend'),systemPromptAppend:v('live_systemPromptAppend'),maxTurns:Number(v('live_maxTurns')),maxConcurrent:Number(v('live_maxConcurrent'))},
@@ -1841,5 +1862,6 @@ function renderBans(){var box=el('bansec');if(!box)return;fetch('/api/bans',{hea
   [].slice.call(box.querySelectorAll('.banx')).forEach(function(x){x.onclick=function(){postBan('remove',x.getAttribute('data-m'),x.getAttribute('data-s'))}});
   var ba=el('ban_add');if(ba)ba.onclick=function(){var sk=(el('ban_skill').value||'').trim();var md=(el('ban_model').value||'').trim();if(!sk||!md){return}postBan('add',md,sk)}})}
 function postBan(action,model,skill){fetch('/api/bans',{method:'POST',headers:hdrs(),body:JSON.stringify({action:action,model:model,skill:skill})}).then(function(r){return r.json()}).then(function(d){if(d&&d.ok===false&&d.reason)showToast(d.reason);renderBans()}).catch(function(){})}
+['panelbody','provview'].forEach(function(id){var e=el(id);if(e)e.addEventListener('input',function(){panelDirty=true})});
 renderThreads();openWs();fetchTabs();setInterval(fetchTabs,6000);loadRail();setInterval(loadRail,60000);loadBanVocab();
 </script></body></html>`;
