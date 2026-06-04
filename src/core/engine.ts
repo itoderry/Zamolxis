@@ -551,7 +551,7 @@ export class Engine {
     }
     // Spec discipline: weak local executors otherwise pad the output (e.g. listing a whole minute
     // sequence). Bind them tightly to the instructions.
-    agentJob += '\n\nFollow the instructions above EXACTLY and output ONLY what they ask for. Do NOT restate the request, add commentary, or produce a list/sequence of values unless explicitly told to.';
+    agentJob += '\n\nFollow the instructions above EXACTLY and output ONLY what they ask for. Do NOT restate the request, add commentary, ask the user any question, offer further help, or produce a list/sequence of values unless explicitly told to. When a current date/time is provided above, use THAT value verbatim — never invent, estimate, or convert it.';
     // Authoritative current time from the host clock — so time-sensitive agents (e.g. "tell me the
     // time every minute") report the REAL time instead of hallucinating one. Computed fresh per run.
     agentJob = `CURRENT DATE/TIME = ${this.nowString()}\nThis is the ONLY correct current time. It OVERRIDES any other date/time you may have been given or trained on. If the user asks the time, answer with exactly this value (this timezone) — never convert it, guess, or use a different timezone.\n\n${agentJob}`;
@@ -629,15 +629,14 @@ export class Engine {
         return (
           new Date().toLocaleString('en-US', {
             timeZone: tz,
-            weekday: 'short',
+            weekday: 'long',
             year: 'numeric',
-            month: 'short',
+            month: 'long',
             day: 'numeric',
             hour: '2-digit',
             minute: '2-digit',
-            second: '2-digit',
-            timeZoneName: 'short',
-          }) + ` (${tz})`
+            hour12: false, // 24-hour — weak models otherwise mis-convert AM/PM (11:00 AM -> "15:00")
+          }) + ` (24-hour clock, ${tz})`
         );
       } catch {
         /* invalid timezone — fall through to host clock */
@@ -1174,7 +1173,9 @@ export class Engine {
     const bannedCaps = this.deps.bans?.bannedSkillsFor('local') ?? [];
     const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill });
     const history = this.recentHistory(req.conversationKey);
-    const r = await this.toolLoop({ url: `${lm.url}/chat/completions`, model: lm.model, system, userText: req.text, tools, history, numCtx: this.deps.config.localContext, keepAlive: this.deps.config.localKeepAlive, temp: this.deps.config.localTemp });
+    // Agent executions run at temperature 0 for determinism (no fabrication / no chit-chat drift).
+    const temp = req.agentJob ? 0 : this.deps.config.localTemp;
+    const r = await this.toolLoop({ url: `${lm.url}/chat/completions`, model: lm.model, system, userText: req.text, tools, history, numCtx: this.deps.config.localContext, keepAlive: this.deps.config.localKeepAlive, temp });
     if (!r.failed) this.deps.usage?.recordEngine({ [`local:${lm.model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
     const out = this.finishAssistantTurn(req, allowEscalate, r, /* isLocal */ true);
     if (out.result) { out.result.via = `Local (${lm.model})`; out.result.modelToken = 'local'; }
@@ -1188,7 +1189,7 @@ export class Engine {
     const bannedCaps = this.deps.bans?.bannedSkillsFor(p.id) ?? [];
     const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill });
     const history = this.recentHistory(req.conversationKey);
-    const r = await this.toolLoop({ url: `${p.baseUrl}/chat/completions`, model: p.model, apiKey: key, system, userText: req.text, tools, history });
+    const r = await this.toolLoop({ url: `${p.baseUrl}/chat/completions`, model: p.model, apiKey: key, system, userText: req.text, tools, history, temp: req.agentJob ? 0 : undefined });
     recordProviderUse(p.id);
     if (!r.failed) this.deps.usage?.recordEngine({ [`${p.kind}:${p.id}:${p.model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
     if (!r.failed) logger.info({ provider: p.id, kind: p.kind }, 'cloud provider handled the turn');
