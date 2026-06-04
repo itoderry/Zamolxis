@@ -22,6 +22,7 @@ import { effectiveName } from './displayName.js';
 import { pickFreeProvider, freeProviderPool, providerById, recordProviderUse, configuredProviders, type ProviderDef } from './providers.js';
 import type { AgentStore } from './agents.js';
 import { BanStore, isSmartestModel } from './bans.js';
+import { haConfigured, fetchHaInventory } from '../tools/homeassistant.js';
 
 export interface RunRequest {
   /** Stable per-conversation key, e.g. "telegram:12345". */
@@ -859,6 +860,13 @@ export class Engine {
       return { reply, sessionId: '', costUsd: 0, isError: false, via: 'Bans' };
     }
 
+    // ── /hasync: (re)build the Home Assistant device-map skill using the smartest model. ──
+    if (/^\/ha[-_ ]?(sync|map|scan|devices)\b/i.test(req.text.trim())) {
+      req.onProgress?.('(scanning Home Assistant and asking the smart model to build your device map…)\n\n');
+      const r = await this.buildHaDeviceMap();
+      return { reply: r.summary, sessionId: '', costUsd: 0, isError: !r.ok, via: 'Home Assistant' };
+    }
+
     // ── Deterministic arithmetic: a clear formula is computed directly — no model at all. ──
     const mathVal = evalArithmetic(req.text);
     if (mathVal !== null) {
@@ -1582,6 +1590,69 @@ export class Engine {
   }
 
   /** Minimal one-shot Claude completion (no MCP tools, single turn) — returns the reply text. */
+  /** Build (or refresh) the "home-assistant-devices" skill: pull the live HA inventory, have the
+   *  SMARTEST model group it by area (translated to English) and device type with simple aliases,
+   *  then write a dead-simple skill the weakest model can follow to drive ha_service. */
+  async buildHaDeviceMap(): Promise<{ ok: boolean; summary: string; slug?: string }> {
+    if (!haConfigured()) return { ok: false, summary: 'Home Assistant is not configured. Add ZAMOLXIS_HA_TOKEN and ZAMOLXIS_HA_URL (Settings), then try again.' };
+    const inv = await fetchHaInventory();
+    if (!inv.ok) return { ok: false, summary: `Could not read Home Assistant: ${inv.error}` };
+    if (!inv.rows.length) return { ok: false, summary: 'Home Assistant returned no entities.' };
+    const rows = inv.rows.slice(0, 1200); // keep the smart-model prompt bounded
+    const table = rows.map((r) => `${r.entity_id}\t${r.area}\t${r.name}\t${r.state}`).join('\n');
+    const system = 'You turn a raw Home Assistant entity dump into a clean device map for a SMALL, not-very-smart model to use for control. Output STRICT JSON ONLY — no prose, no markdown, no code fences.';
+    const prompt =
+      `TSV of Home Assistant entities (columns: entity_id, area, friendly_name, state):\n\n${table}\n\n` +
+      'Return ONLY this JSON shape:\n' +
+      '{"areas":[{"area":"English area name","groups":[{"type":"lights","items":[{"alias":"ceiling","entity_id":"light.kitchen_ceiling","name":"Kitchen Ceiling"}]}]}]}\n\n' +
+      'Rules:\n' +
+      '- Group by AREA. TRANSLATE area names to ENGLISH (e.g. "Cuisine"/"Küche"→"Kitchen", "Chambre"/"Schlafzimmer"→"Bedroom", "Salon"→"Living Room"). Entities with no area go under area "Unassigned".\n' +
+      '- Within an area, group by TYPE from the entity domain, using a simple plural label: light→"lights", switch→"switches", sensor & binary_sensor→"sensors", climate→"thermostats", cover→"covers/blinds", fan→"fans", media_player→"media players", lock→"locks", vacuum→"vacuums", camera→"cameras", scene→"scenes", script→"scripts", button→"buttons"; any other domain→its domain name.\n' +
+      '- alias: a SHORT lowercase handle from the friendly name, UNIQUE within its area+type, no punctuation (e.g. "Kitchen Ceiling Light"→"ceiling"; add a word only to disambiguate, e.g. "ceiling left").\n' +
+      '- Copy entity_id EXACTLY. Keep the original friendly name in "name".\n' +
+      '- DROP diagnostic noise (entities ending in _uptime/_linkquality/_rssi/_battery_voltage, update.*, persistent_notification.*, most device_tracker.*) unless clearly user-facing.\n' +
+      'Return ONLY the JSON object.';
+    const raw = await this.oneShotClaude(system, prompt, this.deps.config.smartModel || this.deps.config.model);
+    let map: { areas?: Array<{ area?: string; groups?: Array<{ type?: string; items?: Array<{ alias?: string; entity_id?: string; name?: string }> }> }> };
+    try {
+      const s = raw.indexOf('{');
+      const e = raw.lastIndexOf('}');
+      map = JSON.parse(s >= 0 && e > s ? raw.slice(s, e + 1) : raw) as typeof map;
+    } catch {
+      return { ok: false, summary: 'The smart model did not return a usable device map. Try again.' };
+    }
+    const areas = Array.isArray(map.areas) ? map.areas : [];
+    if (!areas.length) return { ok: false, summary: 'No areas were produced from your Home Assistant entities.' };
+    // Render a DEAD-SIMPLE skill body for the weakest model.
+    let body = 'Use this to control the house with the `ha_service` tool. Call ha_service(domain, service, entity_id).\n';
+    body += 'domain = the part of entity_id before the dot (light.kitchen_ceiling → domain "light").\n';
+    body += 'To turn something ON: service "turn_on". OFF: "turn_off". Covers/blinds: "open_cover"/"close_cover". Locks: "lock"/"unlock".\n';
+    body += 'Match the user\'s words to an alias below, then use its exact entity_id. Example: "turn on the kitchen ceiling light" → ha_service("light","turn_on","light.kitchen_ceiling").\n\n';
+    let nDevices = 0;
+    for (const a of areas) {
+      const groups = Array.isArray(a.groups) ? a.groups : [];
+      if (!groups.length) continue;
+      body += `## ${a.area || 'Unassigned'}\n`;
+      for (const g of groups) {
+        const items = Array.isArray(g.items) ? g.items.filter((it) => it && it.entity_id) : [];
+        if (!items.length) continue;
+        body += `### ${g.type || 'devices'}\n`;
+        for (const it of items) {
+          nDevices++;
+          body += `- "${it.alias || it.name || it.entity_id}" — ${it.name || ''} → entity_id: ${it.entity_id}\n`;
+        }
+      }
+      body += '\n';
+    }
+    const slug = this.deps.skills?.write(
+      'home-assistant-devices',
+      'Your Home Assistant devices grouped by area and type with aliases and exact entity_ids; use the ha_service tool to control them.',
+      body,
+    );
+    logger.info({ areas: areas.length, devices: nDevices, slug }, 'home-assistant device map built');
+    return { ok: true, slug, summary: `Built the Home Assistant device map: ${nDevices} device(s) across ${areas.length} area(s), saved as the "home-assistant-devices" skill. The local model can now control them via ha_service.` };
+  }
+
   private async oneShotClaude(append: string, prompt: string, model?: string): Promise<string> {
     const options: Options = {
       model,

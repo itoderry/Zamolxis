@@ -1178,7 +1178,7 @@ function escRender(){var b=escBoxEl();var r=el('in').getBoundingClientRect();b.s
 function escShow(partial){var all=escModels();if(!all.length){escHide();return}partial=(partial||'').trim().toLowerCase();var items=partial?all.filter(function(x){return x.label.toLowerCase().indexOf(partial)>=0||String(x.name).toLowerCase().indexOf(partial)>=0}):all;if(!items.length){escHide();return}items.forEach(function(it){it.fill='escalate '+it.label});ESC_ITEMS=items;ESC_SEL=0;ESC_OPEN=true;ESC_HEAD='escalate to';ESC_NUM=true;escRender()}
 function escShowSlash(partial){partial=(partial||'').toLowerCase();
   var items=[];
-  ['ban','unban'].forEach(function(c){if(('/'+c).indexOf('/'+partial)===0)items.push({label:'/'+c,name:'manage skill bans',fill:'/'+c+' ',color:'var(--ink)'})});
+  [['ban','manage skill bans'],['unban','manage skill bans'],['hasync','rebuild Home Assistant device map']].forEach(function(c){if(('/'+c[0]).indexOf('/'+partial)===0)items.push({label:'/'+c[0],name:c[1],fill:'/'+c[0]+(c[0]==='hasync'?'':' '),color:'var(--ink)'})});
   CAPS.forEach(function(c){if(c.toLowerCase().indexOf(partial)===0)items.push({label:'/'+c,name:'run this skill/tool',fill:'/'+c+' ',color:'var(--ink)'})});
   items=items.slice(0,40);
   if(!items.length){escHide();return}

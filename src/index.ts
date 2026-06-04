@@ -143,7 +143,7 @@ async function main(): Promise<void> {
     const sandbox = new SandboxManager(config.sandbox);
     const settings = new SettingsManager(config, sandbox, config.dataDir, () => manager.runningNames(), memory);
     engine.buildMcpServers = (ctx) =>
-      buildToolServers(ctx, { scheduler, skills, sandbox, memory, sessionIndex, tabs, usage, localModel: config.localModel, dataDir: config.dataDir, skillsDir: config.skillsDir, agentStore, runAgent: (n, t) => engine.runAgent(n, t).then((r) => r.reply), sendAgentMessage: (f, t, x) => engine.sendAgentMessage(f, t, x), compileAgent: (n) => engine.compileAgent(n) });
+      buildToolServers(ctx, { scheduler, skills, sandbox, memory, sessionIndex, tabs, usage, localModel: config.localModel, dataDir: config.dataDir, skillsDir: config.skillsDir, agentStore, runAgent: (n, t) => engine.runAgent(n, t).then((r) => r.reply), sendAgentMessage: (f, t, x) => engine.sendAgentMessage(f, t, x), compileAgent: (n) => engine.compileAgent(n), buildHaMap: () => engine.buildHaDeviceMap() });
     logger.info({ sandbox: sandbox.listConfigured(), default: sandbox.defaultBackend }, 'sandbox ready');
 
     const factories: Array<[boolean, () => Channel]> = [

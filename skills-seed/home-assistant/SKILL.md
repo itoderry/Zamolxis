@@ -21,6 +21,13 @@ Use the `ha_service` tool: `domain`, `service`, `entity_id`.
 - Toggle: service=`toggle`. Scenes: domain=`scene` service=`turn_on`.
 If you don't know the exact entity_id, first http_get `/api/states` to find it.
 
+## Best: use the device map (recommended)
+The **`home-assistant-devices`** skill holds your devices grouped by area and type, each with a
+simple alias and its exact `entity_id` — match the user's words to an alias and use that entity_id
+directly. If that skill does not exist yet (or devices/areas changed), tell the user to run
+**`/hasync`** in chat (or ask to "rebuild my Home Assistant device map"): the smartest model scans
+Home Assistant and writes the map for you. Do not invent entity_ids — use the map or `/api/states`.
+
 ## Example entities
 - `binary_sensor.home_occupancy` - is anyone home (on/off)
 - `weather.forecast_home` - weather

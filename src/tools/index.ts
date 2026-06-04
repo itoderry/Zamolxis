@@ -43,6 +43,8 @@ export interface ToolDeps {
   runAgent?: (name: string, task?: string) => Promise<string>;
   /** Deliver a message from an agent to another agent or the user (late-bound to the engine). */
   sendAgentMessage?: (from: string, to: string, text: string) => Promise<string>;
+  /** Rebuild the Home Assistant device-map skill via the smart model (late-bound to the engine). */
+  buildHaMap?: () => Promise<{ ok: boolean; summary: string; slug?: string }>;
   /** Compile an agent's NL job into an executable plan via the smart model (late-bound to the engine). */
   compileAgent?: (name: string) => Promise<{
     ok: boolean;
@@ -476,11 +478,27 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
     },
   );
 
+  const haBuildMap = tool(
+    'ha_build_map',
+    'Scan Home Assistant and (re)build the "home-assistant-devices" skill: a clean map of devices by area and type with simple aliases and exact entity_ids, organized by the smart model so the local model can control the house via ha_service. Call this when devices/areas changed or the map is missing.',
+    {},
+    async () => {
+      if (!deps.buildHaMap) return text('Home Assistant map building is not available in this build.');
+      try {
+        const r = await deps.buildHaMap();
+        return text(r.summary);
+      } catch (e) {
+        return text('Could not build the Home Assistant map: ' + String(e));
+      }
+    },
+  );
+
   return {
     zamolxis: createSdkMcpServer({
       name: 'zamolxis',
       version: '0.1.0',
       tools: [
+        haBuildMap,
         readEmail,
         addEmailAccount,
         listEmailAccounts,
