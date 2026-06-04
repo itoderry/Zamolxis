@@ -64,6 +64,8 @@ interface PersistedSettings {
   systemPromptAppend?: string;
   sandboxBackend?: string;
   localRouting?: 'off' | 'auto';
+  localModel?: string;
+  localContext?: number;
   routeChain?: string[];
   lawsEnabled?: boolean;
   agentRestore?: boolean;
@@ -123,6 +125,7 @@ export class SettingsManager {
         systemPromptAppend: this.config.systemPromptAppend ?? '',
         sandboxBackend: this.sandbox.defaultBackend,
         localModel: this.config.localModel?.model ?? '',
+        localContext: this.config.localContext ?? 0,
         localRouting: this.config.localRouting,
         routeChain: this.config.routeChain,
         lawsEnabled: this.config.lawsEnabled,
@@ -210,6 +213,20 @@ export class SettingsManager {
     if (live.localRouting === 'off' || live.localRouting === 'auto') {
       this.config.localRouting = live.localRouting;
       p.localRouting = live.localRouting;
+    }
+    // Local model selection — applies LIVE (the engine reads config.localModel per turn). Setting a
+    // model also ENABLES the local tier even if none was configured at boot (keeps the URL or default).
+    if (typeof live.localModel === 'string') {
+      const m = live.localModel.trim();
+      if (m) {
+        const url = this.config.localModel?.url || process.env.ZAMOLXIS_LOCAL_MODEL_URL || 'http://localhost:11434/v1';
+        this.config.localModel = { url, model: m };
+        p.localModel = m;
+      }
+    }
+    if (typeof live.localContext === 'number' && live.localContext >= 0) {
+      this.config.localContext = live.localContext > 0 ? Math.floor(live.localContext) : undefined;
+      p.localContext = this.config.localContext;
     }
     if (live.routeChain !== undefined) {
       // Accept an array or a comma-separated string of tier tokens.

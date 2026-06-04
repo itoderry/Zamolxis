@@ -71,6 +71,8 @@ const ConfigSchema = z.object({
   timezone: z.string().optional(),
   /** Optional on-device model (OpenAI-compatible, e.g. Ollama) the agent can offload easy subtasks to. */
   localModel: z.object({ url: z.string(), model: z.string() }).optional(),
+  /** Optional context window (num_ctx) for the local Ollama model; undefined = use the model default. */
+  localContext: z.number().optional(),
   /**
    * How aggressively to use the local model to spare the subscription:
    *  - 'off'  : never route whole turns locally (local stays an offload tool only)
@@ -172,6 +174,7 @@ export function loadConfig(): ZamolxisConfig {
     localModel: process.env.ZAMOLXIS_LOCAL_MODEL
       ? { url: process.env.ZAMOLXIS_LOCAL_MODEL_URL || 'http://localhost:11434/v1', model: process.env.ZAMOLXIS_LOCAL_MODEL }
       : undefined,
+    localContext: process.env.ZAMOLXIS_LOCAL_CONTEXT ? Number(process.env.ZAMOLXIS_LOCAL_CONTEXT) || undefined : undefined,
     // Default to 'auto' when a local model exists (the point of installing one is
     // to use the subscription less), else 'off'. Overridable via env / settings.
     localRouting:
@@ -266,6 +269,13 @@ export function applyPersistedSettings(config: ZamolxisConfig): void {
       if (typeof s.systemPromptAppend === 'string') config.systemPromptAppend = s.systemPromptAppend || undefined;
       if (typeof s.sandboxBackend === 'string') config.sandbox.backend = s.sandboxBackend as ZamolxisConfig['sandbox']['backend'];
       if (s.localRouting === 'off' || s.localRouting === 'auto') config.localRouting = s.localRouting;
+      // A saved local-model choice applies on boot (and can enable the local tier even if none was
+      // configured via env — keeping the configured/default Ollama URL).
+      if (typeof s.localModel === 'string' && s.localModel.trim()) {
+        const url = config.localModel?.url || process.env.ZAMOLXIS_LOCAL_MODEL_URL || 'http://localhost:11434/v1';
+        config.localModel = { url, model: s.localModel.trim() };
+      }
+      if (typeof s.localContext === 'number' && s.localContext > 0) config.localContext = Math.floor(s.localContext);
       if (Array.isArray(s.routeChain) && s.routeChain.length) config.routeChain = s.routeChain.filter((t: unknown) => typeof t === 'string');
 
       if (s.channels && argvChannels === null) {

@@ -1038,7 +1038,7 @@ export class Engine {
   }
 
   /** OpenAI-compatible tool-use loop (local Ollama or a free cloud provider). */
-  private async toolLoop(o: { url: string; model: string; apiKey?: string; system: string; userText: string; tools: LocalToolset; history?: Array<{ role: string; content: string }> }): Promise<{
+  private async toolLoop(o: { url: string; model: string; apiKey?: string; system: string; userText: string; tools: LocalToolset; history?: Array<{ role: string; content: string }>; numCtx?: number }): Promise<{
     failed: boolean;
     exhausted: boolean;
     finalText: string;
@@ -1071,7 +1071,7 @@ export class Engine {
           method: 'POST',
           signal: ac.signal,
           headers,
-          body: JSON.stringify({ model: o.model, stream: false, messages, tools: o.tools.defs }),
+          body: JSON.stringify({ model: o.model, stream: false, messages, tools: o.tools.defs, ...(o.numCtx ? { options: { num_ctx: o.numCtx } } : {}) }),
         });
         if (!res.ok) {
           const body = await res.text().catch(() => '');
@@ -1166,7 +1166,7 @@ export class Engine {
     const bannedCaps = this.deps.bans?.bannedSkillsFor('local') ?? [];
     const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill });
     const history = this.recentHistory(req.conversationKey);
-    const r = await this.toolLoop({ url: `${lm.url}/chat/completions`, model: lm.model, system, userText: req.text, tools, history });
+    const r = await this.toolLoop({ url: `${lm.url}/chat/completions`, model: lm.model, system, userText: req.text, tools, history, numCtx: this.deps.config.localContext });
     if (!r.failed) this.deps.usage?.recordEngine({ [`local:${lm.model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
     const out = this.finishAssistantTurn(req, allowEscalate, r, /* isLocal */ true);
     if (out.result) { out.result.via = `Local (${lm.model})`; out.result.modelToken = 'local'; }
