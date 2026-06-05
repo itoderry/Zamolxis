@@ -309,12 +309,6 @@ export class WebChannel implements Channel {
       res.end(html);
       return;
     }
-    if (url.pathname === '/api/help' && req.method === 'GET') {
-      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
-      let md = '';
-      try { md = fs.readFileSync(path.join(REPO_ROOT, 'HELP.md'), 'utf8'); } catch { md = '# Help\n\nHELP.md not found.'; }
-      return this.json(res, 200, { md });
-    }
     if (url.pathname === '/api/settings') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
       if (req.method === 'GET') return this.json(res, 200, this.settings.snapshot());
@@ -1034,42 +1028,7 @@ button:hover{border-color:var(--accent);color:var(--accent)}
 #agentsec{overflow:auto;padding:8px 8px 10px;flex:none;height:25%;min-height:42px}
 #railwidth{position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:6}
 #railwidth:hover{background:var(--accent);opacity:.5}
-#maininner{flex:1;display:flex;overflow:hidden;position:relative}
-/* ---- Taskbar (left side) ---- */
-#taskbar{width:56px;flex:none;border-right:1px solid var(--line);background:#120f0a;display:flex;flex-direction:column;overflow-y:auto;align-items:center;padding:8px 0;gap:4px}
-.taskbar-item{width:48px;height:48px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;background:transparent;border:1px solid transparent;color:var(--mut);font-size:11px;flex-direction:column;gap:2px;text-align:center;padding:4px;overflow:hidden;transition:.15s;position:relative}
-.taskbar-item:hover{background:var(--panel2);border-color:var(--line)}
-.taskbar-item.focused{background:rgba(212,165,90,.18);border-color:var(--accent);color:var(--accent)}
-.taskbar-item-label{font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;text-transform:capitalize}
-.taskbar-item-icon{font-size:18px;line-height:1}
-/* ---- Windows container ---- */
-#windows-container{flex:1;position:relative;overflow:hidden}
-/* ---- Fake OS window ---- */
-.window{position:absolute;background:var(--panel);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.6);min-width:400px;min-height:300px;user-select:none}
-.window.hidden{display:none}
-.window-titlebar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);background:linear-gradient(#1a150d,#140c07);flex:none;height:32px;cursor:move;border-radius:12px 12px 0 0}
-.window-title{flex:1;font-size:13px;color:var(--ink);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.window-buttons{display:flex;gap:8px;flex:none}
-.window-btn{width:32px;height:24px;display:flex;align-items:center;justify-content:center;background:transparent;border:none;color:var(--mut);cursor:pointer;border-radius:4px;font-size:14px;transition:.15s}
-.window-btn:hover{background:rgba(212,165,90,.15);color:var(--ink)}
-.window-btn.close:hover{background:#c4332b;color:#fff}
-.window-content{flex:1;overflow:hidden;display:flex;flex-direction:column}
-/* OS-specific titlebar styling */
-:root.os-windows .window-titlebar{background:linear-gradient(#005a9e,#003d6e);padding:6px 8px}
-:root.os-windows .window-title{font-size:12px}
-:root.os-mac .window-titlebar{background:linear-gradient(#d0d0d0,#c0c0c0);padding:6px 8px}
-:root.os-mac .window-buttons{order:-1;margin-right:8px}
-:root.os-mac .window-btn{width:16px;height:16px;font-size:12px;border-radius:50%}
-:root.os-mac .window-btn.minimize{background:#ffbd2e}
-:root.os-mac .window-btn.maximize{background:#28c940}
-:root.os-mac .window-btn.close{background:#ff5f56}
-:root.os-mac .window-btn:hover{opacity:.8}
-:root.os-linux .window-titlebar{background:linear-gradient(#383838,#2a2a2a);padding:6px 8px}
-.window{left:80px;top:60px;width:640px;height:420px}
-.window.minimized .window-content{display:none}
-.window.maximized{inset:56px 0 0 0 !important;border-radius:0;min-width:100% !important;min-height:100% !important;width:100% !important;height:100% !important}
-.window.maximized .window-titlebar{border-radius:0}
-.window.focused{box-shadow:0 15px 50px rgba(0,0,0,.8)}
+#maininner{flex:1;display:flex;overflow:hidden}
 #chatwrap{flex:1;position:relative;overflow:hidden}
 @media(max-width:680px){#provrail{display:none}}
 #chatview{position:absolute;inset:0;display:flex;flex-direction:column}
@@ -1114,22 +1073,13 @@ footer{border-top:1px solid var(--line);background:#120f0a}
 #localpanel{right:0;width:480px;border-left:1px solid var(--line);transform:translateX(100%);z-index:16}
 #skillpanel{right:0;width:460px;border-left:1px solid var(--line);transform:translateX(100%);z-index:16}
 #provpanel{right:0;width:460px;border-left:1px solid var(--line);transform:translateX(100%);z-index:16}
-#panel.open,#mempanel.open,#skillpanel.open,#provpanel.open,#localpanel.open,#viewpanel.open{transform:none}
+#panel.open,#mempanel.open,#skillpanel.open,#provpanel.open,#localpanel.open{transform:none}
 /* shared sticky head + scrollable body (Settings-style) for side panels */
 .phead{position:sticky;top:0;display:flex;align-items:center;gap:8px;padding:14px 18px;background:var(--panel);border-bottom:1px solid var(--line);z-index:2}
 .phead h3{margin:0;flex:1;font-family:Georgia,serif;color:var(--accent)}
 .pbody{flex:1;overflow:auto;padding:16px 18px}
 #panelhead{position:sticky;top:0;display:flex;align-items:center;gap:8px;padding:14px 18px;background:var(--panel);border-bottom:1px solid var(--line);z-index:2}
 #panelhead h3{margin:0;flex:1;font-family:Georgia,serif;color:var(--accent)}
-/* Consistent Windows-style close button used on every tool panel header. */
-.winx{width:30px;height:24px;flex:none;display:inline-flex;align-items:center;justify-content:center;background:transparent;border:none;border-radius:4px;color:var(--ink);font-size:15px;line-height:1;cursor:pointer;padding:0}
-.winx:hover{background:#c4332b;color:#fff}
-/* Left-rail section header (label + hide-X) — one per Models/Agents/Windows section. */
-.railhd{display:flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;letter-spacing:.5px;color:var(--mut);margin:2px 4px 6px}
-.railhd span{flex:1}
-.railx{flex:none;cursor:pointer;font-size:12px;color:var(--mut);padding:0 4px;border-radius:3px}
-.railx:hover{background:#c4332b;color:#fff}
-#viewpanel{right:0;width:300px;border-left:1px solid var(--line);transform:translateX(100%);z-index:16}
 #panelbody{overflow:auto;padding:16px 18px}
 h3{margin:0 0 12px;font-family:Georgia,serif;color:var(--accent)}
 label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px}
@@ -1150,115 +1100,30 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 <div id="toast"></div>
 <header><svg id="emblem" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="eg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8c87a"/><stop offset="1" stop-color="#b8893f"/></linearGradient></defs><path d="M32 3 58 18 V46 L32 61 6 46 V18 Z" fill="#1a150d" stroke="url(#eg)" stroke-width="3" stroke-linejoin="round"/><path d="M22 22 H42 L24 40 H43" fill="none" stroke="url(#eg)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg><b id="brand">__AGENT_NAME__</b><span id="version" title=""></span>
   <span id="clock"></span><span id="build" title="" style="display:none"></span><span id="auth" title="">login ...</span><span id="status">connecting...</span>
-  <button id="viewbtn" title="Show/hide the left panels">View</button>
   <div id="toolsmenu"><button id="toolsbtn">Tools ▾</button><div id="toolsdrop"><button id="skillsbtn">Skills</button><button id="provbtn">Providers</button><button id="localbtn">Local model</button><button id="mem">Memory</button><button id="cog">Settings</button><button id="helpbtn">Help</button></div></div></header>
 <div id="modelsbar"><span id="models"></span></div>
 <div id="tabbar"></div>
 <div id="main">
-  <aside id="provrail"><div id="provsec"><div class="railhd"><span>Models</span><span class="railx" data-sec="models" title="Hide (use View to bring back)">&#10005;</span></div><div id="provchain"></div></div><div id="railsplit" title="Drag to resize Models / Agents"></div><div id="agentsec"><div class="railhd"><span>Agents</span><span class="railx" data-sec="agents" title="Hide (use View to bring back)">&#10005;</span></div><div id="agentrail"></div><div id="newagent" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new agent</div></div><div id="railsplit2" title="Drag to resize Agents / Chats"></div><div id="chatsec"><div class="railhd"><span>Chats</span><span class="railx" data-sec="chats" title="Hide (use View to bring back)">&#10005;</span></div><div id="threadlist"></div><div id="newchat" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new chat</div></div><div id="railwidth" title="Drag to resize the panel width"></div></aside>
+  <aside id="provrail"><div id="provsec"><div id="provchain"></div></div><div id="railsplit" title="Drag to resize Providers / Agents"></div><div id="agentsec"><div style="text-transform:uppercase;font-size:10px;letter-spacing:.5px;color:var(--mut);margin:2px 4px 6px">Agents</div><div id="agentrail"></div><div id="newagent" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new agent</div></div><div id="railsplit2" title="Drag to resize Agents / Chats"></div><div id="chatsec"><div style="text-transform:uppercase;font-size:10px;letter-spacing:.5px;color:var(--mut);margin:2px 4px 6px">Chats</div><div id="threadlist"></div><div id="newchat" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new chat</div></div><div id="railwidth" title="Drag to resize the panel width"></div></aside>
   <div id="maininner">
-    <div id="taskbar"></div>
-    <div id="windows-container">
-      <div id="window-main" class="window" data-wid="main">
-        <div class="window-titlebar">
-          <span class="window-title">Zamolxis · Main</span>
-          <div class="window-buttons">
-            <button class="window-btn minimize" title="Minimize">−</button>
-            <button class="window-btn maximize" title="Maximize">□</button>
-            <button class="window-btn close" title="Close">✕</button>
-          </div>
-        </div>
-        <div class="window-content">
-          <div id="chatwrap">
-            <div id="chatview">
-              <div id="log"><div id="loginner"></div></div>
-              <footer><div id="attachbar"></div><div id="footinner"><select id="route" title="Where this chat is answered: Auto routes simple turns to the local model, Local forces on-device, Claude forces the subscription"><option value="auto">Auto</option><option value="local">Local</option><option value="claude">Claude</option></select><select id="model" title="Which Claude model answers this chat. Default = automatic: the fast model for simple turns, the primary model for complex ones. Sonnet/Haiku are faster than Opus."><option value="">Model: auto</option><option value="opus">Opus · deep</option><option value="sonnet">Sonnet · fast</option><option value="haiku">Haiku · fastest</option></select><input id="fileinput" type="file" multiple style="display:none"><button id="attach" type="button" title="Attach files (or drag-and-drop / paste)">&#128206;</button><textarea id="in" rows="1" placeholder="Message __AGENT_NAME__..."></textarea><button id="send">Send</button></div></footer>
-            </div>
-            <div id="tabview"><div id="tabinner"></div></div>
-          </div>
-        </div>
-      </div>
-    </div>
+  <div id="chatwrap">
+  <div id="chatview">
+    <div id="log"><div id="loginner"></div></div>
+    <footer><div id="attachbar"></div><div id="footinner"><select id="route" title="Where this chat is answered: Auto routes simple turns to the local model, Local forces on-device, Claude forces the subscription"><option value="auto">Auto</option><option value="local">Local</option><option value="claude">Claude</option></select><select id="model" title="Which Claude model answers this chat. Default = automatic: the fast model for simple turns, the primary model for complex ones. Sonnet/Haiku are faster than Opus."><option value="">Model: auto</option><option value="opus">Opus · deep</option><option value="sonnet">Sonnet · fast</option><option value="haiku">Haiku · fastest</option></select><input id="fileinput" type="file" multiple style="display:none"><button id="attach" type="button" title="Attach files (or drag-and-drop / paste)">&#128206;</button><textarea id="in" rows="1" placeholder="Message __AGENT_NAME__..."></textarea><button id="send">Send</button></div></footer>
+  </div>
+  <div id="tabview"><div id="tabinner"></div></div>
+  </div>
   </div>
 </div>
-<div id="panel" class="side"><div id="panelhead"><h3>Settings</h3><button id="save">Save</button><button id="close" class="winx" title="Close">&#10005;</button></div><div id="panelbody"><div id="settings">loading...</div><div class="ro" id="ro"></div></div></div>
-<div id="mempanel" class="side"><div class="phead"><h3>Memory</h3><button id="memclose" class="winx" title="Close">&#10005;</button></div><div class="pbody" id="memview">loading...</div></div>
-<div id="skillpanel" class="side"><div class="phead"><h3>Skills</h3><button id="skillclose" class="winx" title="Close">&#10005;</button></div><div class="pbody" id="skillview">loading...</div></div>
-<div id="provpanel" class="side"><div class="phead"><h3>AI Providers</h3><button id="provsave">Save</button><button id="provclose" class="winx" title="Close">&#10005;</button></div><div class="pbody" id="provview">loading...</div></div>
-<div id="localpanel" class="side"><div class="phead"><h3>Local model</h3><button id="localclose" class="winx" title="Close">&#10005;</button></div><div class="pbody" id="localview">loading...</div></div>
-<div id="viewpanel" class="side"><div class="phead"><h3>View</h3><button id="viewclose" class="winx" title="Close">&#10005;</button></div><div class="pbody" id="viewbody"></div></div>
+<div id="panel" class="side"><div id="panelhead"><h3>Settings</h3><button id="save">Save</button><button id="close">Close</button></div><div id="panelbody"><div id="settings">loading...</div><div class="ro" id="ro"></div></div></div>
+<div id="mempanel" class="side"><div class="phead"><h3>Memory</h3><button id="memclose">Close</button></div><div class="pbody" id="memview">loading...</div></div>
+<div id="skillpanel" class="side"><div class="phead"><h3>Skills</h3><button id="skillclose">Close</button></div><div class="pbody" id="skillview">loading...</div></div>
+<div id="provpanel" class="side"><div class="phead"><h3>AI Providers</h3><button id="provsave">Save</button><button id="provclose">Close</button></div><div class="pbody" id="provview">loading...</div></div>
+<div id="localpanel" class="side"><div class="phead"><h3>Local model</h3><button id="localclose">Close</button></div><div class="pbody" id="localview">loading...</div></div>
 <div id="agentmodal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.55);align-items:center;justify-content:center"><div style="background:#161108;border:1px solid var(--line);border-radius:12px;padding:18px 18px 16px;width:min(600px,94vw);box-shadow:0 12px 40px rgba(0,0,0,.5)"><h3 style="margin:0 0 12px;color:var(--accent)">New agent</h3><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Name</label><input id="am_name" placeholder="e.g. mailproc" style="width:100%;box-sizing:border-box;margin-bottom:12px"><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Instructions &mdash; what it does, and how often if it repeats. Leave blank for an <b>open</b> agent you task each time.</label><textarea id="am_job" rows="9" placeholder="e.g. Every morning at 8, read my gmail and Slack me a 5-bullet digest of anything that needs a reply." style="width:100%;box-sizing:border-box;resize:vertical;margin-bottom:12px"></textarea><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Runs on</label><select id="am_model" style="margin-bottom:14px"></select><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">On restart</label><select id="am_autostart" style="margin-bottom:14px"><option value="">Use global default</option><option value="resume">Always resume</option><option value="pause">Start paused</option></select><div style="display:flex;gap:8px;justify-content:flex-end"><button id="am_cancel" type="button">Cancel</button><button id="am_create" type="button">Create</button></div></div></div>
 <div id="jobmodal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.55);align-items:center;justify-content:center"><div style="background:#161108;border:1px solid var(--line);border-radius:12px;padding:18px;width:min(660px,94vw);box-shadow:0 12px 40px rgba(0,0,0,.5)"><h3 style="margin:0 0 10px;color:var(--accent)">Edit job &mdash; <span id="jm_name"></span></h3><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Runs on</label><select id="jm_model" style="margin-bottom:10px"></select><div id="jm_why" style="display:none;font-size:12px;color:#e0a55f;margin-bottom:8px"></div><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Instructions in plain language (incl. how often if it repeats). On save, the smartest model recompiles the plan, skills and schedule &mdash; just like when you create an agent. If your chosen model looks too weak, it will warn you but keep your choice unless you change it.</label><textarea id="jm_job" rows="8" style="width:100%;box-sizing:border-box;resize:vertical;margin-bottom:10px"></textarea><details style="margin-bottom:12px"><summary style="cursor:pointer;font-size:12px;color:var(--mut)">Current compiled plan (read-only)</summary><pre id="jm_spec" style="white-space:pre-wrap;font-size:11px;color:var(--mut);max-height:220px;overflow:auto;background:#0c0a07;border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:6px"></pre></details><div style="display:flex;gap:8px;justify-content:flex-end"><button id="jm_cancel" type="button">Cancel</button><button id="jm_save" type="button">Save &amp; recompile</button></div></div></div>
-<div id="helpmodal" style="display:none;position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.55);align-items:center;justify-content:center"><div style="background:#161108;border:1px solid var(--line);border-radius:12px;width:min(940px,95vw);height:86vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.5)"><div class="phead"><h3>Help</h3><input id="help_q" placeholder="Search help, skills &amp; models..." style="flex:2;max-width:440px;margin:0 8px"><button id="helpclose" class="winx" title="Close">&#10005;</button></div><div class="pbody" id="helpbody" style="flex:1;overflow:auto">loading...</div></div></div>
 <script>
 function uuid(){return crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random()}
-/* ---- OS detection & theme ---- */
-function detectOS(){var ua=navigator.userAgent.toLowerCase();if(/windows|win32/.test(ua))return 'windows';if(/mac|iphone|ipad/.test(ua))return 'mac';return 'linux'}
-var DETECTED_OS=detectOS();
-try{if(localStorage.zx_os_style){DETECTED_OS=localStorage.zx_os_style}}catch(e){}
-document.documentElement.className='os-'+DETECTED_OS;
-/* ---- Window management system ---- */
-var WINDOWS={},MAX_Z=100,FOCUSED_WID='main';
-function createWindow(wid,title,content){
-  if(WINDOWS[wid])return WINDOWS[wid];
-  var w={wid:wid,title:title,minimized:false,maximized:false,x:80+Math.random()*40,y:60+Math.random()*40,width:640,height:420,z:++MAX_Z};
-  WINDOWS[wid]=w;
-  saveWindowState();
-  return w;
-}
-function focusWindow(wid){var w=WINDOWS[wid];if(!w)return;w.z=++MAX_Z;FOCUSED_WID=wid;applyWindowZ();renderTaskbar()}
-function closeWindow(wid){if(wid==='main')return;delete WINDOWS[wid];if(FOCUSED_WID===wid)FOCUSED_WID='main';saveWindowState();applyWindowZ();renderTaskbar();var e=el('window-'+wid);if(e)e.remove()}
-function minimizeWindow(wid){var w=WINDOWS[wid];if(!w)return;w.minimized=!w.minimized;saveWindowState();applyWindowZ();renderTaskbar()}
-function maximizeWindow(wid){var w=WINDOWS[wid];if(!w)return;w.maximized=!w.maximized;saveWindowState();applyWindowZ()}
-function applyWindowZ(){Object.keys(WINDOWS).forEach(function(wid){var e=el('window-'+wid),w=WINDOWS[wid];if(e){e.style.zIndex=w.z;e.style.left=w.x+'px';e.style.top=w.y+'px';e.style.width=w.width+'px';e.style.height=w.height+'px';if(w.maximized)e.classList.add('maximized');else e.classList.remove('maximized');if(w.minimized)e.classList.add('minimized');else e.classList.remove('minimized');if(FOCUSED_WID===wid)e.classList.add('focused');else e.classList.remove('focused')}})}
-function saveWindowState(){try{var state={};Object.keys(WINDOWS).forEach(function(wid){state[wid]=WINDOWS[wid]});localStorage.zx_windows=JSON.stringify(state)}catch(e){}}
-function loadWindowState(){try{var s=JSON.parse(localStorage.zx_windows||'{}');Object.keys(s).forEach(function(wid){if(s[wid])WINDOWS[wid]=s[wid]})}catch(e){}}
-function renderTaskbar(){
-  var tb=el('taskbar');if(!tb)return;
-  var html='';
-  Object.keys(WINDOWS).forEach(function(wid){var w=WINDOWS[wid];if(w){html+='<div class="taskbar-item'+(FOCUSED_WID===wid?' focused':'')+' '+(w.minimized?'minimized':'')+'" data-wid="'+esc(wid)+'" title="'+esc(w.title)+'"><div class="taskbar-item-icon">📦</div><div class="taskbar-item-label">'+esc((w.title||wid).split(' · ')[1]||w.title)+'</div></div>'}});
-  tb.innerHTML=html;
-  [].slice.call(tb.querySelectorAll('.taskbar-item')).forEach(function(item){item.onclick=function(){var wid=item.getAttribute('data-wid');focusWindow(wid);var w=WINDOWS[wid];if(w&&w.minimized){w.minimized=false;saveWindowState();applyWindowZ();renderTaskbar()}};item.oncontextmenu=function(e){e.preventDefault();alert('Window menu not yet implemented')}})
-}
-loadWindowState();
-if(!WINDOWS['main'])createWindow('main','Zamolxis · Main');
-applyWindowZ();
-renderTaskbar();
-/* ---- Phase E: Interface window creation ---- */
-function parseIfaceWindows(msgText){
-  var blocks=[];
-  var pattern=String.fromCharCode(96)+String.fromCharCode(96)+String.fromCharCode(96)+'iface-window\\\\r?\\\\n([\\\\s\\\\S]*?)\\\\r?\\\\n'+String.fromCharCode(96)+String.fromCharCode(96)+String.fromCharCode(96);
-  var re=new RegExp(pattern,'g'),m;
-  while((m=re.exec(msgText))!==null){
-    try{var data=JSON.parse(m[1]);blocks.push(data)}
-    catch(e){console.warn('Failed to parse iface-window block:',e)}}
-  return blocks}
-function createInterfaceWindow(ifaceData){
-  var wid=ifaceData.wid||'iface_'+(Date.now()+'_'+Math.random().toString(36).substr(2,9));
-  if(WINDOWS[wid])return wid;
-  var type=ifaceData.type,title=ifaceData.title||'Untitled',content=ifaceData.content||'';
-  var html='';
-  if(type==='image'){html='<img src="data:image/png;base64,'+esc(content)+'" style="width:100%;height:100%;object-fit:contain;background:#1a1a1a">'}
-  else if(type==='graph'){html='<div style="width:100%;height:100%;overflow:auto;background:#1a1a1a;padding:10px">'+content+'</div>'}
-  else if(type==='video'){html='<video width="100%" height="100%" controls style="background:#000"><source src="'+esc(content)+'" type="video/mp4"></video>'}
-  else{html='<div style="padding:10px;color:var(--mut)">Unknown type: '+esc(type)+'</div>'}
-  var w={wid:wid,title:title,minimized:false,maximized:false,x:100+Math.random()*40,y:80+Math.random()*40,width:640,height:420,z:++MAX_Z};
-  WINDOWS[wid]=w;
-  var win=document.createElement('div');win.id='window-'+wid;win.className='window';win.dataset.wid=wid;win.style.zIndex=w.z;win.style.left=w.x+'px';win.style.top=w.y+'px';win.style.width=w.width+'px';win.style.height=w.height+'px';
-  win.innerHTML='<div class="window-titlebar"><span class="window-title">'+esc(title)+'</span><div class="window-buttons"><button class="window-btn minimize" title="Minimize">_</button><button class="window-btn maximize" title="Maximize">□</button><button class="window-btn close" title="Close">✕</button></div></div><div class="window-content" style="flex:1;overflow:auto">'+html+'</div>';
-  var container=el('windows-container');if(container)container.appendChild(win);
-  attachWindowHandlers(wid);
-  focusWindow(wid);
-  saveWindowState();
-  renderTaskbar();
-  return wid}
-function attachWindowHandlers(wid){
-  var win=el('window-'+wid),w=WINDOWS[wid];if(!win||!w)return;
-  var minBtn=win.querySelector('.window-btn.minimize'),maxBtn=win.querySelector('.window-btn.maximize'),closeBtn=win.querySelector('.window-btn.close');
-  if(minBtn)minBtn.onclick=function(){minimizeWindow(wid);return false};
-  if(maxBtn)maxBtn.onclick=function(){maximizeWindow(wid);return false};
-  if(closeBtn)closeBtn.onclick=function(){closeWindow(wid);return false};
-  var tb=win.querySelector('.window-titlebar');if(tb){tb.addEventListener('mousedown',function(ev){if(ev.target.classList.contains('window-btn'))return;dragState.dragging=true;dragState.wid=wid;dragState.startX=ev.clientX;dragState.startY=ev.clientY;dragState.startPosX=w.x;dragState.startPosY=w.y;document.body.style.userSelect='none'});tb.addEventListener('dblclick',function(ev){if(ev.target.classList.contains('window-btn'))return;maximizeWindow(wid);return false})}}
 /* ---- shared status helpers (masked keys, status dots, active-provider rail, installer) ---- */
 var KEYMASK='************';
 var C_OK='#7dd08a',C_BAD='#e06a5f',C_WARN='#e0a55f',C_OFF='#5a5a5a';
@@ -1457,7 +1322,7 @@ function openWs(){
   sock.onclose=function(){if(myGen!==gen)return;setStatus('disconnected - retrying');setTimeout(function(){if(myGen===gen)openWs()},2000)};
   sock.onmessage=function(ev){if(myGen!==gen)return;var m=JSON.parse(ev.data);
     if(m.type==='chunk'){if(!cur)cur=add('bot',BOT_LABEL,'');if(!curStarted){cur.textContent='';curStarted=true}cur.textContent+=m.text;el('log').scrollTop=el('log').scrollHeight}
-    else if(m.type==='reply'){if(!cur)cur=add('bot',BOT_LABEL,'');var msgText=m.text;var ifaceBlocks=parseIfaceWindows(msgText);ifaceBlocks.forEach(function(block){createInterfaceWindow(block)});var stripPattern=String.fromCharCode(96)+String.fromCharCode(96)+String.fromCharCode(96)+'iface-window\\\\r?\\\\n[\\\\s\\\\S]*?\\\\r?\\\\n'+String.fromCharCode(96)+String.fromCharCode(96)+String.fromCharCode(96);msgText=msgText.replace(new RegExp(stripPattern,'g'),'').trim();cur.textContent=msgText;var w=cur.whoEl,secs=stopGen();setMeta(w,secs,null);cur=null;curStarted=false;setStatus('connected');
+    else if(m.type==='reply'){if(!cur)cur=add('bot',BOT_LABEL,'');cur.textContent=m.text;var w=cur.whoEl,secs=stopGen();setMeta(w,secs,null);cur=null;curStarted=false;setStatus('connected');
       fetch('/api/status',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(!d)return;renderModels(d);if(d.last&&w){w.dataset.vid=d.last.model||'';setMeta(w,secs,d.last.total,viaLabel(d.last.model))}if(d.last)maybeStick(d.last.model)}).catch(function(){})}
     else if(m.type==='status'){setStatus(m.text)}};
 }
@@ -1583,7 +1448,7 @@ var panelDirty=false;
 // so a tool panel pushes the chat over instead of covering it.
 function pushAside(p){document.body.style.paddingRight=p?(p.getBoundingClientRect().width+'px'):''}
 // Hard close: drop all tool panels + un-shift the content. No prompt (used by each panel's X).
-function clearPanels(){['panel','mempanel','skillpanel','provpanel','localpanel','viewpanel','threadpanel'].forEach(function(id){var e=el(id);if(e)e.classList.remove('open')});document.body.style.paddingRight='';panelDirty=false}
+function clearPanels(){['panel','mempanel','skillpanel','provpanel','localpanel','threadpanel'].forEach(function(id){var e=el(id);if(e)e.classList.remove('open')});document.body.style.paddingRight='';panelDirty=false}
 // Switch close: when opening another tool, warn first if the current panel has unsaved edits.
 function closePanels(){if(panelDirty&&!confirm('You have unsaved changes in this panel. Discard them and switch?'))return false;clearPanels();return true}
 function closeTools(){var d=el('toolsdrop');if(d)d.classList.remove('open')}
@@ -1616,38 +1481,6 @@ if(el('am_create'))el('am_create').onclick=function(){var nm=el('am_name').value
     if(dragY2&&sec2){var t2=sec2.getBoundingClientRect().top;var h2=Math.max(42,Math.min(rail.clientHeight-70,e.clientY-t2));sec2.style.height=h2+'px'}
     if(dragX){var left=rail.getBoundingClientRect().left;var w=Math.max(120,Math.min(440,e.clientX-left));rail.style.width=w+'px'}});
   document.addEventListener('mouseup',function(){if(dragY){try{localStorage.zx_railsplit=sec.style.height}catch(e){}}if(dragY2&&sec2){try{localStorage.zx_railsplit2=sec2.style.height}catch(e){}}if(dragX){try{localStorage.zx_railw=rail.style.width}catch(e){}}if(dragY||dragY2||dragX)document.body.style.userSelect='';dragY=false;dragY2=false;dragX=false});
-})();
-/* ---- Window drag and resize ---- */
-(function setupWindowManagement(){
-  var dragState={dragging:false,resizing:false,wid:null,startX:0,startY:0,startW:0,startH:0,startX0:0,startY0:0};
-  document.addEventListener('mousedown',function(e){
-    var titlebar=e.target.closest('.window-titlebar');var btn=e.target.closest('.window-btn');var win=titlebar?titlebar.closest('.window'):null;
-    if(!win||btn)return;
-    var wid=win.getAttribute('data-wid');if(!wid)return;
-    focusWindow(wid);dragState={dragging:true,resizing:false,wid:wid,startX:e.clientX,startY:e.clientY,startW:win.clientWidth,startH:win.clientHeight,startX0:win.offsetLeft,startY0:win.offsetTop};
-    e.preventDefault();document.body.style.userSelect='none'
-  });
-  document.addEventListener('mousemove',function(e){
-    if(!dragState.dragging)return;
-    var win=el('window-'+dragState.wid);if(!win)return;
-    var dx=e.clientX-dragState.startX,dy=e.clientY-dragState.startY;
-    win.style.left=(dragState.startX0+dx)+'px';win.style.top=(dragState.startY0+dy)+'px'
-  });
-  document.addEventListener('mouseup',function(){
-    if(dragState.dragging){
-      var win=el('window-'+dragState.wid),w=WINDOWS[dragState.wid];
-      if(win&&w){w.x=Math.round(parseFloat(win.style.left)||w.x);w.y=Math.round(parseFloat(win.style.top)||w.y);saveWindowState()}
-      dragState.dragging=false;document.body.style.userSelect=''
-    }
-  });
-  document.addEventListener('click',function(e){
-    var btn=e.target.closest('.window-btn');if(!btn)return;
-    var win=btn.closest('.window');var wid=win.getAttribute('data-wid');if(!wid)return;
-    if(btn.classList.contains('minimize')){minimizeWindow(wid)}
-    else if(btn.classList.contains('maximize')){maximizeWindow(wid)}
-    else if(btn.classList.contains('close')){closeWindow(wid)}
-    e.preventDefault()
-  },true)
 })();
 el('newchat').onclick=newChat;
 el('cog').onclick=function(){if(closePanels()===false)return;closeTools();el('panel').classList.add('open');pushAside(el('panel'));loadSettings()};
@@ -1815,55 +1648,7 @@ function renderLocal(d){var v=el('localview');if(!v)return;var h='';
 function startLocalPoll(){if(LOCALPOLL)return;LOCALPOLL=setInterval(function(){if(!el('localpanel').classList.contains('open')){stopLocalPoll();return}loadLocal()},1500)}
 function stopLocalPoll(){if(LOCALPOLL){clearInterval(LOCALPOLL);LOCALPOLL=null}}
 el('localbtn').onclick=function(){if(closePanels()===false)return;closeTools();loadLocal();el('localpanel').classList.add('open');pushAside(el('localpanel'))};
-/* ---- Help: searchable modal over help text + skills + models ---- */
-var HELP_MD='',HELP_SKILLS=[],HELP_MODELS=[];
-function inlineMd(s){return s.replace(/\`([^\`]+)\`/g,'<code>$1</code>').replace(/\\*\\*([^*]+)\\*\\*/g,'<b>$1</b>')}
-function mdLite(md){return String(md||'').split('\\n').map(function(l){l=esc(l);
-  if(/^### /.test(l))return '<h4 style="color:var(--accent);margin:12px 0 4px">'+inlineMd(l.slice(4))+'</h4>';
-  if(/^## /.test(l))return '<h3 style="color:var(--accent);margin:16px 0 6px">'+inlineMd(l.slice(3))+'</h3>';
-  if(/^# /.test(l))return '<h2 style="color:var(--accent);margin:0 0 8px">'+inlineMd(l.slice(2))+'</h2>';
-  if(/^[-*] /.test(l))return '<div style="margin:2px 0 2px 12px">\\u2022 '+inlineMd(l.slice(2))+'</div>';
-  if(!l.trim())return '<div style="height:6px"></div>';
-  return '<div>'+inlineMd(l)+'</div>'}).join('')}
-function loadHelp(){el('helpbody').innerHTML='loading...';
-  var g=function(u){return fetch(u,{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).catch(function(){return null})};
-  Promise.all([g('/api/help'),g('/api/skills'),g('/api/providers'),g('/api/local')]).then(function(res){
-    HELP_MD=(res[0]&&res[0].md)||'';HELP_SKILLS=res[1]||[];var prov=res[2]||{},loc=res[3]||{};HELP_MODELS=[];
-    if(prov.localModel)HELP_MODELS.push({name:String(prov.localModel),tier:'local (on-device)',note:'Ollama'});
-    (prov.providers||[]).forEach(function(p){HELP_MODELS.push({name:p.model||p.id,tier:(p.kind||'')+' provider'+(p.configured?'':' \\u2014 not configured'),note:p.note||p.label||''})});
-    if(prov.claude)HELP_MODELS.push({name:(prov.claude.model||'opus'),tier:'subscription',note:'Claude Code, flat-rate'});
-    (loc.catalog||[]).forEach(function(c){HELP_MODELS.push({name:c.id,tier:'catalog'+(c.installed?' (installed)':''),note:c.desc||''})});
-    renderHelp(el('help_q')?el('help_q').value:'')})}
-function renderHelp(q){var b=el('helpbody');if(!b)return;q=(q||'').trim().toLowerCase();
-  if(!q){b.innerHTML=mdLite(HELP_MD)+'<hr style="border:none;border-top:1px solid var(--line);margin:18px 0"><div style="color:var(--mut);font-size:12px">Tip: the search box also matches your '+HELP_SKILLS.length+' skills and '+HELP_MODELS.length+' models.</div>';return}
-  var h='';
-  var secs=HELP_MD.split(/\\n(?=## )/).filter(function(s){return s.toLowerCase().indexOf(q)>=0});
-  if(secs.length)h+='<h3 style="color:var(--accent)">Help</h3>'+secs.map(function(s){return '<div style="margin-bottom:8px">'+mdLite(s)+'</div>'}).join('');
-  var sk=HELP_SKILLS.filter(function(s){return ((s.name||'')+' '+(s.description||'')+' '+(s.category||'')).toLowerCase().indexOf(q)>=0});
-  if(sk.length)h+='<h3 style="color:var(--accent);margin-top:14px">Skills ('+sk.length+')</h3>'+sk.slice(0,60).map(function(s){return '<div style="border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:6px"><b>'+esc(s.name)+'</b>'+(s.source==='external'?' <span style="color:var(--mut);font-size:10px">external</span>':'')+'<div style="font-size:12px;color:var(--mut)">'+esc(s.description||'')+'</div></div>'}).join('');
-  var md=HELP_MODELS.filter(function(m){return ((m.name||'')+' '+(m.tier||'')+' '+(m.note||'')).toLowerCase().indexOf(q)>=0});
-  if(md.length)h+='<h3 style="color:var(--accent);margin-top:14px">Models ('+md.length+')</h3>'+md.slice(0,60).map(function(m){return '<div style="border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:6px"><b>'+esc(m.name)+'</b> <span style="color:var(--mut);font-size:10px">'+esc(m.tier)+'</span><div style="font-size:12px;color:var(--mut)">'+esc(m.note||'')+'</div></div>'}).join('');
-  b.innerHTML=h||'<div style="color:var(--mut)">No matches for \\u201c'+esc(q)+'\\u201d.</div>'}
-if(el('helpbtn'))el('helpbtn').onclick=function(){closeTools();if(el('help_q'))el('help_q').value='';el('helpmodal').style.display='flex';loadHelp();setTimeout(function(){if(el('help_q'))el('help_q').focus()},30)};
-if(el('helpclose'))el('helpclose').onclick=function(){el('helpmodal').style.display='none'};
-if(el('helpmodal'))el('helpmodal').onclick=function(e){if(e.target===el('helpmodal'))el('helpmodal').style.display='none'};
-if(el('help_q'))el('help_q').addEventListener('input',function(){renderHelp(el('help_q').value)});
-/* ---- View menu: show/hide the left-rail sections ---- */
-var RAILVIS={models:true,agents:true,chats:true};
-try{var rv0=JSON.parse(localStorage.zx_railvis||'null');if(rv0){RAILVIS.models=rv0.models!==false;RAILVIS.agents=rv0.agents!==false;RAILVIS.chats=rv0.chats!==false}}catch(e){}
-function applyRailVis(){var secOf={models:'provsec',agents:'agentsec',chats:'chatsec'};
-  ['models','agents','chats'].forEach(function(k){var e=el(secOf[k]);if(e)e.style.display=RAILVIS[k]?'':'none'});
-  var rs=el('railsplit');if(rs)rs.style.display=(RAILVIS.models&&(RAILVIS.agents||RAILVIS.chats))?'':'none';
-  var rs2=el('railsplit2');if(rs2)rs2.style.display=(RAILVIS.agents&&RAILVIS.chats)?'':'none';
-  var rail=el('provrail');if(rail)rail.style.display=(RAILVIS.models||RAILVIS.agents||RAILVIS.chats)?'':'none'}
-function setRailSec(k,vis){RAILVIS[k]=!!vis;try{localStorage.zx_railvis=JSON.stringify(RAILVIS)}catch(e){}applyRailVis();if(el('viewpanel').classList.contains('open'))renderViewPanel()}
-function renderViewPanel(){var v=el('viewbody');if(!v)return;var rows=[['models','Models'],['agents','Agents'],['chats','Chats']];
-  v.innerHTML='<div style="font-size:12px;color:var(--mut);margin-bottom:10px">Show or hide the left-side panels. Changes apply immediately \\u2014 no save needed.</div>'+rows.map(function(r){return '<label class="chk" style="font-size:14px;display:flex;align-items:center;gap:8px;margin:8px 0"><input type="checkbox" class="vchk" data-k="'+r[0]+'"'+(RAILVIS[r[0]]?' checked':'')+'> '+r[1]+'</label>'}).join('');
-  [].slice.call(v.querySelectorAll('.vchk')).forEach(function(c){c.onchange=function(){setRailSec(c.getAttribute('data-k'),c.checked)}})}
-el('viewbtn').onclick=function(){if(closePanels()===false)return;closeTools();renderViewPanel();el('viewpanel').classList.add('open');pushAside(el('viewpanel'))};
-if(el('viewclose'))el('viewclose').onclick=function(){clearPanels()};
-[].slice.call(document.querySelectorAll('.railx')).forEach(function(x){x.onclick=function(){setRailSec(x.getAttribute('data-sec'),false)}});
-applyRailVis();
+if(el('helpbtn'))el('helpbtn').onclick=function(){closeTools();window.open('/help','_blank')};
 el('localclose').onclick=function(){clearPanels();stopLocalPoll()};
 /* ---- tabs ---- */
 function ago(ts){if(!ts)return'';var s=Math.floor((Date.now()-ts)/1000);if(s<60)return s+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago'}
