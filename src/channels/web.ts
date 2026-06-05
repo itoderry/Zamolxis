@@ -286,13 +286,51 @@ export class WebChannel implements Channel {
     res.end(JSON.stringify(body));
   }
 
+  /** Serve a static asset from <repo>/webui (the native-OS desktop UI), guarding path traversal. Returns false if not found. */
+  private serveWebUiAsset(res: http.ServerResponse, rel: string): boolean {
+    const clean = rel.replace(/\?.*$/, '').replace(/\\/g, '/');
+    if (!clean || clean.includes('..') || clean.startsWith('/')) return false;
+    const full = path.join(REPO_ROOT, 'webui', clean);
+    let data: Buffer;
+    try { data = fs.readFileSync(full); } catch { return false; }
+    const ext = path.extname(full).toLowerCase();
+    const types: Record<string, string> = {
+      '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
+      '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8',
+      '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+      '.webp': 'image/webp', '.gif': 'image/gif', '.ico': 'image/x-icon',
+      '.woff2': 'font/woff2', '.woff': 'font/woff',
+    };
+    res.writeHead(200, { 'content-type': types[ext] || 'application/octet-stream' });
+    res.end(data);
+    return true;
+  }
+
   private onHttp(req: http.IncomingMessage, res: http.ServerResponse): void {
     const url = new URL(req.url ?? '/', 'http://x');
 
-    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
+    // Classic (pre-redesign) UI kept reachable during the native-OS redesign.
+    if (req.method === 'GET' && url.pathname === '/classic') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       const name = effectiveName(this.config.agentName).replace(/[<>'"`\\]/g, '');
       res.end(PAGE.replace(/__AGENT_NAME__/g, name));
+      return;
+    }
+    // Static assets for the new desktop UI.
+    if (req.method === 'GET' && url.pathname.startsWith('/ui/')) {
+      if (this.serveWebUiAsset(res, url.pathname.slice('/ui/'.length))) return;
+    }
+    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
+      const name = effectiveName(this.config.agentName).replace(/[<>'"`\\]/g, '');
+      try {
+        const html = fs.readFileSync(path.join(REPO_ROOT, 'webui', 'index.html'), 'utf8').replace(/__AGENT_NAME__/g, name);
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(html);
+      } catch {
+        // webui not present yet -> fall back to the classic inline page.
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(PAGE.replace(/__AGENT_NAME__/g, name));
+      }
       return;
     }
     if (url.pathname === '/healthz') {

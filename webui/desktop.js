@@ -1,0 +1,538 @@
+/* ============================================================
+   Zamolxis desktop shell — vanilla JS, no build step.
+   Window manager + taskbar + Start menu + apps.
+   Apps ARE agents. Zamolxis is the default app and hosts the
+   main chat. "Has a chat window" is a per-app setting.
+   Talks to the existing backend: WS /?cid=..&token=.. and /api/*.
+   ============================================================ */
+(function () {
+  'use strict';
+
+  // ---------- icons ----------
+  var ICON = {
+    zamolxis: "<svg viewBox='0 0 32 32'><polygon points='16,2 29,9 29,23 16,30 3,23 3,9' fill='#b8893f'/><polygon points='16,2 29,9 29,23 16,30 3,23 3,9' fill='none' stroke='#e8c87a' stroke-width='1'/><text x='16' y='22' font-size='15' text-anchor='middle' fill='#1a150d' font-family='Segoe UI,Arial' font-weight='700'>Z</text></svg>",
+    settings: "<svg viewBox='0 0 24 24' fill='none' stroke='#3a3a3a' stroke-width='1.6'><circle cx='12' cy='12' r='3.2'/><path d='M19.4 13a7.8 7.8 0 0 0 0-2l2-1.5-2-3.4-2.4 1a7.6 7.6 0 0 0-1.7-1l-.4-2.6H9.1l-.4 2.6a7.6 7.6 0 0 0-1.7 1l-2.4-1-2 3.4L2.6 11a7.8 7.8 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7.6 7.6 0 0 0 1.7 1l.4 2.6h4.9l.4-2.6a7.6 7.6 0 0 0 1.7-1l2.4 1 2-3.4z'/></svg>",
+    agent: "<svg viewBox='0 0 24 24' fill='none' stroke='#2b6fd6' stroke-width='1.6'><rect x='4' y='8' width='16' height='12' rx='2.5'/><circle cx='9' cy='14' r='1.4' fill='#2b6fd6' stroke='none'/><circle cx='15' cy='14' r='1.4' fill='#2b6fd6' stroke='none'/><path d='M12 4v4M8 20v1.5M16 20v1.5'/></svg>",
+    newagent: "<svg viewBox='0 0 24 24' fill='none' stroke='#2e9e3f' stroke-width='1.7'><circle cx='12' cy='12' r='9'/><path d='M12 8v8M8 12h8'/></svg>"
+  };
+
+  // ---------- helpers ----------
+  function $(sel, root) { return (root || document).querySelector(sel); }
+  function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+  function api(path, opts) { return fetch(path, opts).then(function (r) { return r.json(); }); }
+  function uuid() { return (crypto && crypto.randomUUID) ? crypto.randomUUID() : 'c' + Date.now() + Math.random().toString(16).slice(2); }
+  var AGENT_NAME = (document.title || 'Zamolxis').trim() || 'Zamolxis';
+
+  // ---------- OS theme ----------
+  function detectOS() {
+    var p = ((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || '').toLowerCase();
+    if (p.indexOf('mac') !== -1 || p.indexOf('iphone') !== -1 || p.indexOf('ipad') !== -1) return 'mac';
+    if (p.indexOf('linux') !== -1 || p.indexOf('ubuntu') !== -1 || p.indexOf('x11') !== -1) return 'ubuntu';
+    return 'win';
+  }
+  function themeChoice() { return localStorage.getItem('zx_os') || 'auto'; }
+  function applyTheme() {
+    var choice = themeChoice();
+    var eff = choice === 'auto' ? detectOS() : choice;
+    document.body.dataset.os = eff;
+    return { choice: choice, effective: eff };
+  }
+  function setTheme(choice) { localStorage.setItem('zx_os', choice); applyTheme(); rerenderSettings(); }
+
+  // ============================================================
+  // Window Manager
+  // ============================================================
+  var winLayer = $('#windows');
+  var zTop = 100;
+  var wins = {};            // instanceId -> win
+  var openByApp = {};       // appId -> instanceId (for singletons)
+  var seq = 0;
+
+  function focusWin(w) {
+    Object.keys(wins).forEach(function (k) { wins[k].root.classList.remove('focused'); });
+    w.root.classList.add('focused');
+    w.root.style.zIndex = ++zTop;
+    w.minimized = false; w.root.classList.remove('minimized');
+    syncTaskbar();
+  }
+
+  function makeWindow(spec) {
+    // spec: {appId, title, iconSvg, w, h, onMount(body,win), onClose(win)}
+    var id = 'w' + (++seq);
+    var root = el('div', 'window');
+    root.style.width = (spec.w || 720) + 'px';
+    root.style.height = (spec.h || 520) + 'px';
+    var offset = (Object.keys(wins).length % 6) * 28;
+    root.style.left = Math.max(20, (window.innerWidth - (spec.w || 720)) / 2 + offset) + 'px';
+    root.style.top = Math.max(20, (window.innerHeight - (spec.h || 520)) / 2 - 30 + offset) + 'px';
+
+    var bar = el('div', 'titlebar');
+    var ticon = el('div', 't-icon', spec.iconSvg || '');
+    var title = el('div', 't-title', spec.title || 'App');
+    var ctrls = el('div', 'win-controls');
+    var bMin = el('button', 'min', "<span class='g'></span>"); bMin.title = 'Minimize';
+    var bMax = el('button', 'max', "<span class='g'></span>"); bMax.title = 'Maximize';
+    var bClose = el('button', 'close', "<span class='g'></span>"); bClose.title = 'Close';
+    ctrls.appendChild(bMin); ctrls.appendChild(bMax); ctrls.appendChild(bClose);
+    bar.appendChild(ticon); bar.appendChild(title); bar.appendChild(ctrls);
+
+    var body = el('div', 'win-body');
+    root.appendChild(bar); root.appendChild(body);
+    ['n','s','e','w','ne','nw','se','sw'].forEach(function (d) { root.appendChild(el('div', 'rsz ' + d)); });
+
+    var w = { id: id, appId: spec.appId, root: root, body: body, titleEl: title, minimized: false, maximized: false, prev: null, onClose: spec.onClose, cleanup: [] };
+    wins[id] = w;
+    winLayer.appendChild(root);
+
+    root.addEventListener('mousedown', function () { focusWin(w); });
+    bMin.addEventListener('click', function (e) { e.stopPropagation(); w.minimized = true; root.classList.add('minimized'); syncTaskbar(); });
+    bMax.addEventListener('click', function (e) { e.stopPropagation(); toggleMax(w); });
+    bClose.addEventListener('click', function (e) { e.stopPropagation(); closeWin(w); });
+    bar.addEventListener('dblclick', function () { toggleMax(w); });
+    enableDrag(w, bar);
+    enableResize(w);
+
+    if (spec.onMount) spec.onMount(body, w);
+    focusWin(w);
+    syncTaskbar();
+    return w;
+  }
+
+  function toggleMax(w) {
+    if (w.maximized) {
+      w.root.classList.remove('maximized');
+      if (w.prev) { w.root.style.left = w.prev.l; w.root.style.top = w.prev.t; w.root.style.width = w.prev.w; w.root.style.height = w.prev.h; }
+      w.maximized = false;
+    } else {
+      w.prev = { l: w.root.style.left, t: w.root.style.top, w: w.root.style.width, h: w.root.style.height };
+      w.root.classList.add('maximized');
+      var tb = document.body.dataset.os === 'ubuntu' ? 32 : 0;
+      var bb = document.body.dataset.os === 'win' ? 48 : (document.body.dataset.os === 'mac' ? 80 : 0);
+      w.root.style.left = '0px'; w.root.style.top = tb + 'px';
+      w.root.style.width = window.innerWidth + 'px';
+      w.root.style.height = (window.innerHeight - tb - bb) + 'px';
+      w.maximized = true;
+    }
+  }
+
+  function closeWin(w) {
+    try { if (w.onClose) w.onClose(w); } catch (e) {}
+    w.cleanup.forEach(function (fn) { try { fn(); } catch (e) {} });
+    w.root.remove();
+    delete wins[w.id];
+    Object.keys(openByApp).forEach(function (a) { if (openByApp[a] === w.id) delete openByApp[a]; });
+    syncTaskbar();
+  }
+
+  function enableDrag(w, handle) {
+    handle.addEventListener('mousedown', function (e) {
+      if (e.target.closest('.win-controls')) return;
+      if (w.maximized) return;
+      e.preventDefault();
+      var sx = e.clientX, sy = e.clientY;
+      var sl = parseInt(w.root.style.left, 10), st = parseInt(w.root.style.top, 10);
+      function mv(ev) {
+        w.root.style.left = Math.max(-40, sl + (ev.clientX - sx)) + 'px';
+        w.root.style.top = Math.max(0, st + (ev.clientY - sy)) + 'px';
+      }
+      function up() { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); }
+      document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+    });
+  }
+
+  function enableResize(w) {
+    Array.prototype.forEach.call(w.root.querySelectorAll('.rsz'), function (h) {
+      h.addEventListener('mousedown', function (e) {
+        if (w.maximized) return;
+        e.preventDefault(); e.stopPropagation();
+        var dir = h.className.replace('rsz ', '');
+        var sx = e.clientX, sy = e.clientY;
+        var sl = parseInt(w.root.style.left, 10), st = parseInt(w.root.style.top, 10);
+        var sw = w.root.offsetWidth, sh = w.root.offsetHeight;
+        function mv(ev) {
+          var dx = ev.clientX - sx, dy = ev.clientY - sy;
+          if (dir.indexOf('e') !== -1) w.root.style.width = Math.max(320, sw + dx) + 'px';
+          if (dir.indexOf('s') !== -1) w.root.style.height = Math.max(200, sh + dy) + 'px';
+          if (dir.indexOf('w') !== -1) { var nw = Math.max(320, sw - dx); w.root.style.width = nw + 'px'; w.root.style.left = (sl + (sw - nw)) + 'px'; }
+          if (dir.indexOf('n') !== -1) { var nh = Math.max(200, sh - dy); w.root.style.height = nh + 'px'; w.root.style.top = (st + (sh - nh)) + 'px'; }
+        }
+        function up() { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); }
+        document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+      });
+    });
+  }
+
+  // ============================================================
+  // Taskbar + Start menu
+  // ============================================================
+  var taskApps = $('#taskbar-apps');
+  function syncTaskbar() {
+    taskApps.innerHTML = '';
+    // pinned: Zamolxis always; plus any running window not already pinned
+    var shown = {};
+    var order = [];
+    order.push({ appId: 'zamolxis', iconSvg: ICON.zamolxis, title: AGENT_NAME });
+    shown.zamolxis = true;
+    Object.keys(wins).forEach(function (k) {
+      var w = wins[k];
+      if (!shown[w.appId]) { shown[w.appId] = true; order.push({ appId: w.appId, iconSvg: w._iconSvg || ICON.agent, title: w._appTitle || w.titleEl.textContent }); }
+    });
+    order.forEach(function (o) {
+      var btn = el('button', 'tb-app', o.iconSvg);
+      btn.title = o.title;
+      var running = Object.keys(wins).some(function (k) { return wins[k].appId === o.appId; });
+      var focused = Object.keys(wins).some(function (k) { return wins[k].appId === o.appId && wins[k].root.classList.contains('focused') && !wins[k].minimized; });
+      if (focused) btn.classList.add('active'); else if (running) btn.classList.add('running');
+      btn.addEventListener('click', function () { taskbarClick(o.appId); });
+      taskApps.appendChild(btn);
+    });
+  }
+  function taskbarClick(appId) {
+    var inst = Object.keys(wins).filter(function (k) { return wins[k].appId === appId; });
+    if (!inst.length) { launchApp(appId); return; }
+    var w = wins[inst[0]];
+    if (w.root.classList.contains('focused') && !w.minimized) { w.minimized = true; w.root.classList.add('minimized'); syncTaskbar(); }
+    else focusWin(w);
+  }
+
+  var startMenu = $('#startmenu');
+  function toggleStart() { startMenu.classList.toggle('hidden'); if (!startMenu.classList.contains('hidden')) { renderStart(); $('#start-search-input').value = ''; $('#start-search-input').focus(); } }
+  function closeStart() { startMenu.classList.add('hidden'); }
+  function renderStart(filter) {
+    var wrap = $('#startmenu-apps'); wrap.innerHTML = '';
+    var list = appList();
+    if (filter) { var f = filter.toLowerCase(); list = list.filter(function (a) { return a.name.toLowerCase().indexOf(f) !== -1; }); }
+    list.forEach(function (a) {
+      var item = el('div', 'sm-app');
+      item.appendChild(el('div', 'ico', a.iconSvg));
+      item.appendChild(el('div', 'label', a.name));
+      item.addEventListener('click', function () { closeStart(); launchApp(a.id); });
+      wrap.appendChild(item);
+    });
+    if (!list.length) wrap.appendChild(el('div', 'empty', 'No apps match.'));
+  }
+
+  // ============================================================
+  // App registry (Zamolxis default + Settings + New Agent + agents)
+  // ============================================================
+  var agents = []; // from /api/agents
+
+  function builtinApps() {
+    return [
+      { id: 'zamolxis', name: AGENT_NAME, iconSvg: ICON.zamolxis, kind: 'builtin' },
+      { id: 'settings', name: 'Settings', iconSvg: ICON.settings, kind: 'builtin' },
+      { id: 'newagent', name: 'New Agent', iconSvg: ICON.newagent, kind: 'builtin' }
+    ];
+  }
+  function appList() {
+    var out = builtinApps();
+    agents.forEach(function (a) {
+      out.push({ id: 'agent:' + a.name, name: a.label || a.name, iconSvg: ICON.agent, kind: 'agent', agent: a });
+    });
+    return out;
+  }
+  function appById(id) { var l = appList(); for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
+
+  function launchApp(appId) {
+    var app = appById(appId);
+    if (!app) return;
+    // singleton: focus if already open
+    if (openByApp[appId] && wins[openByApp[appId]]) { focusWin(wins[openByApp[appId]]); return; }
+    var spec;
+    if (appId === 'zamolxis') spec = { appId: appId, title: AGENT_NAME, iconSvg: ICON.zamolxis, w: 460, h: 620, onMount: mountChat };
+    else if (appId === 'settings') spec = { appId: appId, title: 'Settings', iconSvg: ICON.settings, w: 620, h: 520, onMount: mountSettings };
+    else if (appId === 'newagent') spec = { appId: appId, title: 'New Agent', iconSvg: ICON.newagent, w: 460, h: 480, onMount: mountNewAgent };
+    else if (app.kind === 'agent') spec = { appId: appId, title: app.name, iconSvg: ICON.agent, w: 520, h: 560, onMount: function (b, w) { mountAgent(b, w, app.agent); } };
+    if (!spec) return;
+    var w = makeWindow(spec);
+    w._iconSvg = spec.iconSvg; w._appTitle = spec.title;
+    openByApp[appId] = w.id;
+    syncTaskbar();
+  }
+
+  // ---------- App: Chat (Zamolxis main chat) ----------
+  function mountChat(body, win) {
+    var cid = localStorage.getItem('zx_cid_main');
+    if (!cid) { cid = uuid(); localStorage.setItem('zx_cid_main', cid); }
+    buildChat(body, win, cid, { route: true });
+  }
+
+  function buildChat(body, win, cid, opts) {
+    body.style.padding = '0';
+    var wrap = el('div', 'chat');
+    var bar = el('div', 'chat-bar');
+    bar.innerHTML = "<span>Route</span>";
+    var sel = el('select');
+    [['auto', 'Auto'], ['claude', 'Claude'], ['local', 'Local'], ['freecloud', 'Free cloud']].forEach(function (o) {
+      var op = el('option'); op.value = o[0]; op.textContent = o[1]; sel.appendChild(op);
+    });
+    sel.value = localStorage.getItem('zx_route_' + cid) || 'auto';
+    sel.addEventListener('change', function () { localStorage.setItem('zx_route_' + cid, sel.value); });
+    var stat = el('span'); stat.style.marginLeft = 'auto'; stat.textContent = 'connecting...';
+    if (opts && opts.route) bar.appendChild(sel);
+    bar.appendChild(stat);
+
+    var log = el('div', 'chat-log');
+    var inputRow = el('div', 'chat-input');
+    var ta = el('textarea'); ta.placeholder = 'Message ' + AGENT_NAME + '...';
+    var send = el('button'); send.textContent = 'Send';
+    inputRow.appendChild(ta); inputRow.appendChild(send);
+    wrap.appendChild(bar); wrap.appendChild(log); wrap.appendChild(inputRow);
+    body.appendChild(wrap);
+
+    function addMsg(who, text, cls) {
+      var m = el('div', 'msg ' + cls);
+      m.appendChild(el('div', 'who', who));
+      var c = el('div'); c.textContent = text; m.appendChild(c);
+      log.appendChild(m); log.scrollTop = log.scrollHeight;
+      return c;
+    }
+
+    // WebSocket
+    var proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    var sock, streamEl = null;
+    function connect() {
+      sock = new WebSocket(proto + '://' + location.host + '/?cid=' + encodeURIComponent(cid) + '&token=');
+      sock.onopen = function () { stat.textContent = '● connected'; stat.style.color = '#2e9e3f'; };
+      sock.onclose = function () { stat.textContent = '● reconnecting'; stat.style.color = '#d13438'; setTimeout(function () { if (!win.closed) connect(); }, 2500); };
+      sock.onerror = function () { stat.textContent = '● error'; stat.style.color = '#d13438'; };
+      sock.onmessage = function (ev) {
+        var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (m.type === 'status') return;
+        if (m.type === 'chunk') { if (!streamEl) streamEl = addMsg(AGENT_NAME, '', 'bot'); streamEl.textContent += m.text; log.scrollTop = log.scrollHeight; return; }
+        if (m.type === 'reply') { if (streamEl) { streamEl.textContent = m.text; streamEl = null; } else { addMsg(AGENT_NAME, m.text, 'bot'); } stat.textContent = '● connected'; }
+      };
+    }
+    connect();
+    win.cleanup.push(function () { win.closed = true; try { sock.close(); } catch (e) {} });
+
+    function doSend() {
+      var t = ta.value.trim(); if (!t || !sock || sock.readyState !== WebSocket.OPEN) return;
+      addMsg('You', t, 'user'); ta.value = ''; streamEl = null; stat.textContent = 'thinking...';
+      var payload = { text: t, route: sel.value };
+      sock.send(JSON.stringify(payload));
+    }
+    send.addEventListener('click', doSend);
+    ta.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } });
+    setTimeout(function () { ta.focus(); }, 50);
+  }
+
+  // ---------- App: Settings (OS appearance) ----------
+  var settingsBody = null;
+  function mountSettings(body, win) { settingsBody = body; renderSettings(body); win.cleanup.push(function () { if (settingsBody === body) settingsBody = null; }); }
+  function rerenderSettings() { if (settingsBody) renderSettings(settingsBody); }
+  function renderSettings(body) {
+    body.innerHTML = '';
+    var pad = el('div', 'app-pad');
+    var t = applyTheme();
+    var f = el('div', 'field');
+    f.appendChild(el('label', null, 'Appearance — desktop style'));
+    f.appendChild(el('div', 'hint', 'Auto follows your operating system (detected: <b>' + osName(t.effective) + '</b>). You can override it.'));
+    var seg = el('div', 'seg');
+    [['auto', 'Auto'], ['win', 'Windows 11'], ['mac', 'macOS'], ['ubuntu', 'Ubuntu']].forEach(function (o) {
+      var b = el('button', t.choice === o[0] ? 'active' : null, o[1]);
+      b.addEventListener('click', function () { setTheme(o[0]); });
+      seg.appendChild(b);
+    });
+    f.appendChild(seg);
+    pad.appendChild(f);
+
+    var f2 = el('div', 'field');
+    f2.appendChild(el('label', null, 'About'));
+    f2.appendChild(el('div', 'hint', AGENT_NAME + ' desktop. Apps are agents; ' + AGENT_NAME + ' is the default app and hosts the main chat. More settings (providers, models, skills, language) move here next.'));
+    pad.appendChild(f2);
+    body.appendChild(pad);
+  }
+  function osName(o) { return o === 'mac' ? 'macOS' : (o === 'ubuntu' ? 'Ubuntu' : 'Windows'); }
+
+  // ---------- App: New Agent ----------
+  function mountNewAgent(body, win) {
+    var pad = el('div', 'app-pad');
+    function field(labelTxt, node, hint) { var f = el('div', 'field'); f.appendChild(el('label', null, labelTxt)); if (hint) f.appendChild(el('div', 'hint', hint)); f.appendChild(node); return f; }
+    var name = el('input'); name.placeholder = 'e.g. researcher';
+    var job = el('textarea'); job.rows = 4; job.placeholder = 'What should this agent do?';
+    var model = el('input'); model.placeholder = '(default)';
+    [name, model].forEach(function (i) { i.style.cssText = 'width:100%;height:36px;border:1px solid #d6d6d6;border-radius:8px;padding:0 10px;font:inherit'; });
+    job.style.cssText = 'width:100%;border:1px solid #d6d6d6;border-radius:8px;padding:8px 10px;font:inherit;resize:vertical';
+    pad.appendChild(field('Agent name', name));
+    pad.appendChild(field('Instructions', job, 'This becomes the agent app. It can run with or without a chat window.'));
+    pad.appendChild(field('Model', model, 'Leave blank for the default.'));
+    var msg = el('div', 'hint'); msg.style.minHeight = '16px';
+    var create = el('button', 'btn', 'Create app');
+    create.addEventListener('click', function () {
+      var n = name.value.trim(); if (!n) { msg.textContent = 'Name is required.'; return; }
+      create.disabled = true; msg.textContent = 'Creating...';
+      api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'create', name: n, job: job.value.trim(), model: model.value.trim() || undefined }) })
+        .then(function (d) {
+          create.disabled = false;
+          if (d && d.error) { msg.textContent = String(d.error); return; }
+          msg.textContent = 'Created. Added to the desktop.';
+          if (d && d.agents) agents = d.agents; else loadAgents();
+          renderDesktop();
+        })
+        .catch(function () { create.disabled = false; msg.textContent = 'Backend unreachable.'; });
+    });
+    var row = el('div'); row.style.cssText = 'display:flex;gap:10px;align-items:center'; row.appendChild(create); row.appendChild(msg);
+    pad.appendChild(row);
+    body.appendChild(pad);
+  }
+
+  // ---------- per-app chat-window setting (the "is chat needed?" toggle) ----------
+  function appChatEnabled(appId, def) { var v = localStorage.getItem('zx_chat_' + appId); return v === null ? !!def : v === '1'; }
+  function setAppChat(appId, on) { localStorage.setItem('zx_chat_' + appId, on ? '1' : '0'); }
+
+  // ---------- App: Agent (chat window optional, per the app setting) ----------
+  function mountAgent(body, win, agent) {
+    body.style.padding = '0';
+    var wrap = el('div'); wrap.style.cssText = 'height:100%;display:flex;flex-direction:column';
+    var head = el('div', 'agent-head');
+    head.appendChild(el('div', 'a-name', agent.label || agent.name));
+    head.appendChild(el('div', 'a-sub', 'Model: ' + (agent.model || '(default)')));
+    if (agent.job) { var j = el('div', 'a-sub'); j.textContent = agent.job; head.appendChild(j); }
+    var bar = el('div'); bar.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:10px';
+    var toggle = el('button', 'switch' + (appChatEnabled(win.appId, true) ? ' on' : ''), "<span class='knob'></span>");
+    toggle.title = 'Toggle chat window for this app';
+    var lbl = el('span', 'hint', 'Chat window');
+    var spacer = el('div'); spacer.style.flex = '1';
+    var note = el('span', 'hint');
+    var runBtn = el('button', 'btn ghost', 'Run job');
+    var delBtn = el('button', 'btn ghost', 'Delete');
+    bar.appendChild(toggle); bar.appendChild(lbl); bar.appendChild(spacer); bar.appendChild(note); bar.appendChild(runBtn); bar.appendChild(delBtn);
+    head.appendChild(bar);
+    wrap.appendChild(head);
+    var content = el('div'); content.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column';
+    wrap.appendChild(content);
+    body.appendChild(wrap);
+
+    function render() {
+      if (win._consoleIv) { clearInterval(win._consoleIv); win._consoleIv = null; }
+      content.innerHTML = '';
+      if (appChatEnabled(win.appId, true)) buildAgentChat(content, agent);
+      else buildAgentConsole(content, agent, win);
+    }
+    toggle.addEventListener('click', function () {
+      var now = !appChatEnabled(win.appId, true);
+      setAppChat(win.appId, now); toggle.classList.toggle('on', now); render();
+    });
+    runBtn.addEventListener('click', function () {
+      runBtn.disabled = true; note.textContent = 'Running...';
+      api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'run', name: agent.name }) })
+        .then(function (d) { runBtn.disabled = false; note.textContent = (d && d.error) ? String(d.error) : ('Done' + (d.via ? ' · ' + d.via : '')); })
+        .catch(function () { runBtn.disabled = false; note.textContent = 'Unreachable'; });
+    });
+    delBtn.addEventListener('click', function () {
+      if (!confirm('Delete agent "' + agent.name + '"?')) return;
+      api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'delete', name: agent.name }) })
+        .then(function (d) { if (d && d.agents) agents = d.agents; else loadAgents(); closeWin(win); renderDesktop(); })
+        .catch(function () { note.textContent = 'Unreachable'; });
+    });
+    win.cleanup.push(function () { win.closed = true; if (win._consoleIv) clearInterval(win._consoleIv); });
+    render();
+  }
+
+  // Real per-agent chat: each turn calls runAgent(name, task) over REST and shows {reply, via}.
+  function buildAgentChat(content, agent) {
+    var chat = el('div', 'chat');
+    var log = el('div', 'chat-log');
+    var row = el('div', 'chat-input');
+    var ta = el('textarea'); ta.placeholder = 'Message ' + (agent.label || agent.name) + '...';
+    var send = el('button'); send.textContent = 'Send';
+    row.appendChild(ta); row.appendChild(send);
+    chat.appendChild(log); chat.appendChild(row); content.appendChild(chat);
+    function addMsg(who, text, cls, via) { var m = el('div', 'msg ' + cls); m.appendChild(el('div', 'who', who + (via ? ' · via ' + via : ''))); var c = el('div'); c.textContent = text; m.appendChild(c); log.appendChild(m); log.scrollTop = log.scrollHeight; return m; }
+    addMsg(agent.label || agent.name, 'Ask me to do something, or give me a task.', 'bot');
+    function doSend() {
+      var t = ta.value.trim(); if (!t) return; addMsg('You', t, 'user'); ta.value = '';
+      var pend = addMsg(agent.label || agent.name, 'thinking...', 'bot'); send.disabled = true;
+      api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'run', name: agent.name, task: t }) })
+        .then(function (d) {
+          send.disabled = false;
+          var c = pend.querySelector('div:last-child'), who = pend.querySelector('.who');
+          if (d && d.error) { c.textContent = '(' + d.error + ')'; return; }
+          who.textContent = (agent.label || agent.name) + (d.via ? ' · via ' + d.via : '');
+          c.textContent = d.reply || '(no reply)';
+          if (d.scheduled && d.scheduled.cron) addMsg('System', 'Scheduled: ' + (d.scheduled.note || d.scheduled.cron), 'bot');
+          log.scrollTop = log.scrollHeight;
+        })
+        .catch(function () { send.disabled = false; pend.querySelector('div:last-child').textContent = '(backend unreachable)'; });
+    }
+    send.addEventListener('click', doSend);
+    ta.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } });
+    setTimeout(function () { ta.focus(); }, 50);
+  }
+
+  // Headless view: no chat; run-on-demand + live activity feed.
+  function buildAgentConsole(content, agent, win) {
+    var pad = el('div', 'app-pad');
+    pad.appendChild(el('div', 'hint', 'Chat window is off — this agent runs headless: it executes its job on demand or on schedule via the existing agent/skill mechanism. Turn the chat on above to talk to it directly.'));
+    var log = el('div', 'chat-log'); log.style.borderTop = '1px solid #eee';
+    var empty = el('div', 'empty', 'Recent activity will appear here.'); log.appendChild(empty);
+    content.appendChild(pad); content.appendChild(log);
+    var since = 0;
+    function poll() {
+      api('/api/agentmsgs?since=' + since).then(function (d) {
+        var arr = Array.isArray(d) ? d : (d && d.messages) || [];
+        arr.forEach(function (m) {
+          if (m.ts) since = Math.max(since, m.ts);
+          if (m.from === agent.name || m.agent === agent.name || m.to === agent.name) {
+            if (empty.parentNode) empty.remove();
+            var x = el('div', 'msg bot'); x.appendChild(el('div', 'who', m.from || 'agent')); var c = el('div'); c.textContent = m.text || ''; x.appendChild(c); log.appendChild(x); log.scrollTop = log.scrollHeight;
+          }
+        });
+      }).catch(function () {});
+    }
+    poll(); win._consoleIv = setInterval(function () { if (!win.closed) poll(); }, 4000);
+  }
+
+  // ============================================================
+  // Desktop icons
+  // ============================================================
+  var deskIcons = $('#desktop-icons');
+  var selectedIcon = null;
+  function renderDesktop() {
+    deskIcons.innerHTML = '';
+    appList().forEach(function (a) {
+      var ic = el('div', 'desk-icon');
+      ic.appendChild(el('div', 'ico', a.iconSvg));
+      ic.appendChild(el('div', 'label', a.name));
+      ic.addEventListener('click', function (e) { e.stopPropagation(); if (selectedIcon) selectedIcon.classList.remove('selected'); ic.classList.add('selected'); selectedIcon = ic; });
+      ic.addEventListener('dblclick', function () { launchApp(a.id); });
+      deskIcons.appendChild(ic);
+    });
+    if (!startMenu.classList.contains('hidden')) renderStart($('#start-search-input').value);
+  }
+
+  function loadAgents() {
+    return api('/api/agents').then(function (d) { agents = Array.isArray(d) ? d : []; renderDesktop(); syncTaskbar(); }).catch(function () {});
+  }
+
+  // ============================================================
+  // Clock + status + wiring
+  // ============================================================
+  function tickClock() {
+    var d = new Date();
+    var hh = d.getHours(), mm = d.getMinutes();
+    $('#clock-time').textContent = (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+    $('#clock-date').textContent = d.toLocaleDateString();
+  }
+  function pollStatus() {
+    api('/api/status').then(function () { var t = $('#tray-status'); t.classList.add('ok'); t.title = 'Backend connected'; }).catch(function () { $('#tray-status').classList.remove('ok'); });
+  }
+
+  $('#start-btn').addEventListener('click', function (e) { e.stopPropagation(); toggleStart(); });
+  $('#start-search-input').addEventListener('input', function () { renderStart(this.value); });
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('#startmenu') && !e.target.closest('#start-btn')) closeStart();
+    if (!e.target.closest('.desk-icon') && selectedIcon) { selectedIcon.classList.remove('selected'); selectedIcon = null; }
+  });
+  $('#clock').addEventListener('click', function () { launchApp('settings'); });
+
+  // boot
+  applyTheme();
+  tickClock(); setInterval(tickClock, 10000);
+  pollStatus(); setInterval(pollStatus, 15000);
+  renderDesktop();
+  loadAgents();
+  // open the default app
+  launchApp('zamolxis');
+})();

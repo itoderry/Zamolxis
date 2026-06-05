@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>__AGENT_NAME__</title>
+  <link rel="stylesheet" href="/ui/desktop.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpolygon points='16,2 29,9 29,23 16,30 3,23 3,9' fill='%23b8893f'/%3E%3Ctext x='16' y='22' font-size='16' text-anchor='middle' fill='%231a150d' font-family='Arial' font-weight='bold'%3EZ%3C/text%3E%3C/svg%3E">
+</head>
+<body data-os="win">
+  <!-- Desktop wallpaper + icons -->
+  <div id="desktop">
+    <div id="desktop-icons"></div>
+  </div>
+
+  <!-- Window layer -->
+  <div id="windows"></div>
+
+  <!-- Start menu -->
+  <div id="startmenu" class="hidden" aria-hidden="true">
+    <div id="startmenu-search"><input id="start-search-input" type="text" placeholder="Search apps"></div>
+    <div id="startmenu-label">All apps</div>
+    <div id="startmenu-apps"></div>
+  </div>
+
+  <!-- Taskbar -->
+  <div id="taskbar">
+    <div id="taskbar-center">
+      <button id="start-btn" title="Start" aria-label="Start">
+        <svg viewBox="0 0 32 32" width="22" height="22"><polygon points="16,3 28,9.5 28,22.5 16,29 4,22.5 4,9.5" fill="#5bb0ff"/><text x="16" y="21" font-size="14" text-anchor="middle" fill="#0a1422" font-family="Segoe UI, Arial" font-weight="700">Z</text></svg>
+      </button>
+      <div id="taskbar-apps"></div>
+    </div>
+    <div id="taskbar-tray">
+      <div id="tray-status" title="Backend status">●</div>
+      <div id="clock"><div id="clock-time">--:--</div><div id="clock-date"></div></div>
+    </div>
+  </div>
+
+  <script src="/ui/desktop.js"></script>
+</body>
+</html>
