@@ -1073,13 +1073,22 @@ footer{border-top:1px solid var(--line);background:#120f0a}
 #localpanel{right:0;width:480px;border-left:1px solid var(--line);transform:translateX(100%);z-index:16}
 #skillpanel{right:0;width:460px;border-left:1px solid var(--line);transform:translateX(100%);z-index:16}
 #provpanel{right:0;width:460px;border-left:1px solid var(--line);transform:translateX(100%);z-index:16}
-#panel.open,#mempanel.open,#skillpanel.open,#provpanel.open,#localpanel.open{transform:none}
+#panel.open,#mempanel.open,#skillpanel.open,#provpanel.open,#localpanel.open,#viewpanel.open{transform:none}
 /* shared sticky head + scrollable body (Settings-style) for side panels */
 .phead{position:sticky;top:0;display:flex;align-items:center;gap:8px;padding:14px 18px;background:var(--panel);border-bottom:1px solid var(--line);z-index:2}
 .phead h3{margin:0;flex:1;font-family:Georgia,serif;color:var(--accent)}
 .pbody{flex:1;overflow:auto;padding:16px 18px}
 #panelhead{position:sticky;top:0;display:flex;align-items:center;gap:8px;padding:14px 18px;background:var(--panel);border-bottom:1px solid var(--line);z-index:2}
 #panelhead h3{margin:0;flex:1;font-family:Georgia,serif;color:var(--accent)}
+/* Consistent Windows-style close button used on every tool panel header. */
+.winx{width:30px;height:24px;flex:none;display:inline-flex;align-items:center;justify-content:center;background:transparent;border:none;border-radius:4px;color:var(--ink);font-size:15px;line-height:1;cursor:pointer;padding:0}
+.winx:hover{background:#c4332b;color:#fff}
+/* Left-rail section header (label + hide-X) — one per Models/Agents/Windows section. */
+.railhd{display:flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;letter-spacing:.5px;color:var(--mut);margin:2px 4px 6px}
+.railhd span{flex:1}
+.railx{flex:none;cursor:pointer;font-size:12px;color:var(--mut);padding:0 4px;border-radius:3px}
+.railx:hover{background:#c4332b;color:#fff}
+#viewpanel{right:0;width:300px;border-left:1px solid var(--line);transform:translateX(100%);z-index:16}
 #panelbody{overflow:auto;padding:16px 18px}
 h3{margin:0 0 12px;font-family:Georgia,serif;color:var(--accent)}
 label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px}
@@ -1100,11 +1109,12 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 <div id="toast"></div>
 <header><svg id="emblem" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="eg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8c87a"/><stop offset="1" stop-color="#b8893f"/></linearGradient></defs><path d="M32 3 58 18 V46 L32 61 6 46 V18 Z" fill="#1a150d" stroke="url(#eg)" stroke-width="3" stroke-linejoin="round"/><path d="M22 22 H42 L24 40 H43" fill="none" stroke="url(#eg)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg><b id="brand">__AGENT_NAME__</b><span id="version" title=""></span>
   <span id="clock"></span><span id="build" title="" style="display:none"></span><span id="auth" title="">login ...</span><span id="status">connecting...</span>
+  <button id="viewbtn" title="Show/hide the left panels">View</button>
   <div id="toolsmenu"><button id="toolsbtn">Tools ▾</button><div id="toolsdrop"><button id="skillsbtn">Skills</button><button id="provbtn">Providers</button><button id="localbtn">Local model</button><button id="mem">Memory</button><button id="cog">Settings</button><button id="helpbtn">Help</button></div></div></header>
 <div id="modelsbar"><span id="models"></span></div>
 <div id="tabbar"></div>
 <div id="main">
-  <aside id="provrail"><div id="provsec"><div id="provchain"></div></div><div id="railsplit" title="Drag to resize Providers / Agents"></div><div id="agentsec"><div style="text-transform:uppercase;font-size:10px;letter-spacing:.5px;color:var(--mut);margin:2px 4px 6px">Agents</div><div id="agentrail"></div><div id="newagent" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new agent</div></div><div id="railsplit2" title="Drag to resize Agents / Chats"></div><div id="chatsec"><div style="text-transform:uppercase;font-size:10px;letter-spacing:.5px;color:var(--mut);margin:2px 4px 6px">Chats</div><div id="threadlist"></div><div id="newchat" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new chat</div></div><div id="railwidth" title="Drag to resize the panel width"></div></aside>
+  <aside id="provrail"><div id="provsec"><div class="railhd"><span>Models</span><span class="railx" data-sec="models" title="Hide (use View to bring back)">&#10005;</span></div><div id="provchain"></div></div><div id="railsplit" title="Drag to resize Models / Agents"></div><div id="agentsec"><div class="railhd"><span>Agents</span><span class="railx" data-sec="agents" title="Hide (use View to bring back)">&#10005;</span></div><div id="agentrail"></div><div id="newagent" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new agent</div></div><div id="railsplit2" title="Drag to resize Agents / Chats"></div><div id="chatsec"><div class="railhd"><span>Chats</span><span class="railx" data-sec="chats" title="Hide (use View to bring back)">&#10005;</span></div><div id="threadlist"></div><div id="newchat" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new chat</div></div><div id="railwidth" title="Drag to resize the panel width"></div></aside>
   <div id="maininner">
   <div id="chatwrap">
   <div id="chatview">
@@ -1115,11 +1125,12 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
   </div>
   </div>
 </div>
-<div id="panel" class="side"><div id="panelhead"><h3>Settings</h3><button id="save">Save</button><button id="close">Close</button></div><div id="panelbody"><div id="settings">loading...</div><div class="ro" id="ro"></div></div></div>
-<div id="mempanel" class="side"><div class="phead"><h3>Memory</h3><button id="memclose">Close</button></div><div class="pbody" id="memview">loading...</div></div>
-<div id="skillpanel" class="side"><div class="phead"><h3>Skills</h3><button id="skillclose">Close</button></div><div class="pbody" id="skillview">loading...</div></div>
-<div id="provpanel" class="side"><div class="phead"><h3>AI Providers</h3><button id="provsave">Save</button><button id="provclose">Close</button></div><div class="pbody" id="provview">loading...</div></div>
-<div id="localpanel" class="side"><div class="phead"><h3>Local model</h3><button id="localclose">Close</button></div><div class="pbody" id="localview">loading...</div></div>
+<div id="panel" class="side"><div id="panelhead"><h3>Settings</h3><button id="save">Save</button><button id="close" class="winx" title="Close">&#10005;</button></div><div id="panelbody"><div id="settings">loading...</div><div class="ro" id="ro"></div></div></div>
+<div id="mempanel" class="side"><div class="phead"><h3>Memory</h3><button id="memclose" class="winx" title="Close">&#10005;</button></div><div class="pbody" id="memview">loading...</div></div>
+<div id="skillpanel" class="side"><div class="phead"><h3>Skills</h3><button id="skillclose" class="winx" title="Close">&#10005;</button></div><div class="pbody" id="skillview">loading...</div></div>
+<div id="provpanel" class="side"><div class="phead"><h3>AI Providers</h3><button id="provsave">Save</button><button id="provclose" class="winx" title="Close">&#10005;</button></div><div class="pbody" id="provview">loading...</div></div>
+<div id="localpanel" class="side"><div class="phead"><h3>Local model</h3><button id="localclose" class="winx" title="Close">&#10005;</button></div><div class="pbody" id="localview">loading...</div></div>
+<div id="viewpanel" class="side"><div class="phead"><h3>View</h3><button id="viewclose" class="winx" title="Close">&#10005;</button></div><div class="pbody" id="viewbody"></div></div>
 <div id="agentmodal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.55);align-items:center;justify-content:center"><div style="background:#161108;border:1px solid var(--line);border-radius:12px;padding:18px 18px 16px;width:min(600px,94vw);box-shadow:0 12px 40px rgba(0,0,0,.5)"><h3 style="margin:0 0 12px;color:var(--accent)">New agent</h3><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Name</label><input id="am_name" placeholder="e.g. mailproc" style="width:100%;box-sizing:border-box;margin-bottom:12px"><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Instructions &mdash; what it does, and how often if it repeats. Leave blank for an <b>open</b> agent you task each time.</label><textarea id="am_job" rows="9" placeholder="e.g. Every morning at 8, read my gmail and Slack me a 5-bullet digest of anything that needs a reply." style="width:100%;box-sizing:border-box;resize:vertical;margin-bottom:12px"></textarea><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Runs on</label><select id="am_model" style="margin-bottom:14px"></select><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">On restart</label><select id="am_autostart" style="margin-bottom:14px"><option value="">Use global default</option><option value="resume">Always resume</option><option value="pause">Start paused</option></select><div style="display:flex;gap:8px;justify-content:flex-end"><button id="am_cancel" type="button">Cancel</button><button id="am_create" type="button">Create</button></div></div></div>
 <div id="jobmodal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.55);align-items:center;justify-content:center"><div style="background:#161108;border:1px solid var(--line);border-radius:12px;padding:18px;width:min(660px,94vw);box-shadow:0 12px 40px rgba(0,0,0,.5)"><h3 style="margin:0 0 10px;color:var(--accent)">Edit job &mdash; <span id="jm_name"></span></h3><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Runs on</label><select id="jm_model" style="margin-bottom:10px"></select><div id="jm_why" style="display:none;font-size:12px;color:#e0a55f;margin-bottom:8px"></div><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:3px">Instructions in plain language (incl. how often if it repeats). On save, the smartest model recompiles the plan, skills and schedule &mdash; just like when you create an agent. If your chosen model looks too weak, it will warn you but keep your choice unless you change it.</label><textarea id="jm_job" rows="8" style="width:100%;box-sizing:border-box;resize:vertical;margin-bottom:10px"></textarea><details style="margin-bottom:12px"><summary style="cursor:pointer;font-size:12px;color:var(--mut)">Current compiled plan (read-only)</summary><pre id="jm_spec" style="white-space:pre-wrap;font-size:11px;color:var(--mut);max-height:220px;overflow:auto;background:#0c0a07;border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:6px"></pre></details><div style="display:flex;gap:8px;justify-content:flex-end"><button id="jm_cancel" type="button">Cancel</button><button id="jm_save" type="button">Save &amp; recompile</button></div></div></div>
 <script>
@@ -1448,7 +1459,7 @@ var panelDirty=false;
 // so a tool panel pushes the chat over instead of covering it.
 function pushAside(p){document.body.style.paddingRight=p?(p.getBoundingClientRect().width+'px'):''}
 // Hard close: drop all tool panels + un-shift the content. No prompt (used by each panel's X).
-function clearPanels(){['panel','mempanel','skillpanel','provpanel','localpanel','threadpanel'].forEach(function(id){var e=el(id);if(e)e.classList.remove('open')});document.body.style.paddingRight='';panelDirty=false}
+function clearPanels(){['panel','mempanel','skillpanel','provpanel','localpanel','viewpanel','threadpanel'].forEach(function(id){var e=el(id);if(e)e.classList.remove('open')});document.body.style.paddingRight='';panelDirty=false}
 // Switch close: when opening another tool, warn first if the current panel has unsaved edits.
 function closePanels(){if(panelDirty&&!confirm('You have unsaved changes in this panel. Discard them and switch?'))return false;clearPanels();return true}
 function closeTools(){var d=el('toolsdrop');if(d)d.classList.remove('open')}
@@ -1649,6 +1660,22 @@ function startLocalPoll(){if(LOCALPOLL)return;LOCALPOLL=setInterval(function(){i
 function stopLocalPoll(){if(LOCALPOLL){clearInterval(LOCALPOLL);LOCALPOLL=null}}
 el('localbtn').onclick=function(){if(closePanels()===false)return;closeTools();loadLocal();el('localpanel').classList.add('open');pushAside(el('localpanel'))};
 if(el('helpbtn'))el('helpbtn').onclick=function(){closeTools();window.open('/help','_blank')};
+/* ---- View menu: show/hide the left-rail sections ---- */
+var RAILVIS={models:true,agents:true,chats:true};
+try{var rv0=JSON.parse(localStorage.zx_railvis||'null');if(rv0){RAILVIS.models=rv0.models!==false;RAILVIS.agents=rv0.agents!==false;RAILVIS.chats=rv0.chats!==false}}catch(e){}
+function applyRailVis(){var secOf={models:'provsec',agents:'agentsec',chats:'chatsec'};
+  ['models','agents','chats'].forEach(function(k){var e=el(secOf[k]);if(e)e.style.display=RAILVIS[k]?'':'none'});
+  var rs=el('railsplit');if(rs)rs.style.display=(RAILVIS.models&&(RAILVIS.agents||RAILVIS.chats))?'':'none';
+  var rs2=el('railsplit2');if(rs2)rs2.style.display=(RAILVIS.agents&&RAILVIS.chats)?'':'none';
+  var rail=el('provrail');if(rail)rail.style.display=(RAILVIS.models||RAILVIS.agents||RAILVIS.chats)?'':'none'}
+function setRailSec(k,vis){RAILVIS[k]=!!vis;try{localStorage.zx_railvis=JSON.stringify(RAILVIS)}catch(e){}applyRailVis();if(el('viewpanel').classList.contains('open'))renderViewPanel()}
+function renderViewPanel(){var v=el('viewbody');if(!v)return;var rows=[['models','Models'],['agents','Agents'],['chats','Chats']];
+  v.innerHTML='<div style="font-size:12px;color:var(--mut);margin-bottom:10px">Show or hide the left-side panels. Changes apply immediately \\u2014 no save needed.</div>'+rows.map(function(r){return '<label class="chk" style="font-size:14px;display:flex;align-items:center;gap:8px;margin:8px 0"><input type="checkbox" class="vchk" data-k="'+r[0]+'"'+(RAILVIS[r[0]]?' checked':'')+'> '+r[1]+'</label>'}).join('');
+  [].slice.call(v.querySelectorAll('.vchk')).forEach(function(c){c.onchange=function(){setRailSec(c.getAttribute('data-k'),c.checked)}})}
+el('viewbtn').onclick=function(){if(closePanels()===false)return;closeTools();renderViewPanel();el('viewpanel').classList.add('open');pushAside(el('viewpanel'))};
+if(el('viewclose'))el('viewclose').onclick=function(){clearPanels()};
+[].slice.call(document.querySelectorAll('.railx')).forEach(function(x){x.onclick=function(){setRailSec(x.getAttribute('data-sec'),false)}});
+applyRailVis();
 el('localclose').onclick=function(){clearPanels();stopLocalPoll()};
 /* ---- tabs ---- */
 function ago(ts){if(!ts)return'';var s=Math.floor((Date.now()-ts)/1000);if(s<60)return s+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago'}
