@@ -1599,7 +1599,11 @@ if(el('am_create'))el('am_create').onclick=function(){var nm=el('am_name').value
     win.style.left=(dragState.startX0+dx)+'px';win.style.top=(dragState.startY0+dy)+'px'
   });
   document.addEventListener('mouseup',function(){
-    if(dragState.dragging){dragState.dragging=false;document.body.style.userSelect=''}
+    if(dragState.dragging){
+      var win=el('window-'+dragState.wid),w=WINDOWS[dragState.wid];
+      if(win&&w){w.x=Math.round(parseFloat(win.style.left)||w.x);w.y=Math.round(parseFloat(win.style.top)||w.y);saveWindowState()}
+      dragState.dragging=false;document.body.style.userSelect=''
+    }
   });
   document.addEventListener('click',function(e){
     var btn=e.target.closest('.window-btn');if(!btn)return;
