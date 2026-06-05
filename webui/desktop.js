@@ -55,6 +55,7 @@
     w.minimized = false; w.root.classList.remove('minimized');
     var nm = document.getElementById('tb-appname'); if (nm) nm.textContent = w._appTitle || w.titleEl.textContent || 'Desktop';
     syncTaskbar();
+    saveSession();
   }
 
   function makeWindow(spec) {
@@ -86,7 +87,7 @@
     winLayer.appendChild(root);
 
     root.addEventListener('mousedown', function () { focusWin(w); });
-    bMin.addEventListener('click', function (e) { e.stopPropagation(); w.minimized = true; root.classList.add('minimized'); syncTaskbar(); });
+    bMin.addEventListener('click', function (e) { e.stopPropagation(); w.minimized = true; root.classList.add('minimized'); syncTaskbar(); saveSession(); });
     bMax.addEventListener('click', function (e) { e.stopPropagation(); toggleMax(w); });
     bClose.addEventListener('click', function (e) { e.stopPropagation(); closeWin(w); });
     bar.addEventListener('dblclick', function () { toggleMax(w); });
@@ -116,6 +117,7 @@
       w.root.style.height = (window.innerHeight - tb - bb) + 'px';
       w.maximized = true;
     }
+    saveSession();
   }
 
   function closeWin(w) {
@@ -125,6 +127,7 @@
     delete wins[w.id];
     Object.keys(openByApp).forEach(function (a) { if (openByApp[a] === w.id) delete openByApp[a]; });
     syncTaskbar();
+    saveSession();
   }
 
   function enableDrag(w, handle) {
@@ -138,7 +141,7 @@
         w.root.style.left = Math.max(-40, sl + (ev.clientX - sx)) + 'px';
         w.root.style.top = Math.max(0, st + (ev.clientY - sy)) + 'px';
       }
-      function up() { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); }
+      function up() { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); saveSession(); }
       document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
     });
   }
@@ -159,7 +162,7 @@
           if (dir.indexOf('w') !== -1) { var nw = Math.max(320, sw - dx); w.root.style.width = nw + 'px'; w.root.style.left = (sl + (sw - nw)) + 'px'; }
           if (dir.indexOf('n') !== -1) { var nh = Math.max(200, sh - dy); w.root.style.height = nh + 'px'; w.root.style.top = (st + (sh - nh)) + 'px'; }
         }
-        function up() { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); }
+        function up() { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); saveSession(); }
         document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
       });
     });
@@ -236,21 +239,51 @@
   }
   function appById(id) { var l = appList(); for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
 
-  function launchApp(appId) {
+  // ---------- session persistence (open windows + geometry + state) ----------
+  function saveSession() {
+    try {
+      var arr = Object.keys(wins).map(function (k) {
+        var w = wins[k];
+        var g = (w.maximized && w.prev) ? w.prev : { l: w.root.style.left, t: w.root.style.top, w: w.root.style.width, h: w.root.style.height };
+        return { appId: w.appId, left: g.l, top: g.t, width: g.w, height: g.h, max: !!w.maximized, min: !!w.minimized, z: parseInt(w.root.style.zIndex, 10) || 100 };
+      });
+      arr.sort(function (a, b) { return a.z - b.z; });
+      localStorage.setItem('zx_session', JSON.stringify(arr));
+    } catch (e) {}
+  }
+  function restoreSession() {
+    var arr = [];
+    try { arr = JSON.parse(localStorage.getItem('zx_session') || '[]'); } catch (e) {}
+    if (!arr.length) return false;
+    arr.forEach(function (g) { launchApp(g.appId, g); });
+    return Object.keys(wins).length > 0;
+  }
+
+  function launchApp(appId, geom) {
     var app = appById(appId);
-    if (!app) return;
+    if (!app) return null;
     // singleton: focus if already open
-    if (openByApp[appId] && wins[openByApp[appId]]) { focusWin(wins[openByApp[appId]]); return; }
+    if (openByApp[appId] && wins[openByApp[appId]]) { focusWin(wins[openByApp[appId]]); return wins[openByApp[appId]]; }
     var spec;
     if (appId === 'zamolxis') spec = { appId: appId, title: AGENT_NAME, iconSvg: ICON.zamolxis, w: 460, h: 620, onMount: mountChat };
     else if (appId === 'settings') spec = { appId: appId, title: 'Settings', iconSvg: ICON.settings, w: 620, h: 520, onMount: mountSettings };
     else if (appId === 'newagent') spec = { appId: appId, title: 'New Agent', iconSvg: ICON.newagent, w: 460, h: 480, onMount: mountNewAgent };
     else if (app.kind === 'agent') spec = { appId: appId, title: app.name, iconSvg: ICON.agent, w: 520, h: 560, onMount: function (b, w) { mountAgent(b, w, app.agent); } };
-    if (!spec) return;
+    if (!spec) return null;
     var w = makeWindow(spec);
     w._iconSvg = spec.iconSvg; w._appTitle = spec.title;
     openByApp[appId] = w.id;
+    if (geom) {
+      if (geom.left) w.root.style.left = geom.left;
+      if (geom.top) w.root.style.top = geom.top;
+      if (geom.width) w.root.style.width = geom.width;
+      if (geom.height) w.root.style.height = geom.height;
+      if (geom.max) toggleMax(w);
+      if (geom.min) { w.minimized = true; w.root.classList.add('minimized'); }
+    }
     syncTaskbar();
+    saveSession();
+    return w;
   }
 
   // ---------- App: Chat (Zamolxis main chat) ----------
@@ -679,7 +712,7 @@
   tickClock(); setInterval(tickClock, 10000);
   pollStatus(); setInterval(pollStatus, 15000);
   renderDesktop();
-  loadAgents();
-  // open the default app
-  launchApp('zamolxis');
+  // Restore the previous window session once agents are known (agent windows need the list);
+  // fall back to opening the default Zamolxis app on a fresh/empty session.
+  loadAgents().then(function () { if (!restoreSession()) launchApp('zamolxis'); });
 })();
