@@ -1034,7 +1034,40 @@ button:hover{border-color:var(--accent);color:var(--accent)}
 #agentsec{overflow:auto;padding:8px 8px 10px;flex:none;height:25%;min-height:42px}
 #railwidth{position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:6}
 #railwidth:hover{background:var(--accent);opacity:.5}
-#maininner{flex:1;display:flex;overflow:hidden}
+#maininner{flex:1;display:flex;overflow:hidden;position:relative}
+/* ---- Taskbar (left side) ---- */
+#taskbar{width:56px;flex:none;border-right:1px solid var(--line);background:#120f0a;display:flex;flex-direction:column;overflow-y:auto;align-items:center;padding:8px 0;gap:4px}
+.taskbar-item{width:48px;height:48px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;background:transparent;border:1px solid transparent;color:var(--mut);font-size:11px;flex-direction:column;gap:2px;text-align:center;padding:4px;overflow:hidden;transition:.15s;position:relative}
+.taskbar-item:hover{background:var(--panel2);border-color:var(--line)}
+.taskbar-item.focused{background:rgba(212,165,90,.18);border-color:var(--accent);color:var(--accent)}
+.taskbar-item-label{font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;text-transform:capitalize}
+.taskbar-item-icon{font-size:18px;line-height:1}
+/* ---- Windows container ---- */
+#windows-container{flex:1;position:relative;overflow:hidden}
+/* ---- Fake OS window ---- */
+.window{position:absolute;background:var(--panel);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.6);min-width:400px;min-height:300px;user-select:none}
+.window.hidden{display:none}
+.window-titlebar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);background:linear-gradient(#1a150d,#140c07);flex:none;height:32px;cursor:move;border-radius:12px 12px 0 0}
+.window-title{flex:1;font-size:13px;color:var(--ink);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.window-buttons{display:flex;gap:8px;flex:none}
+.window-btn{width:32px;height:24px;display:flex;align-items:center;justify-content:center;background:transparent;border:none;color:var(--mut);cursor:pointer;border-radius:4px;font-size:14px;transition:.15s}
+.window-btn:hover{background:rgba(212,165,90,.15);color:var(--ink)}
+.window-btn.close:hover{background:#c4332b;color:#fff}
+.window-content{flex:1;overflow:hidden;display:flex;flex-direction:column}
+/* OS-specific titlebar styling */
+:root.os-windows .window-titlebar{background:linear-gradient(#005a9e,#003d6e);padding:6px 8px}
+:root.os-windows .window-title{font-size:12px}
+:root.os-mac .window-titlebar{background:linear-gradient(#d0d0d0,#c0c0c0);padding:6px 8px}
+:root.os-mac .window-buttons{order:-1;margin-right:8px}
+:root.os-mac .window-btn{width:16px;height:16px;font-size:12px;border-radius:50%}
+:root.os-mac .window-btn.minimize{background:#ffbd2e}
+:root.os-mac .window-btn.maximize{background:#28c940}
+:root.os-mac .window-btn.close{background:#ff5f56}
+:root.os-mac .window-btn:hover{opacity:.8}
+:root.os-linux .window-titlebar{background:linear-gradient(#383838,#2a2a2a);padding:6px 8px}
+.window.minimized .window-content{display:none}
+.window.maximized{inset:0;border-radius:0;min-width:100%;min-height:100%}
+.window.maximized .window-titlebar{border-radius:0}
 #chatwrap{flex:1;position:relative;overflow:hidden}
 @media(max-width:680px){#provrail{display:none}}
 #chatview{position:absolute;inset:0;display:flex;flex-direction:column}
@@ -1122,13 +1155,28 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 <div id="main">
   <aside id="provrail"><div id="provsec"><div class="railhd"><span>Models</span><span class="railx" data-sec="models" title="Hide (use View to bring back)">&#10005;</span></div><div id="provchain"></div></div><div id="railsplit" title="Drag to resize Models / Agents"></div><div id="agentsec"><div class="railhd"><span>Agents</span><span class="railx" data-sec="agents" title="Hide (use View to bring back)">&#10005;</span></div><div id="agentrail"></div><div id="newagent" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new agent</div></div><div id="railsplit2" title="Drag to resize Agents / Chats"></div><div id="chatsec"><div class="railhd"><span>Chats</span><span class="railx" data-sec="chats" title="Hide (use View to bring back)">&#10005;</span></div><div id="threadlist"></div><div id="newchat" style="color:var(--accent);font-size:11px;margin:6px 4px;cursor:pointer">+ new chat</div></div><div id="railwidth" title="Drag to resize the panel width"></div></aside>
   <div id="maininner">
-  <div id="chatwrap">
-  <div id="chatview">
-    <div id="log"><div id="loginner"></div></div>
-    <footer><div id="attachbar"></div><div id="footinner"><select id="route" title="Where this chat is answered: Auto routes simple turns to the local model, Local forces on-device, Claude forces the subscription"><option value="auto">Auto</option><option value="local">Local</option><option value="claude">Claude</option></select><select id="model" title="Which Claude model answers this chat. Default = automatic: the fast model for simple turns, the primary model for complex ones. Sonnet/Haiku are faster than Opus."><option value="">Model: auto</option><option value="opus">Opus · deep</option><option value="sonnet">Sonnet · fast</option><option value="haiku">Haiku · fastest</option></select><input id="fileinput" type="file" multiple style="display:none"><button id="attach" type="button" title="Attach files (or drag-and-drop / paste)">&#128206;</button><textarea id="in" rows="1" placeholder="Message __AGENT_NAME__..."></textarea><button id="send">Send</button></div></footer>
-  </div>
-  <div id="tabview"><div id="tabinner"></div></div>
-  </div>
+    <div id="taskbar"></div>
+    <div id="windows-container">
+      <div id="window-main" class="window" data-wid="main">
+        <div class="window-titlebar">
+          <span class="window-title">Zamolxis · Main</span>
+          <div class="window-buttons">
+            <button class="window-btn minimize" title="Minimize">−</button>
+            <button class="window-btn maximize" title="Maximize">□</button>
+            <button class="window-btn close" title="Close">✕</button>
+          </div>
+        </div>
+        <div class="window-content">
+          <div id="chatwrap">
+            <div id="chatview">
+              <div id="log"><div id="loginner"></div></div>
+              <footer><div id="attachbar"></div><div id="footinner"><select id="route" title="Where this chat is answered: Auto routes simple turns to the local model, Local forces on-device, Claude forces the subscription"><option value="auto">Auto</option><option value="local">Local</option><option value="claude">Claude</option></select><select id="model" title="Which Claude model answers this chat. Default = automatic: the fast model for simple turns, the primary model for complex ones. Sonnet/Haiku are faster than Opus."><option value="">Model: auto</option><option value="opus">Opus · deep</option><option value="sonnet">Sonnet · fast</option><option value="haiku">Haiku · fastest</option></select><input id="fileinput" type="file" multiple style="display:none"><button id="attach" type="button" title="Attach files (or drag-and-drop / paste)">&#128206;</button><textarea id="in" rows="1" placeholder="Message __AGENT_NAME__..."></textarea><button id="send">Send</button></div></footer>
+            </div>
+            <div id="tabview"><div id="tabinner"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 <div id="panel" class="side"><div id="panelhead"><h3>Settings</h3><button id="save">Save</button><button id="close" class="winx" title="Close">&#10005;</button></div><div id="panelbody"><div id="settings">loading...</div><div class="ro" id="ro"></div></div></div>
@@ -1142,6 +1190,37 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 <div id="helpmodal" style="display:none;position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.55);align-items:center;justify-content:center"><div style="background:#161108;border:1px solid var(--line);border-radius:12px;width:min(940px,95vw);height:86vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.5)"><div class="phead"><h3>Help</h3><input id="help_q" placeholder="Search help, skills &amp; models..." style="flex:2;max-width:440px;margin:0 8px"><button id="helpclose" class="winx" title="Close">&#10005;</button></div><div class="pbody" id="helpbody" style="flex:1;overflow:auto">loading...</div></div></div>
 <script>
 function uuid(){return crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random()}
+/* ---- OS detection & theme ---- */
+function detectOS(){var ua=navigator.userAgent.toLowerCase();if(/windows|win32/.test(ua))return 'windows';if(/mac|iphone|ipad/.test(ua))return 'mac';return 'linux'}
+var DETECTED_OS=detectOS();
+try{if(localStorage.zx_os_style){DETECTED_OS=localStorage.zx_os_style}}catch(e){}
+document.documentElement.className='os-'+DETECTED_OS;
+/* ---- Window management system ---- */
+var WINDOWS={},MAX_Z=100,FOCUSED_WID='main';
+function createWindow(wid,title,content){
+  if(WINDOWS[wid])return WINDOWS[wid];
+  var w={wid:wid,title:title,minimized:false,maximized:false,x:80+Math.random()*40,y:60+Math.random()*40,width:640,height:420,z:++MAX_Z};
+  WINDOWS[wid]=w;
+  saveWindowState();
+  return w;
+}
+function focusWindow(wid){var w=WINDOWS[wid];if(!w)return;w.z=++MAX_Z;FOCUSED_WID=wid;applyWindowZ();renderTaskbar()}
+function closeWindow(wid){if(wid==='main')return;delete WINDOWS[wid];if(FOCUSED_WID===wid)FOCUSED_WID='main';saveWindowState();applyWindowZ();renderTaskbar();var e=el('window-'+wid);if(e)e.remove()}
+function minimizeWindow(wid){var w=WINDOWS[wid];if(!w)return;w.minimized=!w.minimized;saveWindowState();applyWindowZ();renderTaskbar()}
+function maximizeWindow(wid){var w=WINDOWS[wid];if(!w)return;w.maximized=!w.maximized;saveWindowState();applyWindowZ()}
+function applyWindowZ(){Object.keys(WINDOWS).forEach(function(wid){var e=el('window-'+wid),w=WINDOWS[wid];if(e){e.style.zIndex=w.z;if(FOCUSED_WID===wid)e.classList.add('focused');else e.classList.remove('focused')}})}
+function saveWindowState(){try{var state={};Object.keys(WINDOWS).forEach(function(wid){state[wid]=WINDOWS[wid]});localStorage.zx_windows=JSON.stringify(state)}catch(e){}}
+function loadWindowState(){try{var s=JSON.parse(localStorage.zx_windows||'{}');Object.keys(s).forEach(function(wid){if(s[wid])WINDOWS[wid]=s[wid]})}catch(e){}}
+function renderTaskbar(){
+  var tb=el('taskbar');if(!tb)return;
+  var html='';
+  Object.keys(WINDOWS).forEach(function(wid){var w=WINDOWS[wid];if(w){html+='<div class="taskbar-item'+(FOCUSED_WID===wid?' focused':'')+' '+(w.minimized?'minimized':'')+'" data-wid="'+esc(wid)+'" title="'+esc(w.title)+'"><div class="taskbar-item-icon">📦</div><div class="taskbar-item-label">'+esc((w.title||wid).split(' · ')[1]||w.title)+'</div></div>'}});
+  tb.innerHTML=html;
+  [].slice.call(tb.querySelectorAll('.taskbar-item')).forEach(function(item){item.onclick=function(){var wid=item.getAttribute('data-wid');focusWindow(wid);var w=WINDOWS[wid];if(w&&w.minimized){w.minimized=false;saveWindowState();applyWindowZ();renderTaskbar()}};item.oncontextmenu=function(e){e.preventDefault();alert('Window menu not yet implemented')}})
+}
+loadWindowState();
+createWindow('main','Zamolxis · Main');
+renderTaskbar();
 /* ---- shared status helpers (masked keys, status dots, active-provider rail, installer) ---- */
 var KEYMASK='************';
 var C_OK='#7dd08a',C_BAD='#e06a5f',C_WARN='#e0a55f',C_OFF='#5a5a5a';
@@ -1499,6 +1578,34 @@ if(el('am_create'))el('am_create').onclick=function(){var nm=el('am_name').value
     if(dragY2&&sec2){var t2=sec2.getBoundingClientRect().top;var h2=Math.max(42,Math.min(rail.clientHeight-70,e.clientY-t2));sec2.style.height=h2+'px'}
     if(dragX){var left=rail.getBoundingClientRect().left;var w=Math.max(120,Math.min(440,e.clientX-left));rail.style.width=w+'px'}});
   document.addEventListener('mouseup',function(){if(dragY){try{localStorage.zx_railsplit=sec.style.height}catch(e){}}if(dragY2&&sec2){try{localStorage.zx_railsplit2=sec2.style.height}catch(e){}}if(dragX){try{localStorage.zx_railw=rail.style.width}catch(e){}}if(dragY||dragY2||dragX)document.body.style.userSelect='';dragY=false;dragY2=false;dragX=false});
+})();
+/* ---- Window drag and resize ---- */
+(function setupWindowManagement(){
+  var dragState={dragging:false,resizing:false,wid:null,startX:0,startY:0,startW:0,startH:0,startX0:0,startY0:0};
+  document.addEventListener('mousedown',function(e){
+    var titlebar=e.target.closest('.window-titlebar');var btn=e.target.closest('.window-btn');var win=titlebar?titlebar.closest('.window'):null;
+    if(!win||btn)return;
+    var wid=win.getAttribute('data-wid');if(!wid)return;
+    focusWindow(wid);dragState={dragging:true,resizing:false,wid:wid,startX:e.clientX,startY:e.clientY,startW:win.clientWidth,startH:win.clientHeight,startX0:win.offsetLeft,startY0:win.offsetTop};
+    e.preventDefault();document.body.style.userSelect='none'
+  });
+  document.addEventListener('mousemove',function(e){
+    if(!dragState.dragging)return;
+    var win=el('window-'+dragState.wid);if(!win)return;
+    var dx=e.clientX-dragState.startX,dy=e.clientY-dragState.startY;
+    win.style.left=(dragState.startX0+dx)+'px';win.style.top=(dragState.startY0+dy)+'px'
+  });
+  document.addEventListener('mouseup',function(){
+    if(dragState.dragging){dragState.dragging=false;document.body.style.userSelect=''}
+  });
+  document.addEventListener('click',function(e){
+    var btn=e.target.closest('.window-btn');if(!btn)return;
+    var win=btn.closest('.window');var wid=win.getAttribute('data-wid');if(!wid)return;
+    if(btn.classList.contains('minimize')){minimizeWindow(wid)}
+    else if(btn.classList.contains('maximize')){maximizeWindow(wid)}
+    else if(btn.classList.contains('close')){closeWindow(wid)}
+    e.preventDefault()
+  },true)
 })();
 el('newchat').onclick=newChat;
 el('cog').onclick=function(){if(closePanels()===false)return;closeTools();el('panel').classList.add('open');pushAside(el('panel'));loadSettings()};
