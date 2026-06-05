@@ -493,6 +493,27 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
     },
   );
 
+  const createInterfaceWindow = tool(
+    'create_interface_window',
+    'Create a floating window (image, graph, or video) in the Zamolxis UI. Used to display generated images, charts, videos from agents. The window appears as a fake OS window and can be minimized, maximized, or closed by the user. Only available in web UI.',
+    {
+      type: z.enum(['image', 'graph', 'video']).describe('Window type: image (base64 PNG/JPG), graph (SVG markup), or video (URL or iframe embed)'),
+      title: z.string().describe('Window title shown in the titlebar'),
+      content: z.string().describe('Content: base64-encoded image data (image), SVG markup (graph), or embed URL/iframe (video)'),
+    },
+    async (args) => {
+      const wid = `iface_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+      const from = ctx.conversationKey.startsWith('agent:') ? ctx.conversationKey.slice('agent:'.length) : 'user';
+      if (!deps.sendAgentMessage) return text('Interface windows are not available in this build (web UI only).');
+      try {
+        await deps.sendAgentMessage('assistant', 'user', `\`\`\`iface-window\n${JSON.stringify({wid, type: args.type, title: args.title, content: args.content, from})}\n\`\`\``);
+        return text(`Created ${args.type} window "${args.title}" (id: ${wid}). The user can interact with it as a draggable, resizable window.`);
+      } catch (e) {
+        return text(`Failed to create ${args.type} window: ` + String(e));
+      }
+    },
+  );
+
   return {
     zamolxis: createSdkMcpServer({
       name: 'zamolxis',
@@ -521,6 +542,7 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
         createTab,
         updateTab,
         deleteTab,
+        createInterfaceWindow,
         listTabs,
         ...searchTools,
         ...localTools,
