@@ -267,8 +267,24 @@ body[data-os="mac"] #desktop-icons { top: 34px; }
 /* ============================================================
    Ubuntu / GNOME chrome (refined later; sensible base now)
    ============================================================ */
-body[data-os="ubuntu"] { --accent: #e95420; --tb-h: 48px; --win-radius: 10px; --font: "Ubuntu", system-ui, sans-serif; }
-body[data-os="ubuntu"] #desktop { background: linear-gradient(135deg, #2c001e 0%, #5e2750 60%, #772953 100%); }
-body[data-os="ubuntu"] #taskbar { /* top bar */ top: 0; bottom: auto; height: 32px; background: rgba(20,15,18,.92); color: #fff; }
-body[data-os="ubuntu"] #taskbar button, body[data-os="ubuntu"] .tb-app, body[data-os="ubuntu"] #clock { color: #fff; }
-body[data-os="ubuntu"] #windows, body[data-os="ubuntu"] #desktop-icons { top: 32px; }
+body[data-os="ubuntu"] { --accent: #e95420; --win-radius: 8px; --font: "Ubuntu", "Ubuntu Sans", system-ui, sans-serif; }
+body[data-os="ubuntu"] #desktop { background: linear-gradient(135deg, #2c001e 0%, #5e2750 55%, #772953 100%); }
+
+/* GNOME top bar (uses #topbar): Activities · centered clock · status */
+body[data-os="ubuntu"] #topbar { display: flex; height: 28px; background: rgba(18,14,16,.96); color: #fff; border-bottom: 1px solid rgba(0,0,0,.5); }
+body[data-os="ubuntu"] #tb-brand, body[data-os="ubuntu"] #tb-appname { display: none; }
+body[data-os="ubuntu"] #topbar-left::before { content: "Activities"; font-size: 13px; font-weight: 600; }
+body[data-os="ubuntu"] #topbar .clock-time { position: absolute; left: 50%; transform: translateX(-50%); font-weight: 600; }
+
+/* Ubuntu Dock — vertical, pinned to the left edge */
+body[data-os="ubuntu"] #taskbar { top: 28px; bottom: 0; left: 0; right: auto; width: 64px; height: auto; flex-direction: column; justify-content: flex-start; gap: 8px; padding: 10px 0; background: rgba(18,14,16,.82); border-top: 0; border-right: 1px solid rgba(0,0,0,.45); }
+body[data-os="ubuntu"] #taskbar-center { flex-direction: column; gap: 8px; }
+body[data-os="ubuntu"] #taskbar-apps { flex-direction: column; gap: 8px; }
+body[data-os="ubuntu"] #taskbar-tray { display: none; }
+body[data-os="ubuntu"] #taskbar button, body[data-os="ubuntu"] .tb-app { color: #fff; width: 48px; height: 48px; border-radius: 14px; }
+body[data-os="ubuntu"] #taskbar button:hover, body[data-os="ubuntu"] .tb-app:hover { background: rgba(255,255,255,.15); }
+body[data-os="ubuntu"] .tb-app.active::after, body[data-os="ubuntu"] .tb-app.running::after { left: 2px; top: 50%; bottom: auto; transform: translateY(-50%); width: 3px; height: 18px; }
+
+/* offsets: below the top bar, right of the dock; centered launcher overlay */
+body[data-os="ubuntu"] #desktop-icons { top: 36px; left: 74px; }
+body[data-os="ubuntu"] #startmenu { bottom: auto; top: 50%; left: 50%; transform: translate(-50%,-50%); }

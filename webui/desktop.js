@@ -107,10 +107,12 @@
     } else {
       w.prev = { l: w.root.style.left, t: w.root.style.top, w: w.root.style.width, h: w.root.style.height };
       w.root.classList.add('maximized');
-      var tb = document.body.dataset.os === 'ubuntu' ? 32 : (document.body.dataset.os === 'mac' ? 26 : 0);
-      var bb = document.body.dataset.os === 'win' ? 48 : (document.body.dataset.os === 'mac' ? 88 : 0);
-      w.root.style.left = '0px'; w.root.style.top = tb + 'px';
-      w.root.style.width = window.innerWidth + 'px';
+      var os = document.body.dataset.os;
+      var tb = os === 'ubuntu' ? 28 : (os === 'mac' ? 26 : 0);
+      var bb = os === 'win' ? 48 : (os === 'mac' ? 88 : 0);
+      var lb = os === 'ubuntu' ? 64 : 0;
+      w.root.style.left = lb + 'px'; w.root.style.top = tb + 'px';
+      w.root.style.width = (window.innerWidth - lb) + 'px';
       w.root.style.height = (window.innerHeight - tb - bb) + 'px';
       w.maximized = true;
     }
