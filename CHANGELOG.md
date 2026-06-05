@@ -2,6 +2,12 @@
 
 ## Unreleased (0.3.x)
 
+- Files: configurable **Work folder** (default `C:\Zamolxis`) for user outputs and **Scripts folder**
+  (default `C:\bat`) for installed .bat/.ps1 — the agent is instructed to use these instead of the
+  Desktop, and the planner bakes them into agent specs. Settings panel + auto-created on boot.
+- Agents: skip + report `inactive` (no escalation) when a pinned model is unavailable; panel shows the
+  actual model a rotating tier ran on; scheduled messages carry the model badge.
+
 - Agents: choose the model on create/edit (Auto or a pinned tier); manual picks respected with a
   smart-model warning if too weak; `[inactive]` + **Fix** when an agent's model is unavailable.
 - Agents: agent-created ones show in the panel (`auto` badge) and are temporary unless the new

@@ -737,7 +737,8 @@ export class Engine {
       '"executor" = the CHEAPEST tier that can reliably run the spec; low risk -> cheapest available, higher risk -> stronger. "executor" and "recommendedModel" MUST be one of the AVAILABLE TIERS tokens. ' +
       'SCHEDULE: if the STORY says the job should run repeatedly or at a time ("every minute", "each morning at 8", "hourly", "weekdays at 9"), set "schedule" to a 5-field cron expression + the task to run each time + a humanReadable phrase; otherwise schedule = null. ' +
       'The executor is ALWAYS given the authoritative current date/time at run time, so it can answer "what time is it" type jobs from that value — your spec can rely on it and must NOT tell the executor to guess the time. ' +
-      'IMPORTANT: the executor sees ONLY your spec + its tools (NOT the user profile, persona, memories, or learnings). So BAKE any relevant user context directly into the spec — e.g. the user\'s name, timezone, language, tone/format preferences, and any standing facts the job depends on.';
+      'IMPORTANT: the executor sees ONLY your spec + its tools (NOT the user profile, persona, memories, or learnings). So BAKE any relevant user context directly into the spec — e.g. the user\'s name, timezone, language, tone/format preferences, and any standing facts the job depends on. ' +
+      `FILE LOCATIONS: if the job writes files, the spec MUST save user outputs under "${this.deps.config.workDir}" and any installed scripts/.bat under "${this.deps.config.batDir}" — never the Desktop or home folder.`;
     const profile = this.deps.memory.getUser().replace(/^#.*$/m, '').trim();
     const learned = this.deps.memory.relevantLearningsBlock(def.job) || '';
     const prompt =
@@ -1400,7 +1401,12 @@ export class Engine {
         .join('\n')}`;
     }
     const agentRole = req.agentJob ? `YOU ARE A FOCUSED AGENT. YOUR JOB:\n${req.agentJob}\nDo exactly this job; stay on task.` : undefined;
-    const append = [agentRole, laws, buildPersona(dispName), this.deps.memory.systemPromptBlock(), memoryAware, skillsHint, escalationHint, searchHint, localHint, config.systemPromptAppend, nameLock]
+    const pathRule =
+      `FILE LOCATIONS — do NOT save to the Desktop or home folder. Save files you create for the user ` +
+      `(documents, exports, outputs, downloads) under "${config.workDir}". Put scripts you install — ` +
+      `.bat/.ps1/.sh, e.g. ones a scheduled task runs — under "${config.batDir}". Create these folders if ` +
+      `missing. Only use a different path when the user gives an explicit absolute one.`;
+    const append = [agentRole, laws, buildPersona(dispName), this.deps.memory.systemPromptBlock(), memoryAware, skillsHint, escalationHint, searchHint, localHint, pathRule, config.systemPromptAppend, nameLock]
       .filter(Boolean)
       .join('\n\n');
 

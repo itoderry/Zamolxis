@@ -1709,6 +1709,8 @@ function renderSettings(s){var L=s.live,m=s.meta,h='';
   h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">These three are the <b>Claude</b> tier\\'s models. On-device and free/paid providers each have their own fixed model — manage which ones run, and in what order, in the <b class="accent">Providers</b> panel.</div>';
   h+='<label>Timezone for "what time is it" (IANA, e.g. America/New_York; blank = host clock)</label>'+inp('live_timezone',L.timezone||'');
   h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">Auto-detected from your browser. Agents report the time in this zone even if the server runs on UTC.</div>';
+  h+='<label>Work folder — where files Zamolxis makes for you are saved (not the Desktop)</label>'+inp('live_workDir',L.workDir||'');
+  h+='<label>Scripts folder — where installed .bat/.ps1 (e.g. for scheduled tasks) go</label>'+inp('live_batDir',L.batDir||'');
   if(L.localModel){h+='<label>Local model routing — '+esc(L.localModel)+' (on-device; answers simple turns without using the subscription)</label>'+sel('live_localRouting',['off','auto'],L.localRouting);
     h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">auto = answer simple messages locally and escalate the rest to Claude · off = always use Claude</div>'}
   else{h+='<label>Local model</label><div style="font-size:12px;color:var(--mut)">none installed - run install.ps1 -Local (or install.sh --local) to add one</div>'}
@@ -1793,7 +1795,7 @@ el('save').onclick=function(){
   panelDirty=false;
   var v=function(id){var n=el('s_'+id);return n?n.value:undefined};
   var ck=function(id){var n=el('s_'+id);return n?n.checked:undefined};
-  var patch={live:{agentName:v('live_agentName'),model:v('live_model'),fastModel:v('live_fastModel'),smartModel:v('live_smartModel'),timezone:v('live_timezone'),localRouting:v('live_localRouting'),lawsEnabled:ck('live_lawsEnabled'),agentRestore:ck('live_agentRestore'),persistAgentCreated:ck('live_persistAgentCreated'),permissionMode:v('live_permissionMode'),sandboxBackend:v('live_sandboxBackend'),systemPromptAppend:v('live_systemPromptAppend'),maxTurns:Number(v('live_maxTurns')),maxConcurrent:Number(v('live_maxConcurrent'))},
+  var patch={live:{agentName:v('live_agentName'),model:v('live_model'),fastModel:v('live_fastModel'),smartModel:v('live_smartModel'),timezone:v('live_timezone'),workDir:v('live_workDir'),batDir:v('live_batDir'),localRouting:v('live_localRouting'),lawsEnabled:ck('live_lawsEnabled'),agentRestore:ck('live_agentRestore'),persistAgentCreated:ck('live_persistAgentCreated'),permissionMode:v('live_permissionMode'),sandboxBackend:v('live_sandboxBackend'),systemPromptAppend:v('live_systemPromptAppend'),maxTurns:Number(v('live_maxTurns')),maxConcurrent:Number(v('live_maxConcurrent'))},
     identity:{laws:v('id_laws'),soul:v('id_soul'),user:v('id_user')},channels:{},web:{port:Number(v('web_port')),bind:v('web_bind'),authToken:v('web_authToken')},
     sandbox:{dockerImage:v('sb_dockerImage'),dockerContainer:v('sb_dockerContainer'),sshHost:v('sb_sshHost'),sshUser:v('sb_sshUser'),sshPort:v('sb_sshPort'),sshIdentity:v('sb_sshIdentity')},credentials:{}};
   ['cli','telegram','discord','slack','whatsapp','signal','email','web'].forEach(function(c){var x=ck('ch_'+c);if(x!==undefined)patch.channels[c]=x});

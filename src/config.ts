@@ -46,6 +46,10 @@ const ConfigSchema = z.object({
   dataDir: z.string(),
   /** Per-user agent workspaces live under here; each gets a CLAUDE.md + .claude/. */
   workspacesDir: z.string(),
+  /** Where Zamolxis saves files for the user (documents, exports, outputs) — NOT the Desktop. */
+  workDir: z.string(),
+  /** Where Zamolxis puts scripts/.bat it installs (e.g. for scheduled tasks). */
+  batDir: z.string(),
   /** Shared, auto-generated skills directory (SKILL.md folders). */
   skillsDir: z.string(),
   /** Extra (read-only) skill roots scanned recursively — e.g. a Hermes install's skills tree. */
@@ -169,6 +173,10 @@ export function loadConfig(): ZamolxisConfig {
   const raw = {
     dataDir,
     workspacesDir: path.join(dataDir, 'workspaces'),
+    // User-facing output + script folders. Default to C:\Zamolxis / C:\bat on Windows, ~/Zamolxis /
+    // ~/zamolxis-bat elsewhere. Overridable via env or the Settings panel.
+    workDir: process.env.ZAMOLXIS_WORK_DIR || (process.platform === 'win32' ? 'C:\\Zamolxis' : path.join(os.homedir(), 'Zamolxis')),
+    batDir: process.env.ZAMOLXIS_BAT_DIR || (process.platform === 'win32' ? 'C:\\bat' : path.join(os.homedir(), 'zamolxis-bat')),
     skillsDir: path.join(dataDir, 'skills'),
     extraSkillsDirs: detectExtraSkillsDirs(dataDir),
     agentName: process.env.ZAMOLXIS_AGENT_NAME || 'Zamolxis',
@@ -246,9 +254,12 @@ export function loadConfig(): ZamolxisConfig {
   const config = ConfigSchema.parse(raw);
   applyPersistedSettings(config);
 
-  // Materialize directories up-front.
+  // Materialize directories up-front (workDir/batDir best-effort — a bad custom path shouldn't crash boot).
   for (const dir of [config.dataDir, config.workspacesDir, config.skillsDir]) {
     fs.mkdirSync(dir, { recursive: true });
+  }
+  for (const dir of [config.workDir, config.batDir]) {
+    try { fs.mkdirSync(dir, { recursive: true }); } catch { /* best-effort */ }
   }
   return config;
 }
@@ -287,6 +298,8 @@ export function applyPersistedSettings(config: ZamolxisConfig): void {
         config.localModel = { url, model: s.localModel.trim() };
       }
       if (typeof s.localContext === 'number' && s.localContext > 0) config.localContext = Math.floor(s.localContext);
+      if (typeof s.workDir === 'string' && s.workDir.trim()) config.workDir = s.workDir.trim();
+      if (typeof s.batDir === 'string' && s.batDir.trim()) config.batDir = s.batDir.trim();
       if (typeof s.localKeepAlive === 'string' && s.localKeepAlive.trim()) config.localKeepAlive = s.localKeepAlive.trim();
       if (typeof s.localTemp === 'number' && s.localTemp >= 0) config.localTemp = s.localTemp;
       if (Array.isArray(s.routeChain) && s.routeChain.length) config.routeChain = s.routeChain.filter((t: unknown) => typeof t === 'string');

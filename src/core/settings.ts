@@ -68,6 +68,8 @@ interface PersistedSettings {
   localContext?: number;
   localKeepAlive?: string;
   localTemp?: number;
+  workDir?: string;
+  batDir?: string;
   routeChain?: string[];
   lawsEnabled?: boolean;
   agentRestore?: boolean;
@@ -129,6 +131,8 @@ export class SettingsManager {
         sandboxBackend: this.sandbox.defaultBackend,
         localModel: this.config.localModel?.model ?? '',
         localContext: this.config.localContext ?? 0,
+        workDir: this.config.workDir,
+        batDir: this.config.batDir,
         localKeepAlive: this.config.localKeepAlive ?? '',
         localTemp: this.config.localTemp ?? null,
         localRouting: this.config.localRouting,
@@ -237,6 +241,16 @@ export class SettingsManager {
     if (typeof live.localKeepAlive === 'string') {
       this.config.localKeepAlive = live.localKeepAlive.trim() || undefined;
       p.localKeepAlive = this.config.localKeepAlive;
+    }
+    if (typeof live.workDir === 'string' && live.workDir.trim()) {
+      this.config.workDir = live.workDir.trim();
+      p.workDir = this.config.workDir;
+      try { fs.mkdirSync(this.config.workDir, { recursive: true }); } catch { /* best-effort */ }
+    }
+    if (typeof live.batDir === 'string' && live.batDir.trim()) {
+      this.config.batDir = live.batDir.trim();
+      p.batDir = this.config.batDir;
+      try { fs.mkdirSync(this.config.batDir, { recursive: true }); } catch { /* best-effort */ }
     }
     if (typeof live.localTemp === 'number' && live.localTemp >= 0) {
       this.config.localTemp = live.localTemp;
