@@ -1065,9 +1065,11 @@ button:hover{border-color:var(--accent);color:var(--accent)}
 :root.os-mac .window-btn.close{background:#ff5f56}
 :root.os-mac .window-btn:hover{opacity:.8}
 :root.os-linux .window-titlebar{background:linear-gradient(#383838,#2a2a2a);padding:6px 8px}
+.window{left:80px;top:60px;width:640px;height:420px}
 .window.minimized .window-content{display:none}
-.window.maximized{inset:0;border-radius:0;min-width:100%;min-height:100%}
+.window.maximized{inset:56px 0 0 0 !important;border-radius:0;min-width:100% !important;min-height:100% !important;width:100% !important;height:100% !important}
 .window.maximized .window-titlebar{border-radius:0}
+.window.focused{box-shadow:0 15px 50px rgba(0,0,0,.8)}
 #chatwrap{flex:1;position:relative;overflow:hidden}
 @media(max-width:680px){#provrail{display:none}}
 #chatview{position:absolute;inset:0;display:flex;flex-direction:column}
@@ -1208,7 +1210,7 @@ function focusWindow(wid){var w=WINDOWS[wid];if(!w)return;w.z=++MAX_Z;FOCUSED_WI
 function closeWindow(wid){if(wid==='main')return;delete WINDOWS[wid];if(FOCUSED_WID===wid)FOCUSED_WID='main';saveWindowState();applyWindowZ();renderTaskbar();var e=el('window-'+wid);if(e)e.remove()}
 function minimizeWindow(wid){var w=WINDOWS[wid];if(!w)return;w.minimized=!w.minimized;saveWindowState();applyWindowZ();renderTaskbar()}
 function maximizeWindow(wid){var w=WINDOWS[wid];if(!w)return;w.maximized=!w.maximized;saveWindowState();applyWindowZ()}
-function applyWindowZ(){Object.keys(WINDOWS).forEach(function(wid){var e=el('window-'+wid),w=WINDOWS[wid];if(e){e.style.zIndex=w.z;if(FOCUSED_WID===wid)e.classList.add('focused');else e.classList.remove('focused')}})}
+function applyWindowZ(){Object.keys(WINDOWS).forEach(function(wid){var e=el('window-'+wid),w=WINDOWS[wid];if(e){e.style.zIndex=w.z;e.style.left=w.x+'px';e.style.top=w.y+'px';e.style.width=w.width+'px';e.style.height=w.height+'px';if(w.maximized)e.classList.add('maximized');else e.classList.remove('maximized');if(w.minimized)e.classList.add('minimized');else e.classList.remove('minimized');if(FOCUSED_WID===wid)e.classList.add('focused');else e.classList.remove('focused')}})}
 function saveWindowState(){try{var state={};Object.keys(WINDOWS).forEach(function(wid){state[wid]=WINDOWS[wid]});localStorage.zx_windows=JSON.stringify(state)}catch(e){}}
 function loadWindowState(){try{var s=JSON.parse(localStorage.zx_windows||'{}');Object.keys(s).forEach(function(wid){if(s[wid])WINDOWS[wid]=s[wid]})}catch(e){}}
 function renderTaskbar(){
@@ -1219,7 +1221,8 @@ function renderTaskbar(){
   [].slice.call(tb.querySelectorAll('.taskbar-item')).forEach(function(item){item.onclick=function(){var wid=item.getAttribute('data-wid');focusWindow(wid);var w=WINDOWS[wid];if(w&&w.minimized){w.minimized=false;saveWindowState();applyWindowZ();renderTaskbar()}};item.oncontextmenu=function(e){e.preventDefault();alert('Window menu not yet implemented')}})
 }
 loadWindowState();
-createWindow('main','Zamolxis · Main');
+if(!WINDOWS['main'])createWindow('main','Zamolxis · Main');
+applyWindowZ();
 renderTaskbar();
 /* ---- shared status helpers (masked keys, status dots, active-provider rail, installer) ---- */
 var KEYMASK='************';
