@@ -551,9 +551,50 @@
       pane.appendChild(kv('Primary model', m.primary || '?'));
       pane.appendChild(kv('Fast model', m.fast || '?'));
       pane.appendChild(kv('Local model', m.local || '(none)'));
-      pane.appendChild(kv('Branch', (u.branch || '?') + (u.behind ? (' · ' + u.behind + ' behind') : ' · up to date')));
       pane.appendChild(kv('Tokens (session)', String((s.engineTokens && s.engineTokens.session) || 0)));
-      var rb = el('button', 'btn', 'Restart Zamolxis');
+
+      // --- Updates: one-click upgrade (pull + build + restart) ---
+      pane.appendChild(el('label', null, 'Updates'));
+      var ustat = el('div', 'hint');
+      function setUStat(behind, branch) {
+        ustat.textContent = (behind ? ('⬆ Update available — ' + behind + ' new commit' + (behind > 1 ? 's' : '') + ' on ' + branch) : ('Up to date on ' + (branch || '?') + '.'));
+      }
+      setUStat(u.behind, u.branch);
+      pane.appendChild(ustat);
+      var upRow = el('div', 'save-row');
+      var checkBtn = el('button', 'btn ghost', 'Check for updates');
+      var upBtn = el('button', 'btn', u.behind ? ('Upgrade now (' + u.behind + ')') : 'Upgrade');
+      var upMsg = el('span', 'hint');
+      upRow.appendChild(checkBtn); upRow.appendChild(upBtn); upRow.appendChild(upMsg); pane.appendChild(upRow);
+
+      checkBtn.addEventListener('click', function () {
+        checkBtn.disabled = true; upMsg.textContent = 'Checking...';
+        api('/api/checkupdate', { method: 'POST' }).then(function (uu) {
+          checkBtn.disabled = false; upMsg.textContent = '';
+          setUStat(uu && uu.behind, uu && uu.branch);
+          upBtn.textContent = (uu && uu.behind) ? ('Upgrade now (' + uu.behind + ')') : 'Upgrade';
+        }).catch(function () { checkBtn.disabled = false; upMsg.textContent = 'Check failed.'; });
+      });
+      upBtn.addEventListener('click', function () {
+        if (!confirm('Upgrade Zamolxis now? It will pull the latest, rebuild, and restart (about a minute).')) return;
+        upBtn.disabled = true; checkBtn.disabled = true; upMsg.textContent = 'Upgrading — pulling, building, restarting...';
+        var before = (s.build && s.build.started) || 0;
+        api('/api/update', { method: 'POST' }).then(function () {
+          var tries = 0;
+          (function poll() {
+            tries++;
+            api('/api/status').then(function (ns) {
+              if (ns && ns.build && ns.build.started && ns.build.started !== before) { upMsg.textContent = 'Updated — reloading...'; setTimeout(function () { location.reload(); }, 800); }
+              else if (tries < 60) { setTimeout(poll, 3000); }
+              else { upMsg.textContent = 'Still working... reload manually in a bit.'; }
+            }).catch(function () { if (tries < 60) setTimeout(poll, 3000); });
+          })();
+        }).catch(function () { upBtn.disabled = false; checkBtn.disabled = false; upMsg.textContent = 'Upgrade failed to start.'; });
+      });
+
+      // --- Maintenance ---
+      pane.appendChild(el('label', null, 'Maintenance'));
+      var rb = el('button', 'btn ghost', 'Restart Zamolxis');
       var cl = el('a', 'btn ghost', 'Open classic UI'); cl.href = '/classic'; cl.target = '_blank'; cl.style.cssText = 'text-decoration:none;line-height:30px';
       var st = el('span', 'hint');
       var sr = el('div', 'save-row'); sr.appendChild(rb); sr.appendChild(cl); sr.appendChild(st); pane.appendChild(sr);
