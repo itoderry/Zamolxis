@@ -467,6 +467,13 @@
       var dl = el('datalist'); dl.id = 'zx-models'; ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'opus', 'sonnet', 'haiku'].forEach(function (m) { var o = el('option'); o.value = m; dl.appendChild(o); }); pane.appendChild(dl);
       var model = inp(live.model); model.setAttribute('list', 'zx-models');
       var fast = inp(live.fastModel);
+      var smartModel = inp(live.smartModel); smartModel.setAttribute('list', 'zx-models');
+      // Smartest tier = terminal of routeChain. Pick a free provider here to make 'smartest' free (no Claude rescue).
+      var smart = el('select', 'inp'); smart.style.width = '100%';
+      var chain0 = (live.routeChain && live.routeChain.length) ? live.routeChain : ['local', 'freecloud', 'claude'];
+      var curSmart = chain0[chain0.length - 1] || 'claude';
+      fillSelect(smart, [['claude', 'Claude']], curSmart);
+      fetchModelOpts().then(function (opts) { fillSelect(smart, opts.filter(function (o) { return o[0] !== 'auto'; }), curSmart); });
       var perm = el('select', 'inp'); perm.style.width = '100%';
       ['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk'].forEach(function (m) { var o = el('option'); o.value = m; o.textContent = m; if (live.permissionMode === m) o.selected = true; perm.appendChild(o); });
       var turns = inp(live.maxTurns); turns.type = 'number';
@@ -483,8 +490,10 @@
       dm.addEventListener('change', function () { localStorage.setItem('zx_default_route', dm.value); });
       pane.appendChild(fld('Default model (which model answers)', dm, 'Default for new chats / the chat Route selector — Auto, Local, Free cloud, any authenticated provider, or Claude. (Primary/Fast/Smart below are the Claude-subscription tiers.)'));
       pane.appendChild(fld('Assistant name', name));
-      pane.appendChild(fld('Primary model', model, 'Claude model id or alias.'));
-      pane.appendChild(fld('Fast model', fast));
+      pane.appendChild(fld('Primary model (Claude tier)', model, 'Claude model id or alias.'));
+      pane.appendChild(fld('Fast model (Claude tier)', fast));
+      pane.appendChild(fld('Smart model (Claude tier)', smartModel, 'Claude model used when the smartest tier is Claude.'));
+      pane.appendChild(fld('Smartest tier (final fallback)', smart, 'The top tier auto-routing escalates to. Default Claude; choose a free authenticated provider to make the smartest tier free (Claude is then not used as the rescue).'));
       pane.appendChild(fld('Permission mode', perm));
       var row = el('div', 'row2'); var c1 = el('div'); c1.style.flex = '1'; c1.appendChild(fld('Max turns', turns)); var c2 = el('div'); c2.style.flex = '1'; c2.appendChild(fld('Max concurrent', conc)); row.appendChild(c1); row.appendChild(c2); pane.appendChild(row);
       pane.appendChild(fld('Turn timeout (seconds)', tmo, 'How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.'));
@@ -494,7 +503,12 @@
       var sr = el('div', 'save-row'); sr.appendChild(save); sr.appendChild(status); pane.appendChild(sr);
       save.addEventListener('click', function () {
         save.disabled = true; status.textContent = 'Saving...';
-        postSettings({ live: { agentName: name.value.trim(), model: model.value.trim(), fastModel: fast.value.trim(), permissionMode: perm.value, maxTurns: Number(turns.value) || undefined, maxConcurrent: Number(conc.value) || undefined, turnTimeoutSeconds: Number(tmo.value) || undefined, localRouting: routing.classList.contains('on') ? 'auto' : 'off', systemPromptAppend: sys.value } })
+        var stk = smart.value || 'claude', rc;
+        if (stk === 'local') rc = ['local'];
+        else if (stk === 'freecloud') rc = ['local', 'freecloud'];
+        else if (stk === 'claude') rc = ['local', 'freecloud', 'claude'];
+        else rc = ['local', 'freecloud', stk];
+        postSettings({ live: { agentName: name.value.trim(), model: model.value.trim(), fastModel: fast.value.trim(), smartModel: smartModel.value.trim(), routeChain: rc, permissionMode: perm.value, maxTurns: Number(turns.value) || undefined, maxConcurrent: Number(conc.value) || undefined, turnTimeoutSeconds: Number(tmo.value) || undefined, localRouting: routing.classList.contains('on') ? 'auto' : 'off', systemPromptAppend: sys.value } })
           .then(function (r) { save.disabled = false; status.textContent = 'Saved.' + (r && r.restartRequired ? ' Some changes need a restart (System tab).' : ''); })
           .catch(function () { save.disabled = false; status.textContent = 'Failed.'; });
       });
