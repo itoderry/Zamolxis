@@ -1759,6 +1759,7 @@ function renderSettings(s){var L=s.live,m=s.meta,h='';
   h+='<label>Default sandbox backend</label>'+sel('live_sandboxBackend',m.configuredBackends,L.sandboxBackend);
   h+='<label>Max turns per message</label>'+inp('live_maxTurns',L.maxTurns,'number');
   h+='<label>Max concurrent (restart)</label>'+inp('live_maxConcurrent',L.maxConcurrent,'number');
+  h+='<label>Turn timeout (seconds) - how long one turn may run before it is stopped (e.g. 3600 = 1h)</label>'+inp('live_turnTimeoutSeconds',L.turnTimeoutSeconds,'number');
   h+='<label>System prompt append</label><textarea id="s_live_systemPromptAppend" rows="3">'+esc(L.systemPromptAppend)+'</textarea>';
   if(s.identity){h+=sec('Identity & memory (applies next message)');
     h+='<label class="chk"><input type="checkbox" id="s_live_lawsEnabled"'+(L.lawsEnabled?' checked':'')+'> Enforce safety laws (uncheck to A/B test speed &amp; behavior)</label>';
@@ -1835,7 +1836,7 @@ el('save').onclick=function(){
   panelDirty=false;
   var v=function(id){var n=el('s_'+id);return n?n.value:undefined};
   var ck=function(id){var n=el('s_'+id);return n?n.checked:undefined};
-  var patch={live:{agentName:v('live_agentName'),model:v('live_model'),fastModel:v('live_fastModel'),smartModel:v('live_smartModel'),timezone:v('live_timezone'),workDir:v('live_workDir'),batDir:v('live_batDir'),localRouting:v('live_localRouting'),lawsEnabled:ck('live_lawsEnabled'),agentRestore:ck('live_agentRestore'),persistAgentCreated:ck('live_persistAgentCreated'),permissionMode:v('live_permissionMode'),sandboxBackend:v('live_sandboxBackend'),systemPromptAppend:v('live_systemPromptAppend'),maxTurns:Number(v('live_maxTurns')),maxConcurrent:Number(v('live_maxConcurrent'))},
+  var patch={live:{agentName:v('live_agentName'),model:v('live_model'),fastModel:v('live_fastModel'),smartModel:v('live_smartModel'),timezone:v('live_timezone'),workDir:v('live_workDir'),batDir:v('live_batDir'),localRouting:v('live_localRouting'),lawsEnabled:ck('live_lawsEnabled'),agentRestore:ck('live_agentRestore'),persistAgentCreated:ck('live_persistAgentCreated'),permissionMode:v('live_permissionMode'),sandboxBackend:v('live_sandboxBackend'),systemPromptAppend:v('live_systemPromptAppend'),maxTurns:Number(v('live_maxTurns')),maxConcurrent:Number(v('live_maxConcurrent')),turnTimeoutSeconds:Number(v('live_turnTimeoutSeconds'))},
     identity:{laws:v('id_laws'),soul:v('id_soul'),user:v('id_user')},channels:{},web:{port:Number(v('web_port')),bind:v('web_bind'),authToken:v('web_authToken')},
     sandbox:{dockerImage:v('sb_dockerImage'),dockerContainer:v('sb_dockerContainer'),sshHost:v('sb_sshHost'),sshUser:v('sb_sshUser'),sshPort:v('sb_sshPort'),sshIdentity:v('sb_sshIdentity')},credentials:{}};
   ['cli','telegram','discord','slack','whatsapp','signal','email','web'].forEach(function(c){var x=ck('ch_'+c);if(x!==undefined)patch.channels[c]=x});
