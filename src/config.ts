@@ -99,14 +99,6 @@ const ConfigSchema = z.object({
    */
   routeChain: z.array(z.string()),
 
-  /** Optional per-role routing overrides set by the Settings model pickers. Tier tokens:
-   *  'claude' | 'local' | 'freecloud' | a provider id. When primaryRoute is set, normal turns
-   *  route by role — fast (simple turns) → primary → smartest — honoring this exact order
-   *  (NOT cheapOrder), so a free provider can be the primary or the final/smartest tier. */
-  primaryRoute: z.string().optional(),
-  fastRoute: z.string().optional(),
-  smartRoute: z.string().optional(),
-
   /** Permission posture for the autonomous agent. */
   permissionMode: z.enum(['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk']),
   /** Explicit auto-allow tool list (used with the canUseTool policy). */
@@ -211,9 +203,6 @@ export function loadConfig(): ZamolxisConfig {
     routeChain: process.env.ZAMOLXIS_ROUTE_CHAIN
       ? process.env.ZAMOLXIS_ROUTE_CHAIN.split(',').map((s) => s.trim()).filter(Boolean)
       : ['freecloud', 'local', 'claude'],
-    primaryRoute: process.env.ZAMOLXIS_PRIMARY_ROUTE || undefined,
-    fastRoute: process.env.ZAMOLXIS_FAST_ROUTE || undefined,
-    smartRoute: process.env.ZAMOLXIS_SMART_ROUTE || undefined,
     permissionMode: (process.env.ZAMOLXIS_PERMISSION_MODE as ZamolxisConfig['permissionMode']) || 'acceptEdits',
     allowedTools: process.env.ZAMOLXIS_ALLOWED_TOOLS
       ? process.env.ZAMOLXIS_ALLOWED_TOOLS.split(',').map((s) => s.trim()).filter(Boolean)
@@ -315,9 +304,6 @@ export function applyPersistedSettings(config: ZamolxisConfig): void {
       if (typeof s.localKeepAlive === 'string' && s.localKeepAlive.trim()) config.localKeepAlive = s.localKeepAlive.trim();
       if (typeof s.localTemp === 'number' && s.localTemp >= 0) config.localTemp = s.localTemp;
       if (Array.isArray(s.routeChain) && s.routeChain.length) config.routeChain = s.routeChain.filter((t: unknown) => typeof t === 'string');
-      if (typeof s.primaryRoute === 'string') config.primaryRoute = s.primaryRoute || undefined;
-      if (typeof s.fastRoute === 'string') config.fastRoute = s.fastRoute || undefined;
-      if (typeof s.smartRoute === 'string') config.smartRoute = s.smartRoute || undefined;
 
       if (s.channels && argvChannels === null) {
         for (const k of Object.keys(config.channels) as Array<keyof typeof config.channels>) {

@@ -1748,10 +1748,6 @@ function renderSettings(s){var L=s.live,m=s.meta,h='';
   h+='<label>Model</label>'+sel('live_model',m.models,L.model);
   h+='<label>Fast model (auto-used for simple Claude turns; primary model handles complex ones)</label>'+sel('live_fastModel',m.models,L.fastModel);
   h+='<label>Smartest model (used when a local-model turn escalates because it could not cope)</label>'+sel('live_smartModel',m.models,L.smartModel);
-  var roleOpts=agentModelOpts().filter(function(o){return o[0]!=='auto'});
-  h+='<label>Primary model (which model answers — Local, Free cloud, any authenticated provider, or Claude)</label>'+selKV('live_primaryRoute',[['','Auto (default routing chain)']].concat(roleOpts),L.primaryRoute||'');
-  h+='<label>Fast model (simple turns)</label>'+selKV('live_fastRoute',[['','Same as primary']].concat(roleOpts),L.fastRoute||'');
-  h+='<label>Smartest model role (final fallback for hard turns — can be a free provider)</label>'+selKV('live_smartRoute',roleOpts,L.smartRoute||'claude');
   h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">These three are the <b>Claude</b> tier\\'s models. On-device and free/paid providers each have their own fixed model — manage which ones run, and in what order, in the <b class="accent">Providers</b> panel.</div>';
   h+='<label>Timezone for "what time is it" (IANA, e.g. America/New_York; blank = host clock)</label>'+inp('live_timezone',L.timezone||'');
   h+='<div style="font-size:11px;color:var(--mut);margin-top:2px">Auto-detected from your browser. Agents report the time in this zone even if the server runs on UTC.</div>';
@@ -1842,7 +1838,7 @@ el('save').onclick=function(){
   panelDirty=false;
   var v=function(id){var n=el('s_'+id);return n?n.value:undefined};
   var ck=function(id){var n=el('s_'+id);return n?n.checked:undefined};
-  var patch={live:{agentName:v('live_agentName'),model:v('live_model'),fastModel:v('live_fastModel'),smartModel:v('live_smartModel'),timezone:v('live_timezone'),workDir:v('live_workDir'),batDir:v('live_batDir'),localRouting:v('live_localRouting'),lawsEnabled:ck('live_lawsEnabled'),agentRestore:ck('live_agentRestore'),persistAgentCreated:ck('live_persistAgentCreated'),permissionMode:v('live_permissionMode'),sandboxBackend:v('live_sandboxBackend'),systemPromptAppend:v('live_systemPromptAppend'),maxTurns:Number(v('live_maxTurns')),maxConcurrent:Number(v('live_maxConcurrent')),turnTimeoutSeconds:Number(v('live_turnTimeoutSeconds')),primaryRoute:v('live_primaryRoute'),fastRoute:v('live_fastRoute'),smartRoute:v('live_smartRoute')},
+  var patch={live:{agentName:v('live_agentName'),model:v('live_model'),fastModel:v('live_fastModel'),smartModel:v('live_smartModel'),timezone:v('live_timezone'),workDir:v('live_workDir'),batDir:v('live_batDir'),localRouting:v('live_localRouting'),lawsEnabled:ck('live_lawsEnabled'),agentRestore:ck('live_agentRestore'),persistAgentCreated:ck('live_persistAgentCreated'),permissionMode:v('live_permissionMode'),sandboxBackend:v('live_sandboxBackend'),systemPromptAppend:v('live_systemPromptAppend'),maxTurns:Number(v('live_maxTurns')),maxConcurrent:Number(v('live_maxConcurrent')),turnTimeoutSeconds:Number(v('live_turnTimeoutSeconds'))},
     identity:{laws:v('id_laws'),soul:v('id_soul'),user:v('id_user')},channels:{},web:{port:Number(v('web_port')),bind:v('web_bind'),authToken:v('web_authToken')},
     sandbox:{dockerImage:v('sb_dockerImage'),dockerContainer:v('sb_dockerContainer'),sshHost:v('sb_sshHost'),sshUser:v('sb_sshUser'),sshPort:v('sb_sshPort'),sshIdentity:v('sb_sshIdentity')},credentials:{}};
   ['cli','telegram','discord','slack','whatsapp','signal','email','web'].forEach(function(c){var x=ck('ch_'+c);if(x!==undefined)patch.channels[c]=x});

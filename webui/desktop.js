@@ -464,22 +464,13 @@
       pane.innerHTML = '';
       var live = s.live || {};
       var name = inp(live.agentName);
-      // Three free-capable role pickers + the Claude variant used when any role resolves to Claude.
-      var primary = el('select', 'inp'); primary.style.width = '100%';
-      var fast = el('select', 'inp'); fast.style.width = '100%';
-      var smart = el('select', 'inp'); smart.style.width = '100%';
-      var curPrimary = live.primaryRoute || 'auto', curFast = live.fastRoute || '', curSmart = live.smartRoute || 'claude';
-      fillSelect(primary, [['auto', 'Auto']], curPrimary);
-      fillSelect(fast, [['', 'Same as primary']], curFast);
-      fillSelect(smart, [['claude', 'Claude']], curSmart);
-      fetchModelOpts().then(function (opts) {
-        var tiers = opts.filter(function (o) { return o[0] !== 'auto'; });
-        fillSelect(primary, [['auto', 'Auto (default routing)']].concat(tiers), curPrimary);
-        fillSelect(fast, [['', 'Same as primary']].concat(tiers), curFast);
-        fillSelect(smart, tiers, curSmart);
-      });
-      var claudeVar = el('select', 'inp'); claudeVar.style.width = '100%';
-      fillSelect(claudeVar, [['claude-opus-4-8', 'Opus'], ['claude-sonnet-4-6', 'Sonnet'], ['claude-haiku-4-5-20251001', 'Haiku']], live.model || 'claude-opus-4-8');
+      // Unified model list from the backend snapshot: Claude variants + 'local' + every configured provider.
+      function mlabel(v) { return v === '' ? 'Claude (default)' : v === 'local' ? 'Local' : v === 'freecloud' ? 'Free cloud' : v; }
+      var modelOpts = (((s.meta && s.meta.models) || ['']).map(function (v) { return [v, mlabel(v)]; }));
+      function modelSel(cur) { var sl = el('select', 'inp'); sl.style.width = '100%'; fillSelect(sl, modelOpts, cur || ''); return sl; }
+      var model = modelSel(live.model);
+      var fast = modelSel(live.fastModel);
+      var smart = modelSel(live.smartModel);
       var perm = el('select', 'inp'); perm.style.width = '100%';
       ['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk'].forEach(function (m) { var o = el('option'); o.value = m; o.textContent = m; if (live.permissionMode === m) o.selected = true; perm.appendChild(o); });
       var turns = inp(live.maxTurns); turns.type = 'number';
@@ -489,11 +480,10 @@
       routing.addEventListener('click', function () { routing.classList.toggle('on'); });
       var sys = el('textarea', 'inp'); sys.style.cssText = 'width:100%;height:80px'; sys.value = live.systemPromptAppend || '';
 
-      pane.appendChild(el('div', 'hint', 'Models — each can be Local, Free cloud, any authenticated provider, or Claude. Leave Primary on Auto to use the default routing chain. "Smartest" is the final fallback for hard turns.'));
-      pane.appendChild(fld('Primary model (answers your chats)', primary));
-      pane.appendChild(fld('Fast model (quick / simple turns)', fast));
-      pane.appendChild(fld('Smartest model (hard turns / escalation)', smart));
-      pane.appendChild(fld('Claude model (variant, when Claude runs)', claudeVar));
+      pane.appendChild(el('div', 'hint', 'Each model can be a Claude variant, Local, or any authenticated free provider. Model = answers your chats · Fast = simple turns · Smartest = hard turns / final fallback. "Claude (default)" keeps Claude as the rescue tier.'));
+      pane.appendChild(fld('Model (answers your chats)', model));
+      pane.appendChild(fld('Fast model (simple turns)', fast));
+      pane.appendChild(fld('Smartest model (hard turns / final fallback)', smart));
       pane.appendChild(fld('Assistant name', name));
       pane.appendChild(fld('Permission mode', perm));
       var row = el('div', 'row2'); var c1 = el('div'); c1.style.flex = '1'; c1.appendChild(fld('Max turns', turns)); var c2 = el('div'); c2.style.flex = '1'; c2.appendChild(fld('Max concurrent', conc)); row.appendChild(c1); row.appendChild(c2); pane.appendChild(row);
@@ -504,7 +494,7 @@
       var sr = el('div', 'save-row'); sr.appendChild(save); sr.appendChild(status); pane.appendChild(sr);
       save.addEventListener('click', function () {
         save.disabled = true; status.textContent = 'Saving...';
-        postSettings({ live: { agentName: name.value.trim(), primaryRoute: primary.value === 'auto' ? '' : primary.value, fastRoute: fast.value, smartRoute: smart.value, model: claudeVar.value, permissionMode: perm.value, maxTurns: Number(turns.value) || undefined, maxConcurrent: Number(conc.value) || undefined, turnTimeoutSeconds: Number(tmo.value) || undefined, localRouting: routing.classList.contains('on') ? 'auto' : 'off', systemPromptAppend: sys.value } })
+        postSettings({ live: { agentName: name.value.trim(), model: model.value, fastModel: fast.value, smartModel: smart.value, permissionMode: perm.value, maxTurns: Number(turns.value) || undefined, maxConcurrent: Number(conc.value) || undefined, turnTimeoutSeconds: Number(tmo.value) || undefined, localRouting: routing.classList.contains('on') ? 'auto' : 'off', systemPromptAppend: sys.value } })
           .then(function (r) { save.disabled = false; status.textContent = 'Saved.' + (r && r.restartRequired ? ' Some changes need a restart (System tab).' : ''); })
           .catch(function () { save.disabled = false; status.textContent = 'Failed.'; });
       });

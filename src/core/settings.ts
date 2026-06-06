@@ -4,6 +4,7 @@ import type { ZamolxisConfig } from '../config.js';
 import type { SandboxManager, BackendName } from '../sandbox/backends.js';
 import type { MemoryManager } from './memory.js';
 import { searchProviderName } from './localTools.js';
+import { configuredProviders } from './providers.js';
 import { logger } from '../logger.js';
 
 const PERMISSION_MODES = ['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk'] as const;
@@ -72,9 +73,6 @@ interface PersistedSettings {
   workDir?: string;
   batDir?: string;
   routeChain?: string[];
-  primaryRoute?: string;
-  fastRoute?: string;
-  smartRoute?: string;
   lawsEnabled?: boolean;
   agentRestore?: boolean;
   persistAgentCreated?: boolean;
@@ -142,9 +140,6 @@ export class SettingsManager {
         localTemp: this.config.localTemp ?? null,
         localRouting: this.config.localRouting,
         routeChain: this.config.routeChain,
-        primaryRoute: this.config.primaryRoute ?? '',
-        fastRoute: this.config.fastRoute ?? '',
-        smartRoute: this.config.smartRoute ?? '',
         lawsEnabled: this.config.lawsEnabled,
         agentRestore: this.config.agentRestore,
         persistAgentCreated: this.config.persistAgentCreated,
@@ -180,7 +175,9 @@ export class SettingsManager {
         : null,
       running: this.runningChannels?.() ?? [],
       meta: {
-        models: MODELS,
+        // Claude variants + 'local' + every configured provider id — so all model pickers
+        // (Model / Fast / Smartest, classic + desktop) can choose a free model or local, not just Claude.
+        models: [...MODELS, 'local', ...configuredProviders().map((p) => p.id)],
         permissionModes: PERMISSION_MODES,
         sandboxBackends: SANDBOX_BACKENDS,
         configuredBackends: this.sandbox.listConfigured(),
@@ -275,14 +272,6 @@ export class SettingsManager {
       if (chain.length) {
         this.config.routeChain = chain;
         p.routeChain = chain;
-      }
-    }
-    // Per-role model routing (Settings → Engine pickers). Empty string clears the override.
-    for (const role of ['primaryRoute', 'fastRoute', 'smartRoute'] as const) {
-      if (typeof live[role] === 'string') {
-        const v = (live[role] as string).trim().toLowerCase();
-        this.config[role] = v || undefined;
-        p[role] = v || undefined;
       }
     }
     if (typeof live.lawsEnabled === 'boolean') {

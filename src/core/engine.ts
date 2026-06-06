@@ -1293,6 +1293,13 @@ export class Engine {
     return cloud.map((t, i) => ({ t, i })).sort((a, b) => prio(a.t) - prio(b.t) || a.i - b.i).map((x) => x.t);
   }
 
+  /** True if the token is a Claude model (variant or 'claude'/'opus'/'sonnet'/'haiku'), NOT a routing
+   *  token (local / freecloud / a provider id). Empty/undefined counts as Claude (the default tier). */
+  private isClaudeModel(t?: string): boolean {
+    const x = (t || '').trim().toLowerCase();
+    return !x || x === 'claude' || x === 'smartest' || /opus|sonnet|haiku/.test(x) || x.startsWith('claude');
+  }
+
   /** Plan the pre-Claude tiers to attempt + whether Claude is the final fallback. */
   private planRoute(req: RunRequest): { tiers: string[]; claude: boolean } {
     const { config } = this.deps;
@@ -1312,23 +1319,18 @@ export class Engine {
     // Claude for "current info" (e.g. "what time is it"): the time is injected, so a cheap tier suffices.
     if (req.agentJob) return { tiers: cloud, claude: claudeIn || elev };
     if (this.hardClaudeOnly(req.text) && claudeIn) return { tiers: [], claude: true }; // needs Claude-only tools
-    // Per-role routing from the Settings model pickers (only when a Primary is configured). Honors the
-    // user's exact roles — fast (simple turns) → primary → smartest — so a free provider can be the
-    // primary answerer or the final/smartest tier (NOT reordered by cheapOrder). Guarded: unset = default.
-    if (!req.agentJob && (!req.route || req.route === 'auto') && config.primaryRoute) {
-      const isClaude = (t?: string) => t === 'claude';
+    // Model pickers: config.model/fastModel/smartModel may hold a Claude model OR a routing token
+    // (local / freecloud / a provider id). When the PRIMARY model is a non-Claude token, route by
+    // role — fast (simple turns) → primary → smartest — honoring that order so a free model can
+    // answer and/or be the final tier (NOT reordered by cheapOrder). Primary=Claude → normal flow below.
+    if (!req.agentJob && (!req.route || req.route === 'auto') && !this.isClaudeModel(config.model)) {
       const simple = this.looksSimple(req.text) && !needsCurrentInfo(req.text);
       const seq: string[] = [];
-      if (config.fastRoute && !isClaude(config.fastRoute) && simple) seq.push(config.fastRoute);
-      if (isClaude(config.primaryRoute)) {
-        const t = seq.filter((x, i) => seq.indexOf(x) === i).filter((x) => !(x === 'local' && config.localRouting === 'off'));
-        return { tiers: t, claude: true }; // Claude is the primary answerer
-      }
-      seq.push(config.primaryRoute);
-      const smart = config.smartRoute || 'claude';
+      if (config.fastModel && !this.isClaudeModel(config.fastModel) && simple) seq.push(config.fastModel);
+      seq.push(config.model!);
       let claude = elev;
-      if (isClaude(smart)) claude = true;
-      else if (smart !== config.primaryRoute) seq.push(smart);
+      if (config.smartModel && !this.isClaudeModel(config.smartModel)) seq.push(config.smartModel);
+      else claude = true; // smartest is Claude → Claude is the escalation/rescue tier
       const tiers = seq.filter((x, i) => seq.indexOf(x) === i).filter((x) => !(x === 'local' && config.localRouting === 'off'));
       return { tiers, claude };
     }
@@ -1451,6 +1453,7 @@ export class Engine {
     else if (escalatedFromLocal) chosenModel = config.smartModel || config.model;
     else if (config.fastModel && this.looksSimple(req.text)) chosenModel = config.fastModel;
     else chosenModel = config.model;
+    if (!this.isClaudeModel(chosenModel)) chosenModel = undefined; // a free/local pick isn't a Claude model — let the SDK use its default
     if (chosenModel && chosenModel !== config.model) {
       logger.info({ key: req.conversationKey, model: chosenModel, escalated: escalatedFromLocal }, 'model selected for this turn');
     }
@@ -1778,6 +1781,7 @@ export class Engine {
   }
 
   private async oneShotClaude(append: string, prompt: string, model?: string): Promise<string> {
+    if (model && !this.isClaudeModel(model)) model = undefined; // internal one-shots are Claude-only; ignore a free/local pick
     const options: Options = {
       model,
       settingSources: [],
