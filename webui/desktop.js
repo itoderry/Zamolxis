@@ -292,6 +292,10 @@
     return w;
   }
 
+  // ---------- chat transcript persistence (survives reload / interface switch) ----------
+  function loadChatLog(key) { try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { return []; } }
+  function pushChatLog(key, rec) { try { var a = loadChatLog(key); a.push(rec); if (a.length > 300) a = a.slice(a.length - 300); localStorage.setItem(key, JSON.stringify(a)); } catch (e) {} }
+
   // ---------- App: Chat (Zamolxis main chat) ----------
   function mountChat(body, win) {
     var cid = localStorage.getItem('zx_cid_main');
@@ -301,6 +305,7 @@
 
   function buildChat(body, win, cid, opts) {
     body.style.padding = '0';
+    var logKey = 'zx_log_' + cid;
     var wrap = el('div', 'chat');
     var bar = el('div', 'chat-bar');
     bar.innerHTML = "<span>Route</span>";
@@ -322,13 +327,16 @@
     wrap.appendChild(bar); wrap.appendChild(log); wrap.appendChild(inputRow);
     body.appendChild(wrap);
 
-    function addMsg(who, text, cls) {
+    function addMsg(who, text, cls, via, persist) {
       var m = el('div', 'msg ' + cls);
-      m.appendChild(el('div', 'who', who));
+      m.appendChild(el('div', 'who', who + (via ? ' · via ' + via : '')));
       var c = el('div'); c.textContent = text; m.appendChild(c);
       log.appendChild(m); log.scrollTop = log.scrollHeight;
+      if (persist !== false) pushChatLog(logKey, { who: who, text: text, cls: cls, via: via });
       return c;
     }
+    // restore the saved transcript for this conversation
+    loadChatLog(logKey).forEach(function (r) { addMsg(r.who, r.text, r.cls, r.via, false); });
 
     // WebSocket
     var proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -341,8 +349,8 @@
       sock.onmessage = function (ev) {
         var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
         if (m.type === 'status') return;
-        if (m.type === 'chunk') { if (!streamEl) streamEl = addMsg(AGENT_NAME, '', 'bot'); streamEl.textContent += m.text; log.scrollTop = log.scrollHeight; return; }
-        if (m.type === 'reply') { if (streamEl) { streamEl.textContent = m.text; streamEl = null; } else { addMsg(AGENT_NAME, m.text, 'bot'); } stat.textContent = '● connected'; }
+        if (m.type === 'chunk') { if (!streamEl) streamEl = addMsg(AGENT_NAME, '', 'bot', null, false); streamEl.textContent += m.text; log.scrollTop = log.scrollHeight; return; }
+        if (m.type === 'reply') { if (streamEl) { streamEl.textContent = m.text; streamEl = null; pushChatLog(logKey, { who: AGENT_NAME, text: m.text, cls: 'bot' }); } else { addMsg(AGENT_NAME, m.text, 'bot'); } stat.textContent = '● connected'; }
       };
     }
     connect();
@@ -629,6 +637,7 @@
 
   // Real per-agent chat: each turn calls runAgent(name, task) over REST and shows {reply, via}.
   function buildAgentChat(content, agent) {
+    var logKey = 'zx_log_a_' + agent.name;
     var chat = el('div', 'chat');
     var log = el('div', 'chat-log');
     var row = el('div', 'chat-input');
@@ -636,11 +645,13 @@
     var send = el('button'); send.textContent = 'Send';
     row.appendChild(ta); row.appendChild(send);
     chat.appendChild(log); chat.appendChild(row); content.appendChild(chat);
-    function addMsg(who, text, cls, via) { var m = el('div', 'msg ' + cls); m.appendChild(el('div', 'who', who + (via ? ' · via ' + via : ''))); var c = el('div'); c.textContent = text; m.appendChild(c); log.appendChild(m); log.scrollTop = log.scrollHeight; return m; }
-    addMsg(agent.label || agent.name, 'Ask me to do something, or give me a task.', 'bot');
+    function addMsg(who, text, cls, via, persist) { var m = el('div', 'msg ' + cls); m.appendChild(el('div', 'who', who + (via ? ' · via ' + via : ''))); var c = el('div'); c.textContent = text; m.appendChild(c); log.appendChild(m); log.scrollTop = log.scrollHeight; if (persist !== false) pushChatLog(logKey, { who: who, text: text, cls: cls, via: via }); return m; }
+    var hist = loadChatLog(logKey);
+    if (hist.length) hist.forEach(function (r) { addMsg(r.who, r.text, r.cls, r.via, false); });
+    else addMsg(agent.label || agent.name, 'Ask me to do something, or give me a task.', 'bot', null, false);
     function doSend() {
       var t = ta.value.trim(); if (!t) return; addMsg('You', t, 'user'); ta.value = '';
-      var pend = addMsg(agent.label || agent.name, 'thinking...', 'bot'); send.disabled = true;
+      var pend = addMsg(agent.label || agent.name, 'thinking...', 'bot', null, false); send.disabled = true;
       api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'run', name: agent.name, task: t }) })
         .then(function (d) {
           send.disabled = false;
@@ -648,6 +659,7 @@
           if (d && d.error) { c.textContent = '(' + d.error + ')'; return; }
           who.textContent = (agent.label || agent.name) + (d.via ? ' · via ' + d.via : '');
           c.textContent = d.reply || '(no reply)';
+          pushChatLog(logKey, { who: agent.label || agent.name, text: d.reply || '(no reply)', cls: 'bot', via: d.via });
           if (d.scheduled && d.scheduled.cron) addMsg('System', 'Scheduled: ' + (d.scheduled.note || d.scheduled.cron), 'bot');
           log.scrollTop = log.scrollHeight;
         })
