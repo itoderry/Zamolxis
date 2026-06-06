@@ -16,6 +16,17 @@
     newagent: "<svg viewBox='0 0 24 24' fill='none' stroke='#2e9e3f' stroke-width='1.7'><circle cx='12' cy='12' r='9'/><path d='M12 8v8M8 12h8'/></svg>"
   };
 
+  // Per-agent app icon: a colored rounded tile with the agent's initial (deterministic from the name).
+  function hashHue(s) { var h = 0; for (var i = 0; i < (s || '').length; i++) h = (h * 31 + s.charCodeAt(i)) % 360; return h; }
+  function agentIconSvg(name) {
+    var ch = ((name || '?').trim().charAt(0) || '?').toUpperCase();
+    var hue = hashHue(name || 'a'), hue2 = (hue + 40) % 360, gid = 'ag' + hue + '_' + ch.charCodeAt(0);
+    return "<svg viewBox='0 0 24 24'><defs><linearGradient id='" + gid + "' x1='0' y1='0' x2='1' y2='1'>" +
+      "<stop offset='0' stop-color='hsl(" + hue + ",68%,56%)'/><stop offset='1' stop-color='hsl(" + hue2 + ",68%,44%)'/></linearGradient></defs>" +
+      "<rect x='2' y='2' width='20' height='20' rx='5.5' fill='url(#" + gid + ")'/>" +
+      "<text x='12' y='16.5' font-size='12' font-weight='700' text-anchor='middle' fill='#fff' font-family='Segoe UI,Arial'>" + ch + "</text></svg>";
+  }
+
   // ---------- helpers ----------
   function $(sel, root) { return (root || document).querySelector(sel); }
   function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
@@ -239,7 +250,7 @@
   function appList() {
     var out = builtinApps();
     agents.forEach(function (a) {
-      out.push({ id: 'agent:' + a.name, name: a.label || a.name, iconSvg: ICON.agent, kind: 'agent', agent: a });
+      out.push({ id: 'agent:' + a.name, name: a.label || a.name, iconSvg: agentIconSvg(a.label || a.name), kind: 'agent', agent: a });
     });
     return out;
   }
@@ -274,7 +285,7 @@
     if (appId === 'zamolxis') spec = { appId: appId, title: AGENT_NAME, iconSvg: ICON.zamolxis, w: 460, h: 620, onMount: mountChat };
     else if (appId === 'settings') spec = { appId: appId, title: 'Settings', iconSvg: ICON.settings, w: 620, h: 520, onMount: mountSettings };
     else if (appId === 'newagent') spec = { appId: appId, title: 'New Agent', iconSvg: ICON.newagent, w: 460, h: 480, onMount: mountNewAgent };
-    else if (app.kind === 'agent') spec = { appId: appId, title: app.name, iconSvg: ICON.agent, w: 520, h: 560, onMount: function (b, w) { mountAgent(b, w, app.agent); } };
+    else if (app.kind === 'agent') spec = { appId: appId, title: app.name, iconSvg: app.iconSvg || agentIconSvg(app.name), w: 520, h: 560, onMount: function (b, w) { mountAgent(b, w, app.agent); } };
     if (!spec) return null;
     var w = makeWindow(spec);
     w._iconSvg = spec.iconSvg; w._appTitle = spec.title;
