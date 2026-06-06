@@ -307,6 +307,29 @@
   function loadChatLog(key) { try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { return []; } }
   function pushChatLog(key, rec) { try { var a = loadChatLog(key); a.push(rec); if (a.length > 300) a = a.slice(a.length - 300); localStorage.setItem(key, JSON.stringify(a)); } catch (e) {} }
 
+  // ---------- model/route options: Auto, Local, Free cloud, every AUTHENTICATED provider, Claude ----------
+  function fetchModelOpts() {
+    return Promise.all([
+      api('/api/providers').catch(function () { return { providers: [] }; }),
+      api('/api/status').catch(function () { return {}; })
+    ]).then(function (res) {
+      var provs = (res[0] && res[0].providers) || [];
+      var st = res[1] || {};
+      var opts = [['auto', 'Auto (smartest decides)']];
+      if (st.models && st.models.local) opts.push(['local', 'Local (' + st.models.local + ')']);
+      opts.push(['freecloud', 'Free cloud (rotates free providers)']);
+      provs.filter(function (p) { return p.configured; }).forEach(function (p) { opts.push([p.id, p.label + (p.kind === 'free' ? ' · free' : '')]); });
+      opts.push(['claude', 'Claude (subscription)']);
+      return opts;
+    });
+  }
+  function fillSelect(sel, opts, cur) {
+    sel.innerHTML = '';
+    opts.forEach(function (o) { var op = el('option'); op.value = o[0]; op.textContent = o[1]; sel.appendChild(op); });
+    if (cur && cur !== 'auto' && !opts.some(function (o) { return o[0] === cur; })) { var op = el('option'); op.value = cur; op.textContent = cur + ' (not configured)'; sel.appendChild(op); }
+    sel.value = cur || 'auto';
+  }
+
   // ---------- App: Chat (Zamolxis main chat) ----------
   function mountChat(body, win) {
     var cid = localStorage.getItem('zx_cid_main');
@@ -321,10 +344,9 @@
     var bar = el('div', 'chat-bar');
     bar.innerHTML = "<span>Route</span>";
     var sel = el('select');
-    [['auto', 'Auto'], ['claude', 'Claude'], ['local', 'Local'], ['freecloud', 'Free cloud']].forEach(function (o) {
-      var op = el('option'); op.value = o[0]; op.textContent = o[1]; sel.appendChild(op);
-    });
-    sel.value = localStorage.getItem('zx_route_' + cid) || 'auto';
+    var savedRoute = localStorage.getItem('zx_route_' + cid) || localStorage.getItem('zx_default_route') || 'auto';
+    fillSelect(sel, [['auto', 'Auto']], savedRoute);
+    fetchModelOpts().then(function (opts) { fillSelect(sel, opts, savedRoute); });
     sel.addEventListener('change', function () { localStorage.setItem('zx_route_' + cid, sel.value); });
     var stat = el('span'); stat.style.marginLeft = 'auto'; stat.textContent = 'connecting...';
     if (opts && opts.route) bar.appendChild(sel);
@@ -445,6 +467,13 @@
       var dl = el('datalist'); dl.id = 'zx-models'; ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'opus', 'sonnet', 'haiku'].forEach(function (m) { var o = el('option'); o.value = m; dl.appendChild(o); }); pane.appendChild(dl);
       var model = inp(live.model); model.setAttribute('list', 'zx-models');
       var fast = inp(live.fastModel);
+      var smartModel = inp(live.smartModel); smartModel.setAttribute('list', 'zx-models');
+      // Smartest tier = terminal of routeChain. Pick a free provider here to make 'smartest' free (no Claude rescue).
+      var smart = el('select', 'inp'); smart.style.width = '100%';
+      var chain0 = (live.routeChain && live.routeChain.length) ? live.routeChain : ['local', 'freecloud', 'claude'];
+      var curSmart = chain0[chain0.length - 1] || 'claude';
+      fillSelect(smart, [['claude', 'Claude']], curSmart);
+      fetchModelOpts().then(function (opts) { fillSelect(smart, opts.filter(function (o) { return o[0] !== 'auto'; }), curSmart); });
       var perm = el('select', 'inp'); perm.style.width = '100%';
       ['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk'].forEach(function (m) { var o = el('option'); o.value = m; o.textContent = m; if (live.permissionMode === m) o.selected = true; perm.appendChild(o); });
       var turns = inp(live.maxTurns); turns.type = 'number';
@@ -454,9 +483,17 @@
       routing.addEventListener('click', function () { routing.classList.toggle('on'); });
       var sys = el('textarea', 'inp'); sys.style.cssText = 'width:100%;height:80px'; sys.value = live.systemPromptAppend || '';
 
+      var dm = el('select', 'inp'); dm.style.width = '100%';
+      var savedDefault = localStorage.getItem('zx_default_route') || 'auto';
+      fillSelect(dm, [['auto', 'Auto']], savedDefault);
+      fetchModelOpts().then(function (opts) { fillSelect(dm, opts, savedDefault); });
+      dm.addEventListener('change', function () { localStorage.setItem('zx_default_route', dm.value); });
+      pane.appendChild(fld('Default model (which model answers)', dm, 'Default for new chats / the chat Route selector — Auto, Local, Free cloud, any authenticated provider, or Claude. (Primary/Fast/Smart below are the Claude-subscription tiers.)'));
       pane.appendChild(fld('Assistant name', name));
-      pane.appendChild(fld('Primary model', model, 'Claude model id or alias.'));
-      pane.appendChild(fld('Fast model', fast));
+      pane.appendChild(fld('Primary model (Claude tier)', model, 'Claude model id or alias.'));
+      pane.appendChild(fld('Fast model (Claude tier)', fast));
+      pane.appendChild(fld('Smart model (Claude tier)', smartModel, 'Claude model used when the smartest tier is Claude.'));
+      pane.appendChild(fld('Smartest tier (final fallback)', smart, 'The top tier auto-routing escalates to. Default Claude; choose a free authenticated provider to make the smartest tier free (Claude is then not used as the rescue).'));
       pane.appendChild(fld('Permission mode', perm));
       var row = el('div', 'row2'); var c1 = el('div'); c1.style.flex = '1'; c1.appendChild(fld('Max turns', turns)); var c2 = el('div'); c2.style.flex = '1'; c2.appendChild(fld('Max concurrent', conc)); row.appendChild(c1); row.appendChild(c2); pane.appendChild(row);
       pane.appendChild(fld('Turn timeout (seconds)', tmo, 'How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.'));
@@ -466,7 +503,12 @@
       var sr = el('div', 'save-row'); sr.appendChild(save); sr.appendChild(status); pane.appendChild(sr);
       save.addEventListener('click', function () {
         save.disabled = true; status.textContent = 'Saving...';
-        postSettings({ live: { agentName: name.value.trim(), model: model.value.trim(), fastModel: fast.value.trim(), permissionMode: perm.value, maxTurns: Number(turns.value) || undefined, maxConcurrent: Number(conc.value) || undefined, turnTimeoutSeconds: Number(tmo.value) || undefined, localRouting: routing.classList.contains('on') ? 'auto' : 'off', systemPromptAppend: sys.value } })
+        var stk = smart.value || 'claude', rc;
+        if (stk === 'local') rc = ['local'];
+        else if (stk === 'freecloud') rc = ['local', 'freecloud'];
+        else if (stk === 'claude') rc = ['local', 'freecloud', 'claude'];
+        else rc = ['local', 'freecloud', stk];
+        postSettings({ live: { agentName: name.value.trim(), model: model.value.trim(), fastModel: fast.value.trim(), smartModel: smartModel.value.trim(), routeChain: rc, permissionMode: perm.value, maxTurns: Number(turns.value) || undefined, maxConcurrent: Number(conc.value) || undefined, turnTimeoutSeconds: Number(tmo.value) || undefined, localRouting: routing.classList.contains('on') ? 'auto' : 'off', systemPromptAppend: sys.value } })
           .then(function (r) { save.disabled = false; status.textContent = 'Saved.' + (r && r.restartRequired ? ' Some changes need a restart (System tab).' : ''); })
           .catch(function () { save.disabled = false; status.textContent = 'Failed.'; });
       });
@@ -608,18 +650,21 @@
     function field(labelTxt, node, hint) { var f = el('div', 'field'); f.appendChild(el('label', null, labelTxt)); if (hint) f.appendChild(el('div', 'hint', hint)); f.appendChild(node); return f; }
     var name = el('input'); name.placeholder = 'e.g. researcher';
     var job = el('textarea'); job.rows = 4; job.placeholder = 'What should this agent do?';
-    var model = el('input'); model.placeholder = '(default)';
-    [name, model].forEach(function (i) { i.style.cssText = 'width:100%;height:36px;border:1px solid #d6d6d6;border-radius:8px;padding:0 10px;font:inherit'; });
+    var model = el('select');
+    name.style.cssText = 'width:100%;height:36px;border:1px solid #d6d6d6;border-radius:8px;padding:0 10px;font:inherit';
+    model.style.cssText = 'width:100%;height:36px;border:1px solid #d6d6d6;border-radius:8px;padding:0 10px;font:inherit';
     job.style.cssText = 'width:100%;border:1px solid #d6d6d6;border-radius:8px;padding:8px 10px;font:inherit;resize:vertical';
+    fillSelect(model, [['auto', 'Auto']], 'auto');
+    fetchModelOpts().then(function (opts) { fillSelect(model, opts, 'auto'); });
     pad.appendChild(field('Agent name', name));
     pad.appendChild(field('Instructions', job, 'This becomes the agent app. It can run with or without a chat window.'));
-    pad.appendChild(field('Model', model, 'Leave blank for the default.'));
+    pad.appendChild(field('Model', model, 'Auto, Local, Free cloud, any authenticated provider, or Claude.'));
     var msg = el('div', 'hint'); msg.style.minHeight = '16px';
     var create = el('button', 'btn', 'Create app');
     create.addEventListener('click', function () {
       var n = name.value.trim(); if (!n) { msg.textContent = 'Name is required.'; return; }
       create.disabled = true; msg.textContent = 'Creating...';
-      api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'create', name: n, job: job.value.trim(), model: model.value.trim() || undefined }) })
+      api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'create', name: n, job: job.value.trim(), model: (model.value && model.value !== 'auto') ? model.value : undefined }) })
         .then(function (d) {
           create.disabled = false;
           if (d && d.error) { msg.textContent = String(d.error); return; }
