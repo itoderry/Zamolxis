@@ -1,6 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { spawn, execFile, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -895,6 +896,12 @@ export class WebChannel implements Channel {
       }
     }
     const has = (id: string): boolean => installed.some((m) => m.name === id || m.name === id + ':latest' || m.name.startsWith(id + ':'));
+    // Hardware-aware catalog: flag each model fits / tight / big for THIS machine, and recommend one.
+    const hw = this.detectHardware();
+    const fitOf = (need: number): string => (need <= hw.effCapGB ? 'fits' : need <= Math.ceil(hw.effCapGB * 1.4) ? 'tight' : 'big');
+    const cat = OLLAMA_CATALOG.map((c) => ({ ...c, installed: has(c.id), fit: fitOf(c.need) }));
+    const fits = cat.filter((c) => c.fit === 'fits');
+    const recommended = fits.length ? fits.reduce((a, b) => (b.need > a.need ? b : a)).id : (cat[0]?.id || '');
     return {
       ollamaInstalled: running || this.ollamaOnPath(),
       ollamaRunning: running,
@@ -906,10 +913,32 @@ export class WebChannel implements Channel {
       localTemp: this.config.localTemp ?? null,
       installed,
       loaded,
-      catalog: OLLAMA_CATALOG.map((c) => ({ ...c, installed: has(c.id) })),
+      catalog: cat,
+      hardware: hw,
+      recommended,
       pulls: Object.fromEntries(this.ollamaPulls),
       install: this.ollamaInstall,
     };
+  }
+
+  private hw?: { ramGB: number; hasGpu: boolean; vramGB: number; effCapGB: number; kind: string };
+  /** Best-effort local hardware probe for the model catalog: RAM (always), NVIDIA VRAM via nvidia-smi,
+   *  Apple-Silicon unified memory. effCapGB = how big a model can comfortably run. Cached per process. */
+  private detectHardware(): { ramGB: number; hasGpu: boolean; vramGB: number; effCapGB: number; kind: string } {
+    if (this.hw) return this.hw;
+    const ramGB = Math.max(1, Math.round(os.totalmem() / 1e9));
+    let hasGpu = false, vramGB = 0, kind = 'cpu';
+    try {
+      const r = spawnSync('nvidia-smi', ['--query-gpu=memory.total', '--format=csv,noheader,nounits'], { encoding: 'utf8', windowsHide: true, timeout: 4000 });
+      if (r.status === 0 && r.stdout) {
+        const mb = Math.max(...r.stdout.trim().split(/\r?\n/).map((l) => parseInt(l, 10)).filter((n) => !Number.isNaN(n)));
+        if (mb > 0) { hasGpu = true; vramGB = Math.round(mb / 1024); kind = 'nvidia'; }
+      }
+    } catch { /* no nvidia-smi */ }
+    if (!hasGpu && process.platform === 'darwin' && os.arch() === 'arm64') { hasGpu = true; vramGB = ramGB; kind = 'apple'; }
+    const effCapGB = kind === 'apple' ? Math.floor(ramGB * 0.7) : hasGpu ? vramGB : Math.floor(ramGB / 2);
+    this.hw = { ramGB, hasGpu, vramGB, effCapGB, kind };
+    return this.hw;
   }
 
   /** Send a tiny prompt to a specific local model and time it (the panel's "Test" button). */
@@ -1667,12 +1696,15 @@ function renderLocal(d){var v=el('localview');if(!v)return;var h='';
     return '<div class="lc_irow"><div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--line)"><b style="flex:1'+(act?';color:#7dd08a':'')+'">'+esc(m.name)+(act?' (active)':'')+(ld?' \\u25cf':'')+'</b><span style="font-size:11px;color:var(--mut)">'+meta+'</span>'+(act?'':'<button class="lc_use" data-m="'+esc(m.name)+'" style="font-size:12px;padding:2px 8px">Use</button>')+'<button class="lc_test" data-m="'+esc(m.name)+'" style="font-size:12px;padding:2px 8px">Test</button>'+(act?'':'<button class="lc_del" data-m="'+esc(m.name)+'" style="font-size:12px;padding:2px 8px">Delete</button>')+'</div><div class="lc_tres" style="display:none;font-size:11px;color:var(--mut);padding:2px 0 6px"></div></div>'}).join('')}
   else{h+='<div style="color:var(--mut)">(none yet - pull one below)</div>'}
   h+='<div class="sec" style="margin-top:14px">Add a model (general-chat all-rounders, tool-capable)</div>';
-  h+=(d.catalog||[]).map(function(c){var pull=(d.pulls||{})[c.id];var right;
+  if(d.hardware){var hw=d.hardware;var kindTxt=hw.kind==='nvidia'?('NVIDIA GPU '+hw.vramGB+' GB VRAM'):(hw.kind==='apple'?('Apple Silicon \\u00b7 '+hw.ramGB+' GB unified memory'):(hw.ramGB+' GB RAM, no GPU detected'));h+='<div style="font-size:11px;color:var(--mut);margin-bottom:8px">This machine: '+esc(kindTxt)+' \\u00b7 models up to ~'+hw.effCapGB+' GB run comfortably. Recommended: <b class="accent">'+esc(d.recommended||'')+'</b>.</div>';}
+  var _order={fits:0,tight:1,big:2};
+  h+=(d.catalog||[]).slice().sort(function(a,b){return (_order[a.fit]-_order[b.fit])||(a.need-b.need)}).map(function(c){var pull=(d.pulls||{})[c.id];var right;
     if(c.installed){right='<span style="font-size:11px;color:#7dd08a">installed</span>'}
     else if(pull&&!pull.done){right='<span style="font-size:11px;color:var(--accent)">'+esc(pull.status)+' '+(pull.pct||0)+'%</span>'}
     else if(pull&&pull.error){right='<button class="lc_pull" data-m="'+esc(c.id)+'" style="font-size:12px">Retry</button>'}
     else{right='<button class="lc_pull" data-m="'+esc(c.id)+'" style="font-size:12px">Pull</button>'}
-    return '<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px"><div style="display:flex;align-items:center;gap:8px"><b style="flex:1">'+esc(c.id)+'</b><span style="font-size:11px;color:var(--mut)">~'+c.need+' GB</span>'+right+'</div><div style="font-size:12px;color:var(--mut);margin-top:3px">'+esc(c.desc)+((pull&&pull.error)?(' <span style="color:#e07a5f">'+esc(pull.error)+'</span>'):'')+'</div></div>'}).join('');
+    var fit=c.fit||'fits';var fitTxt=fit==='fits'?'<span style="color:#7dd08a">fits</span>':(fit==='tight'?'<span style="color:#e0a55f">tight</span>':'<span style="color:#e07a5f">too big</span>');var star=(c.id===d.recommended)?' <span title="recommended for this machine" style="color:var(--accent)">\\u2605</span>':'';var op=(fit==='big')?';opacity:.55':'';
+    return '<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px'+op+'"><div style="display:flex;align-items:center;gap:8px"><b style="flex:1">'+esc(c.id)+star+'</b><span style="font-size:11px;color:var(--mut)">~'+c.need+' GB \\u00b7 '+fitTxt+'</span>'+right+'</div><div style="font-size:12px;color:var(--mut);margin-top:3px">'+esc(c.desc)+((pull&&pull.error)?(' <span style="color:#e07a5f">'+esc(pull.error)+'</span>'):'')+'</div></div>'}).join('');
   h+='<div style="display:flex;gap:6px;margin-top:6px"><input id="lc_custom" placeholder="other Ollama tag, e.g. phi3:mini" style="flex:1"><button id="lc_pullcustom" style="font-size:12px">Pull</button></div>';
   h+='<div style="font-size:11px;color:var(--mut);margin-top:4px">Browse the full library at <a href="https://ollama.com/library" target="_blank" style="color:var(--mut)">ollama.com/library</a>. Pull several and switch any time with Use.</div>';
   v.innerHTML=h;
