@@ -1,6 +1,6 @@
 {
   "name": "zamolxis",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Zamolxis - self-hosted, multi-channel autonomous agent on the Claude Agent SDK (subscription-funded). An autonomous personal agent.",
   "type": "module",

@@ -353,12 +353,19 @@
     bar.appendChild(stat);
 
     var log = el('div', 'chat-log');
+    var chips = el('div'); chips.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;padding:0 10px';
     var inputRow = el('div', 'chat-input');
+    var attach = el('button'); attach.textContent = '📎'; attach.title = 'Attach files'; attach.style.cssText = 'padding:0 12px;background:#e5e5e5;border:0;border-radius:8px;cursor:pointer';
+    var fileIn = el('input'); fileIn.type = 'file'; fileIn.multiple = true; fileIn.style.display = 'none';
     var ta = el('textarea'); ta.placeholder = 'Message ' + AGENT_NAME + '...';
     var send = el('button'); send.textContent = 'Send';
-    inputRow.appendChild(ta); inputRow.appendChild(send);
-    wrap.appendChild(bar); wrap.appendChild(log); wrap.appendChild(inputRow);
-    body.appendChild(wrap);
+    inputRow.appendChild(attach); inputRow.appendChild(ta); inputRow.appendChild(send);
+    wrap.appendChild(bar); wrap.appendChild(log); wrap.appendChild(chips); wrap.appendChild(inputRow);
+    body.appendChild(wrap); body.appendChild(fileIn);
+    var pending = [];
+    function renderChips() { chips.innerHTML = ''; pending.forEach(function (f, i) { var c = el('span'); c.style.cssText = 'background:#e5e5e5;color:#222;border-radius:10px;padding:2px 8px;font-size:12px;display:flex;gap:6px;align-items:center'; c.appendChild(document.createTextNode('📎 ' + f.name)); var x = el('span'); x.textContent = '✕'; x.style.cssText = 'cursor:pointer;color:#b00'; x.addEventListener('click', function () { pending.splice(i, 1); renderChips(); }); c.appendChild(x); chips.appendChild(c); }); }
+    attach.addEventListener('click', function () { fileIn.click(); });
+    fileIn.addEventListener('change', function () { [].slice.call(fileIn.files || []).forEach(function (f) { if (f.size > 20 * 1024 * 1024) return; var rd = new FileReader(); rd.onload = function () { var s = String(rd.result || ''); var i = s.indexOf(','); pending.push({ name: f.name, size: f.size, b64: i >= 0 ? s.slice(i + 1) : s }); renderChips(); }; rd.readAsDataURL(f); }); fileIn.value = ''; });
 
     function addMsg(who, text, cls, via, persist) {
       var m = el('div', 'msg ' + cls);
@@ -390,10 +397,25 @@
     win.cleanup.push(function () { win.closed = true; try { sock.close(); } catch (e) {} });
 
     function doSend() {
-      var t = ta.value.trim(); if (!t || !sock || sock.readyState !== WebSocket.OPEN) return;
-      addMsg('You', t, 'user'); ta.value = ''; streamEl = null; stat.textContent = 'thinking...';
-      var payload = { text: t, route: sel.value };
-      sock.send(JSON.stringify(payload));
+      var t = ta.value.trim(); var files = pending.slice();
+      if ((!t && !files.length) || !sock || sock.readyState !== WebSocket.OPEN) return;
+      var shown = t + (files.length ? ((t ? '\n' : '') + files.map(function (f) { return '📎 ' + f.name; }).join('\n')) : '');
+      addMsg('You', shown || '(file)', 'user'); ta.value = ''; streamEl = null; stat.textContent = 'thinking...';
+      if (!files.length) { sock.send(JSON.stringify({ text: t, route: sel.value })); return; }
+      pending = []; renderChips();
+      // Text-readable files: inject content inline (any model can read → route by your choice). Others (images/PDF/Office): upload + Claude tools.
+      var TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|jsonl|ya?ml|xml|html?|js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|kt|c|cc|cpp|h|hpp|cs|php|swift|sh|bash|zsh|ps1|bat|sql|ini|toml|cfg|conf|log|env|tex|rst|gradle|properties|dockerfile|makefile|gitignore)$/i;
+      function b64text(b) { try { return decodeURIComponent(escape(atob(b))); } catch (e) { try { return atob(b); } catch (e2) { return ''; } } }
+      var inj = [], upl = [];
+      files.forEach(function (f) { var tx = (TEXT_EXT.test(f.name) && f.size <= 400000) ? b64text(f.b64) : null; if (tx !== null) { var clip = tx.length > 100000 ? (tx.slice(0, 100000) + '\n...[truncated]') : tx; inj.push('----- ' + f.name + ' -----\n' + clip + '\n-----'); } else { upl.push(f); } });
+      var base = (t || '') + (inj.length ? ((t ? '\n\n' : '') + inj.join('\n\n')) : '');
+      if (!upl.length) { sock.send(JSON.stringify({ text: base || '(see attached content)', route: sel.value })); return; }
+      stat.textContent = 'uploading...';
+      Promise.all(upl.map(function (f) { return api('/api/upload', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ chatId: cid, name: f.name, contentB64: f.b64 }) }).then(function (d) { return d && d.path ? d.path : null; }).catch(function () { return null; }); })).then(function (ps) {
+        var paths = ps.filter(Boolean);
+        var note = base + ((base && paths.length) ? '\n\n' : '') + (paths.length ? ('Attached file(s) - read them with your tools to answer:\n' + paths.map(function (p) { return '- ' + p; }).join('\n')) : '');
+        stat.textContent = 'thinking...'; sock.send(JSON.stringify({ text: note, route: paths.length ? 'claude' : sel.value }));
+      });
     }
     send.addEventListener('click', doSend);
     ta.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } });
