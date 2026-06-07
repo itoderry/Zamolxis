@@ -253,9 +253,15 @@ body[data-os="mac"] #taskbar-tray, body[data-os="mac"] #start-btn { display: non
 body[data-os="mac"] #taskbar-apps { grid-column: 1; }
 body[data-os="mac"] .win-controls { order: -1; padding-left: 8px; gap: 8px; align-items: center; }
 body[data-os="mac"] .win-controls button { width: 13px; height: 13px; border-radius: 50%; margin: 0; font-size: 0; }
-body[data-os="mac"] .win-controls button.close { background: #ff5f57; }
-body[data-os="mac"] .win-controls button.min { background: #febc2e; }
-body[data-os="mac"] .win-controls button.max { background: #28c840; }
+body[data-os="mac"] .win-controls button.close { background: #ff5f57; order: 1; }
+body[data-os="mac"] .win-controls button.min { background: #febc2e; order: 2; }
+body[data-os="mac"] .win-controls button.max { background: #28c840; order: 3; }
+/* macOS hover glyphs inside the traffic lights */
+body[data-os="mac"] .win-controls button { position: relative; }
+body[data-os="mac"] .win-controls:hover button.close::after { content: "\00d7"; }
+body[data-os="mac"] .win-controls:hover button.min::after { content: "\2013"; }
+body[data-os="mac"] .win-controls:hover button.max::after { content: "+"; }
+body[data-os="mac"] .win-controls button::after { position: absolute; inset: 0; display: grid; place-items: center; font-size: 9px; line-height: 1; color: rgba(0,0,0,.55); }
 body[data-os="mac"] .titlebar { justify-content: center; background: rgba(246,246,246,.72); }
 body[data-os="mac"] .titlebar .t-title { flex: 0 1 auto; text-align: center; }
 body[data-os="mac"] .titlebar .t-icon { display: none; }
@@ -321,3 +327,81 @@ body[data-mode="dark"] .sm-app:hover, body[data-mode="dark"] .desk-icon:hover { 
 body[data-mode="dark"] .skill { border-bottom-color: rgba(255,255,255,.08); }
 /* Windows light bars stay bright unless dark mode; macOS keeps its own dark bars below */
 body[data-mode="dark"][data-os="mac"] .titlebar { background: rgba(40,40,40,.8); }
+
+/* Help app (localized guide) */
+.help-doc { line-height: 1.55; font-size: 14px; color: #1f1f1f; }
+.help-doc h2 { font-size: 20px; margin: 0 0 6px; }
+.help-doc h3 { font-size: 15px; margin: 18px 0 4px; border-bottom: 1px solid #eee; padding-bottom: 3px; }
+.help-doc p { margin: 6px 0; }
+.help-doc ul { margin: 6px 0; padding-left: 20px; }
+.help-doc li { margin: 3px 0; }
+.help-doc b { font-weight: 650; }
+body[data-mode="dark"] .help-doc { color: #e6e6e6; }
+body[data-mode="dark"] .help-doc h3 { border-bottom-color: rgba(255,255,255,.12); }
+
+/* ===== App suite: File Manager, categorized menu, document views ===== */
+.fm-row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; cursor: default; }
+.fm-row:hover { background: rgba(128,128,128,.14); }
+.fm-ico { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+.fm-ico svg { width: 18px; height: 18px; }
+.fm-act { display: flex; gap: 4px; opacity: 0; transition: opacity .12s; flex: 0 0 auto; }
+.fm-row:hover .fm-act { opacity: 1; }
+.btn.mini { padding: 2px 7px; font-size: 11px; line-height: 16px; }
+/* Categorized application menu (OS.js-style) */
+#startmenu-apps { overflow: auto; }
+.sm-cat { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; opacity: .55; margin: 12px 4px 4px; }
+.sm-cat:first-child { margin-top: 2px; }
+.sm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); gap: 4px; }
+/* Document / spreadsheet views */
+.docview-doc { max-width: 720px; margin: 0 auto; }
+.docview-doc img { max-width: 100%; }
+.docview-sheet { overflow: auto; margin-bottom: 16px; }
+.docview-sheet table { border-collapse: collapse; font-size: 12px; }
+.docview-sheet td, .docview-sheet th { border: 1px solid #ccc; padding: 2px 6px; min-width: 42px; }
+/* Top-bar Apps launcher */
+#apps-btn { background: transparent; border: 0; color: inherit; font: inherit; cursor: pointer; padding: 2px 10px; margin-left: 8px; border-radius: 6px; }
+#apps-btn:hover { background: rgba(128,128,128,.2); }
+body[data-os="win"] #apps-btn { display: none; }
+
+/* ===== Windows-10-style Start menu (left-anchored, two-pane: app list + tiles) ===== */
+#startmenu { background: rgba(28,28,30,.975) !important; color: #f3f3f3 !important; border: 1px solid rgba(255,255,255,.08) !important; width: min(600px, 96vw) !important; }
+#startmenu-search input { background: rgba(255,255,255,.08); color: #f3f3f3; border-color: rgba(255,255,255,.16); }
+#startmenu-label { display: none; }
+#startmenu-apps { display: flex !important; flex: 1; min-height: 0; padding: 0 !important; }
+.sm-cols { display: flex; gap: 14px; flex: 1; min-height: 0; width: 100%; }
+.sm-list { width: 232px; flex: 0 0 auto; overflow: auto; padding-right: 4px; }
+.sm-tiles { flex: 1; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(98px, 1fr)); gap: 8px; align-content: start; }
+.sm-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; cursor: default; }
+.sm-row:hover { background: rgba(255,255,255,.12); }
+.sm-row .ico { width: 22px; height: 22px; display: grid; place-items: center; flex: 0 0 auto; }
+.sm-row .ico svg { width: 20px; height: 20px; }
+.sm-row .label { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sm-tile { height: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border-radius: 6px; cursor: default; background: rgba(255,255,255,.06); padding: 8px; text-align: center; }
+.sm-tile:hover { background: rgba(255,255,255,.15); }
+.sm-tile .ico svg { width: 34px; height: 34px; }
+.sm-tile .label { font-size: 12px; word-break: break-word; }
+#startmenu .sm-cat { color: rgba(255,255,255,.5); margin: 10px 4px 4px; }
+#startmenu .sm-cat:first-child { margin-top: 2px; }
+#startmenu .empty { color: rgba(255,255,255,.6); padding: 8px; }
+/* Windows 10 puts Start at the far left of the taskbar */
+body[data-os="win"] #taskbar { justify-content: flex-start; }
+body[data-os="win"] #taskbar-center { margin-left: 4px; }
+body[data-os="win"] #startmenu { left: 8px; transform: none; bottom: calc(var(--tb-h) + 8px); height: 560px; max-height: 80vh; }
+
+/* ===== Application menu bars (in-window on Win/Ubuntu, global on macOS) ===== */
+.menubar { display: flex; align-items: stretch; height: 26px; flex: 0 0 26px; padding: 0 4px; background: rgba(0,0,0,.03); border-bottom: 1px solid rgba(0,0,0,.07); }
+.menu-btn { border: 0; background: transparent; font: 12.5px var(--font); color: inherit; padding: 0 9px; cursor: default; border-radius: 4px; }
+.menu-btn:hover, .menu-btn.open { background: rgba(0,0,0,.08); }
+body[data-mode="dark"] .menubar { background: rgba(255,255,255,.04); border-bottom-color: rgba(255,255,255,.08); }
+body[data-mode="dark"] .menu-btn:hover { background: rgba(255,255,255,.12); }
+#mac-menus { display: none; align-items: center; gap: 2px; margin-left: 6px; }
+#mac-menus .menu-btn { font-weight: 600; padding: 0 8px; height: 20px; line-height: 20px; border-radius: 4px; }
+.menu-dd { position: fixed; z-index: 99999; min-width: 184px; background: #fff; color: #1b1b1b; border: 1px solid rgba(0,0,0,.14); border-radius: 8px; box-shadow: 0 12px 34px rgba(0,0,0,.28); padding: 5px; }
+body[data-mode="dark"] .menu-dd { background: #2a2a2a; color: #eaeaea; border-color: rgba(255,255,255,.12); }
+.menu-item { display: flex; justify-content: space-between; gap: 24px; align-items: center; padding: 6px 10px; border-radius: 5px; font-size: 13px; cursor: default; }
+.menu-item:hover { background: var(--accent); color: #fff; }
+.menu-item.disabled { opacity: .4; pointer-events: none; }
+.menu-accel { font-size: 11px; opacity: .6; }
+.menu-item:hover .menu-accel { opacity: .85; }
+.menu-sep { height: 1px; background: rgba(0,0,0,.12); margin: 4px 6px; }
+body[data-mode="dark"] .menu-sep { background: rgba(255,255,255,.14); }

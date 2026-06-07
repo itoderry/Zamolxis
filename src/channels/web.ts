@@ -1,4 +1,5 @@
 import http from 'node:http';
+import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -26,6 +27,32 @@ import { cliProviderStatus, hasDocker, runInstall } from '../core/cliProviders.j
 import { logger } from '../logger.js';
 
 const LOOPBACK = ['127.0.0.1', 'localhost', '::1'];
+
+// ── Filesystem API root for the desktop apps (File Manager, editors, media/doc viewers). ──
+// Rooted at the user's home directory; all paths are resolved under it and traversal above it is
+// rejected. This is a single-user, localhost-bound tool operating on the owner's own machine.
+const FS_ROOT = os.homedir();
+function fsResolve(rel: string): string | null {
+  try {
+    const target = path.resolve(FS_ROOT, rel && rel !== '/' ? rel.replace(/^[/\\]+/, '') : '.');
+    if (target === FS_ROOT) return target;
+    const r = path.relative(FS_ROOT, target);
+    if (!r || r.startsWith('..') || path.isAbsolute(r)) return null;
+    return target;
+  } catch {
+    return null;
+  }
+}
+const FILE_TYPES: Record<string, string> = {
+  '.txt': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8', '.json': 'application/json',
+  '.html': 'text/html; charset=utf-8', '.csv': 'text/csv', '.xml': 'application/xml',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
+  '.bmp': 'image/bmp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+  '.pdf': 'application/pdf', '.epub': 'application/epub+zip',
+  '.mp4': 'video/mp4', '.webm': 'video/webm', '.ogg': 'video/ogg', '.mov': 'video/quicktime', '.mkv': 'video/x-matroska', '.m4v': 'video/mp4',
+  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.flac': 'audio/flac', '.aac': 'audio/aac',
+};
+const TEXT_READ_EXT = /\.(txt|md|markdown|csv|tsv|json|jsonl|ya?ml|xml|html?|js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|kt|c|cc|cpp|h|hpp|cs|php|swift|sh|bash|zsh|ps1|bat|sql|ini|toml|cfg|conf|log|env|tex|rst|gradle|properties|gitignore|dockerfile|makefile)$/i;
 
 // Build-freshness: capture when THIS process started; compare to the on-disk dist
 // mtime (re-read per request). If the build is newer than the running process, the
@@ -179,6 +206,8 @@ export class WebChannel implements Channel {
   private wss?: WebSocketServer;
   private handler?: ChannelHandler;
   private readonly sockets = new Map<string, WebSocket>();
+  // Live SSH/SFTP sessions for the SFTP Client app, keyed by an opaque id (idle-reaped).
+  private readonly sftpSessions = new Map<string, { conn: { end(): void }; sftp: Record<string, (...a: unknown[]) => unknown>; last: number }>();
 
   constructor(
     private readonly config: ZamolxisConfig,
@@ -224,6 +253,12 @@ export class WebChannel implements Channel {
       capabilities: () => string[];
       models: () => string[];
     },
+    /** Messages client: list connected messaging channels. */
+    private readonly listChannels?: () => Array<{ name: string; running: boolean }>,
+    /** Messages client: recent messages for a channel. */
+    private readonly channelMessages?: (channel: string) => Array<{ chatId: string; from?: string; dir: string; text: string; ts: number }>,
+    /** Messages client: send a message out through a channel. */
+    private readonly sendToChannel?: (channel: string, chatId: string, text: string) => Promise<{ ok: boolean; error?: string }>,
   ) {
     const { bind, authToken } = config.web;
     if (!LOOPBACK.includes(bind) && !authToken) {
@@ -250,6 +285,8 @@ export class WebChannel implements Channel {
         socket.destroy();
         return;
       }
+      const up = new URL(req.url ?? '/', 'http://x');
+      if (up.pathname === '/telnet') { this.wss!.handleUpgrade(req, socket, head, (ws) => this.onTelnetWs(ws, up)); return; }
       this.wss!.handleUpgrade(req, socket, head, (ws) => this.onWs(ws, req));
     });
 
@@ -566,6 +603,202 @@ export class WebChannel implements Channel {
       });
       return;
     }
+    // Filesystem browse/edit for the desktop apps (File Manager, Text Editor). Rooted at home.
+    if (url.pathname === '/api/fs' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      let body = '';
+      let tooBig = false;
+      req.on('data', (c) => { body += c; if (body.length > 12_000_000) { tooBig = true; req.destroy(); } });
+      req.on('end', () => {
+        if (tooBig) return this.json(res, 413, { error: 'too large' });
+        try {
+          const o = JSON.parse(body || '{}');
+          const op = String(o.op || '');
+          const target = fsResolve(String(o.path || '.'));
+          if (target === null) return this.json(res, 400, { error: 'path outside root' });
+          if (op === 'list') {
+            const entries = fs.readdirSync(target, { withFileTypes: true });
+            const items = entries.filter((e) => !e.name.startsWith('.') || o.showHidden).map((e) => {
+              let size = 0, mtime = 0;
+              try { const st = fs.statSync(path.join(target, e.name)); size = st.size; mtime = st.mtimeMs; } catch { /* skip */ }
+              const ext = path.extname(e.name).toLowerCase();
+              return { name: e.name, dir: e.isDirectory(), size, mtime, ext };
+            }).sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
+            return this.json(res, 200, { path: path.relative(FS_ROOT, target).replace(/\\/g, '/'), abs: target, root: FS_ROOT, items });
+          }
+          if (op === 'read') {
+            const st = fs.statSync(target);
+            if (st.size > 2_000_000) return this.json(res, 413, { error: 'file too large to edit (2 MB)' });
+            return this.json(res, 200, { path: path.relative(FS_ROOT, target).replace(/\\/g, '/'), text: fs.readFileSync(target, 'utf8') });
+          }
+          if (op === 'write') {
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.writeFileSync(target, String(o.content ?? ''), 'utf8');
+            return this.json(res, 200, { ok: true });
+          }
+          if (op === 'writeB64') {
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.writeFileSync(target, Buffer.from(String(o.content || ''), 'base64'));
+            return this.json(res, 200, { ok: true });
+          }
+          if (op === 'mkdir') { fs.mkdirSync(target, { recursive: true }); return this.json(res, 200, { ok: true }); }
+          if (op === 'delete') { fs.rmSync(target, { recursive: true, force: true }); return this.json(res, 200, { ok: true }); }
+          if (op === 'rename') {
+            const to = fsResolve(String(o.to || ''));
+            if (to === null) return this.json(res, 400, { error: 'destination outside root' });
+            fs.renameSync(target, to);
+            return this.json(res, 200, { ok: true });
+          }
+          return this.json(res, 400, { error: 'unknown op' });
+        } catch (err) {
+          return this.json(res, 400, { error: String((err as Error)?.message || err) });
+        }
+      });
+      return;
+    }
+    // Stream a raw file (images, audio, video with Range, pdf, epub) for the viewer/player apps.
+    if (url.pathname === '/api/file' && req.method === 'GET') {
+      if (!this.authOk(req)) { res.writeHead(401); res.end('unauthorized'); return; }
+      const target = fsResolve(url.searchParams.get('path') || '');
+      if (target === null) { res.writeHead(400); res.end('bad path'); return; }
+      let st: fs.Stats;
+      try { st = fs.statSync(target); if (st.isDirectory()) throw new Error('dir'); } catch { res.writeHead(404); res.end('not found'); return; }
+      const ext = path.extname(target).toLowerCase();
+      const ctype = FILE_TYPES[ext] || 'application/octet-stream';
+      const range = req.headers.range;
+      const dl = url.searchParams.get('download');
+      const disp = dl ? `attachment; filename="${path.basename(target).replace(/[^a-zA-Z0-9._ -]/g, '_')}"` : 'inline';
+      if (range) {
+        const m = /bytes=(\d*)-(\d*)/.exec(range);
+        let start = m && m[1] ? parseInt(m[1], 10) : 0;
+        let end = m && m[2] ? parseInt(m[2], 10) : st.size - 1;
+        if (isNaN(start) || start < 0) start = 0;
+        if (isNaN(end) || end >= st.size) end = st.size - 1;
+        if (start > end) { res.writeHead(416, { 'content-range': `bytes */${st.size}` }); res.end(); return; }
+        res.writeHead(206, { 'content-type': ctype, 'content-disposition': disp, 'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${st.size}`, 'content-length': String(end - start + 1) });
+        fs.createReadStream(target, { start, end }).pipe(res);
+      } else {
+        res.writeHead(200, { 'content-type': ctype, 'content-disposition': disp, 'accept-ranges': 'bytes', 'content-length': String(st.size), 'cache-control': 'no-store' });
+        fs.createReadStream(target).pipe(res);
+      }
+      return;
+    }
+    // Render Office documents to HTML for the Document viewer (Word via mammoth, Excel via SheetJS).
+    if (url.pathname === '/api/docview' && req.method === 'GET') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      const target = fsResolve(url.searchParams.get('path') || '');
+      if (target === null) return this.json(res, 400, { error: 'bad path' });
+      const ext = path.extname(target).toLowerCase();
+      (async () => {
+        try {
+          if (ext === '.docx' || ext === '.doc') {
+            const mod = (await import('mammoth')) as unknown as { default?: unknown };
+            const mammoth = (mod.default || mod) as { convertToHtml: (o: { path: string }) => Promise<{ value: string }> };
+            const r = await mammoth.convertToHtml({ path: target });
+            return this.json(res, 200, { kind: 'doc', html: r.value || '<p>(empty document)</p>' });
+          }
+          if (ext === '.xlsx' || ext === '.xls' || ext === '.csv') {
+            const mod = (await import('xlsx')) as unknown as { default?: unknown };
+            const XLSX = (mod.default || mod) as { readFile: (p: string) => { SheetNames: string[]; Sheets: Record<string, unknown> }; utils: { sheet_to_html: (ws: unknown) => string } };
+            const wb = XLSX.readFile(target);
+            const sheets = wb.SheetNames.map((n) => ({ name: n, html: XLSX.utils.sheet_to_html(wb.Sheets[n]) }));
+            return this.json(res, 200, { kind: 'sheet', sheets });
+          }
+          return this.json(res, 400, { error: 'unsupported document type' });
+        } catch (err) {
+          return this.json(res, 500, { error: String((err as Error)?.message || err) });
+        }
+      })();
+      return;
+    }
+    // SSH/SFTP client backend for the SFTP desktop app (real connections via ssh2).
+    if (url.pathname === '/api/sftp' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      let body = '';
+      let tooBig = false;
+      req.on('data', (c) => { body += c; if (body.length > 30_000_000) { tooBig = true; req.destroy(); } });
+      req.on('end', async () => {
+        if (tooBig) return this.json(res, 413, { error: 'too large' });
+        try {
+          const o = JSON.parse(body || '{}');
+          const op = String(o.op || '');
+          if (op === 'connect') {
+            const ssh2 = await import('ssh2');
+            const conn = new (ssh2 as unknown as { Client: new () => Record<string, (...a: unknown[]) => unknown> }).Client();
+            const id = randomUUID();
+            await new Promise<void>((resolve, reject) => {
+              (conn as { on: (e: string, cb: (...a: unknown[]) => void) => void }).on('ready', () => (conn as { sftp: (cb: (e: unknown, s: unknown) => void) => void }).sftp((err, sftp) => {
+                if (err) return reject(err as Error);
+                this.sftpSessions.set(id, { conn: conn as unknown as { end(): void }, sftp: sftp as Record<string, (...a: unknown[]) => unknown>, last: Date.now() });
+                resolve();
+              }));
+              (conn as { on: (e: string, cb: (...a: unknown[]) => void) => void }).on('error', (e: unknown) => reject(e as Error));
+              const cfg: Record<string, unknown> = { host: o.host, port: Number(o.port) || 22, username: o.username, readyTimeout: 15000 };
+              if (o.password) cfg.password = o.password;
+              if (o.privateKey) cfg.privateKey = o.privateKey;
+              (conn as { connect: (c: unknown) => void }).connect(cfg);
+            });
+            return this.json(res, 200, { ok: true, sessionId: id });
+          }
+          const s = this.sftpSessions.get(String(o.sessionId || ''));
+          if (!s) return this.json(res, 400, { error: 'no session (connect first)' });
+          s.last = Date.now();
+          const sftp = s.sftp as Record<string, (...a: unknown[]) => unknown>;
+          const call = <T>(fn: string, ...args: unknown[]): Promise<T> => new Promise((resolve, reject) => (sftp[fn] as (...a: unknown[]) => unknown)(...args, (e: unknown, r: T) => (e ? reject(e as Error) : resolve(r))));
+          if (op === 'list') {
+            const p = String(o.path || '.');
+            const items = await call<Array<{ filename: string; attrs: { mode: number; size: number; mtime: number } }>>('readdir', p);
+            return this.json(res, 200, { path: p, items: items.map((it) => ({ name: it.filename, dir: (it.attrs.mode & 0o170000) === 0o040000, size: it.attrs.size, mtime: it.attrs.mtime * 1000 })).sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1)) });
+          }
+          if (op === 'read') {
+            const p = String(o.path || '');
+            const buf = await new Promise<Buffer>((resolve, reject) => {
+              const chunks: Buffer[] = [];
+              const rs = (sftp.createReadStream as (p: string) => NodeJS.ReadableStream)(p);
+              rs.on('data', (c: Buffer) => chunks.push(c)); rs.on('end', () => resolve(Buffer.concat(chunks))); rs.on('error', reject);
+            });
+            if (buf.length > 20 * 1024 * 1024) return this.json(res, 413, { error: 'file too large to fetch (20 MB)' });
+            return this.json(res, 200, { name: path.posix.basename(p), b64: buf.toString('base64') });
+          }
+          if (op === 'write') {
+            const p = String(o.path || ''); const buf = Buffer.from(String(o.content || ''), 'base64');
+            await new Promise<void>((resolve, reject) => { const w = (sftp.createWriteStream as (p: string) => NodeJS.WritableStream)(p); w.on('close', () => resolve()); w.on('error', reject); w.end(buf); });
+            return this.json(res, 200, { ok: true });
+          }
+          if (op === 'mkdir') { await call('mkdir', String(o.path)); return this.json(res, 200, { ok: true }); }
+          if (op === 'delete') { try { await call('unlink', String(o.path)); } catch { await call('rmdir', String(o.path)); } return this.json(res, 200, { ok: true }); }
+          if (op === 'rename') { await call('rename', String(o.path), String(o.to)); return this.json(res, 200, { ok: true }); }
+          if (op === 'disconnect') { try { s.conn.end(); } catch { /* */ } this.sftpSessions.delete(String(o.sessionId)); return this.json(res, 200, { ok: true }); }
+          return this.json(res, 400, { error: 'unknown op' });
+        } catch (err) {
+          return this.json(res, 400, { error: String((err as Error)?.message || err) });
+        }
+      });
+      return;
+    }
+    // Save an edited Word document: HTML -> .docx (html-to-docx). Writes a new -edited.docx.
+    if (url.pathname === '/api/docwrite' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      let body = '';
+      req.on('data', (c) => { body += c; if (body.length > 10_000_000) req.destroy(); });
+      req.on('end', async () => {
+        try {
+          const o = JSON.parse(body || '{}');
+          const target = fsResolve(String(o.path || ''));
+          if (target === null) return this.json(res, 400, { error: 'bad path' });
+          const htd = await import('html-to-docx');
+          const fn = ((htd as unknown as { default?: unknown }).default || htd) as (html: string) => Promise<Buffer | ArrayBuffer>;
+          const html = '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>' + String(o.html || '') + '</body></html>';
+          const buf = await fn(html);
+          const out = target.replace(/\.(docx?|odt)$/i, '') + '-edited.docx';
+          fs.writeFileSync(out, Buffer.isBuffer(buf) ? buf : Buffer.from(buf as ArrayBuffer));
+          return this.json(res, 200, { ok: true, path: path.relative(FS_ROOT, out).replace(/\\/g, '/') });
+        } catch (err) {
+          return this.json(res, 500, { error: String((err as Error)?.message || err) });
+        }
+      });
+      return;
+    }
     if (url.pathname === '/api/pack' && req.method === 'POST') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
       let body = '';
@@ -705,6 +938,30 @@ export class WebChannel implements Channel {
       const since = Number(url.searchParams.get('since') || 0) || 0;
       return this.json(res, 200, (this.agentMsgs ?? []).filter((m) => m.ts > since).slice(-100));
     }
+    // Messages client: connected channels, their message history, and outbound send.
+    if (url.pathname === '/api/channels' && req.method === 'GET') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      return this.json(res, 200, { channels: this.listChannels ? this.listChannels() : [] });
+    }
+    if (url.pathname === '/api/channels/messages' && req.method === 'GET') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      const ch = url.searchParams.get('channel') || '';
+      return this.json(res, 200, { messages: this.channelMessages ? this.channelMessages(ch) : [] });
+    }
+    if (url.pathname === '/api/channels/send' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', async () => {
+        try {
+          const o = JSON.parse(body || '{}');
+          if (!this.sendToChannel) return this.json(res, 200, { ok: false, error: 'unavailable' });
+          const r = await this.sendToChannel(String(o.channel || ''), String(o.chatId || ''), String(o.text || ''));
+          return this.json(res, 200, r);
+        } catch (err) { return this.json(res, 400, { error: String((err as Error)?.message || err) }); }
+      });
+      return;
+    }
     if (url.pathname === '/api/bans') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
       if (!this.banApi) return this.json(res, 200, { bans: [], capabilities: [], models: [] });
@@ -809,6 +1066,41 @@ export class WebChannel implements Channel {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
   }
 
+  /** Raw TCP / Telnet bridge for the Telnet desktop app: pipes a WebSocket to a TCP socket,
+   *  refusing all Telnet option negotiation and stripping IAC sequences so basic services work. */
+  private onTelnetWs(ws: WebSocket, u: URL): void {
+    const host = u.searchParams.get('host') || '';
+    const port = parseInt(u.searchParams.get('port') || '23', 10) || 23;
+    if (!host) { try { ws.send('\r\n[no host specified]\r\n'); ws.close(); } catch { /* */ } return; }
+    let sock: net.Socket;
+    try { sock = net.connect(port, host); } catch (e) { try { ws.send('\r\n[connect error: ' + String(e) + ']\r\n'); ws.close(); } catch { /* */ } return; }
+    const IAC = 255, DONT = 254, DO = 253, WONT = 252, WILL = 251, SB = 250, SE = 240;
+    sock.setTimeout(0);
+    sock.on('connect', () => { try { ws.send('\r\n[connected to ' + host + ':' + port + ']\r\n'); } catch { /* */ } });
+    sock.on('data', (buf: Buffer) => {
+      const out: number[] = []; const reply: number[] = [];
+      for (let i = 0; i < buf.length; i++) {
+        const c = buf[i] as number;
+        if (c === IAC) {
+          const cmd = buf[i + 1] as number;
+          const opt = (buf[i + 2] ?? 0) as number;
+          if (cmd === DO || cmd === DONT) { reply.push(IAC, WONT, opt); i += 2; }
+          else if (cmd === WILL || cmd === WONT) { reply.push(IAC, DONT, opt); i += 2; }
+          else if (cmd === SB) { while (i < buf.length && !(buf[i] === IAC && buf[i + 1] === SE)) i++; i++; }
+          else { i += 1; }
+          continue;
+        }
+        out.push(c);
+      }
+      if (reply.length) { try { sock.write(Buffer.from(reply)); } catch { /* */ } }
+      if (out.length && ws.readyState === ws.OPEN) { try { ws.send(Buffer.from(out).toString('binary')); } catch { /* */ } }
+    });
+    sock.on('error', (e: Error) => { try { ws.send('\r\n[error: ' + (e.message || String(e)) + ']\r\n'); } catch { /* */ } });
+    sock.on('close', () => { try { ws.send('\r\n[disconnected]\r\n'); ws.close(); } catch { /* */ } });
+    ws.on('message', (m: unknown) => { try { sock.write(typeof m === 'string' ? m : (m as Buffer)); } catch { /* */ } });
+    ws.on('close', () => { try { sock.destroy(); } catch { /* */ } });
+  }
+
   private onWs(ws: WebSocket, req: http.IncomingMessage): void {
     const url = new URL(req.url ?? '/', 'http://x');
     const chatId = url.searchParams.get('cid') || randomUUID();
@@ -819,11 +1111,13 @@ export class WebChannel implements Channel {
       let text: unknown;
       let route: unknown;
       let model: unknown;
+      let images: unknown;
       try {
         const parsed = JSON.parse(data.toString());
         text = parsed.text;
         route = parsed.route;
         model = parsed.model;
+        images = parsed.images;
       } catch {
         return;
       }
@@ -832,9 +1126,11 @@ export class WebChannel implements Channel {
       const r = typeof route === 'string' && /^[a-z0-9_-]{1,32}$/i.test(route) && route !== 'auto' ? route : undefined;
       // Only allow safe model aliases from the UI (never an arbitrary string).
       const mdl = model === 'opus' || model === 'sonnet' || model === 'haiku' ? model : undefined;
+      // Image attachments as data URLs (capped) for vision routing.
+      const imgs = Array.isArray(images) ? images.filter((u): u is string => typeof u === 'string' && u.startsWith('data:image/')).slice(0, 6) : undefined;
       try {
         const reply = await this.handler!(
-          { channel: this.name, chatId, from: 'web', text, route: r, model: mdl },
+          { channel: this.name, chatId, from: 'web', text, route: r, model: mdl, images: imgs && imgs.length ? imgs : undefined },
           (chunk) => this.safeSend(ws, { type: 'chunk', text: chunk }),
         );
         this.safeSend(ws, { type: 'reply', text: reply });
@@ -1466,19 +1762,22 @@ function sendMsg(){var t=el('in').value.trim();var files=pending.slice();if(!t&&
   // escalates to Claude only if the model can't). Images/PDF/Office/binary still need Claude's file tools.
   var TEXT_EXT=/\\.(txt|md|markdown|csv|tsv|json|jsonl|ya?ml|xml|html?|js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|kt|c|cc|cpp|h|hpp|cs|php|swift|sh|bash|zsh|ps1|bat|sql|ini|toml|cfg|conf|log|env|tex|rst|gradle|properties|dockerfile|makefile|gitignore)$/i;
   function b64text(b){try{return decodeURIComponent(escape(atob(b)))}catch(e){try{return atob(b)}catch(e2){return ''}}}
-  var inj=[],up=[];
-  files.forEach(function(f){var tx=(TEXT_EXT.test(f.name)&&f.size<=400000)?b64text(f.b64):null;if(tx!==null){var clip=tx.length>100000?(tx.slice(0,100000)+'\\n...[truncated]'):tx;inj.push('----- '+f.name+' -----\\n'+clip+'\\n-----')}else{up.push(f)}});
+  var IMG_EXT=/\\.(png|jpe?g|gif|webp|bmp)$/i;
+  function imgMime(n){var e=(n.split('.').pop()||'').toLowerCase();return e==='png'?'image/png':e==='gif'?'image/gif':e==='webp'?'image/webp':e==='bmp'?'image/bmp':'image/jpeg'}
+  var inj=[],up=[],imgs=[];
+  files.forEach(function(f){if(IMG_EXT.test(f.name)&&f.size<=4194304){imgs.push('data:'+imgMime(f.name)+';base64,'+f.b64)}var tx=(TEXT_EXT.test(f.name)&&f.size<=400000)?b64text(f.b64):null;if(tx!==null){var clip=tx.length>100000?(tx.slice(0,100000)+'\\n...[truncated]'):tx;inj.push('----- '+f.name+' -----\\n'+clip+'\\n-----')}else{up.push(f)}});
   var base=(t||'')+(inj.length?((t?'\\n\\n':'')+inj.join('\\n\\n')):'');
-  function finish(text,route){setStatus('thinking...');startGen();ws.send(JSON.stringify({text:text,route:route,model:sendModel}))}
-  if(!up.length){clearAttach();finish(base||'(see attached content)',curRoute());return}
+  var imgsP=imgs.length?imgs:undefined;
+  function finish(text,route,images){setStatus('thinking...');startGen();ws.send(JSON.stringify({text:text,route:route,model:sendModel,images:images}))}
+  if(!up.length){clearAttach();finish(base||'(see attached content)',curRoute(),imgsP);return}
   setStatus('uploading...');clearAttach();
   Promise.all(up.map(function(f){return fetch('/api/upload',{method:'POST',headers:hdrs(),body:JSON.stringify({chatId:cid,name:f.name,contentB64:f.b64})}).then(function(r){return r.ok?r.json():null})})).then(function(rs){
-    var docTexts=[],paths=[];
-    rs.filter(Boolean).forEach(function(x){if(x.text){docTexts.push('----- '+(x.name||'file')+' -----\\n'+x.text+'\\n-----')}else if(x.path){paths.push(x.path)}});
+    var docTexts=[],paths=[],hasBinary=false;
+    rs.filter(Boolean).forEach(function(x){if(x.text){docTexts.push('----- '+(x.name||'file')+' -----\\n'+x.text+'\\n-----')}else if(x.path){paths.push(x.path);if(!IMG_EXT.test(x.name||''))hasBinary=true}});
     if(!paths.length&&!inj.length&&!docTexts.length){setStatus('upload failed');if(cur){cur.textContent='(upload failed)'}return}
     var body2=base+(docTexts.length?((base?'\\n\\n':'')+docTexts.join('\\n\\n')):'');
     var note=body2+((body2&&paths.length)?'\\n\\n':'')+(paths.length?('Attached file(s) - read them with your tools to answer:\\n'+paths.map(function(p){return '- '+p}).join('\\n')):'');
-    finish(note, paths.length?'claude':curRoute());
+    finish(note, hasBinary?'claude':curRoute(), imgsP);
   }).catch(function(){setStatus('upload failed');if(cur){cur.textContent='(upload failed)'}})}
 el('route').onchange=function(){routes[cid]=el('route').value;localStorage.zx_routes=JSON.stringify(routes);updateModelVis()};applyRoute();
 el('model').onchange=function(){models[cid]=el('model').value;localStorage.zx_models=JSON.stringify(models)};applyModel();

@@ -18,8 +18,38 @@ export class ChannelManager {
   private readonly started = new Set<string>();
   /** Bridged endpoints for the main chat: channelName -> chatId to deliver to (two-way mirror). */
   private readonly bridge = new Map<string, string>();
+  /** Rolling log of messages per channel (for the Messages desktop client). */
+  private readonly channelLog: Array<{ channel: string; chatId: string; from?: string; dir: 'in' | 'out'; text: string; ts: number }> = [];
 
   constructor(private readonly engine: Engine) {}
+
+  private recordMsg(channel: string, chatId: string, from: string | undefined, dir: 'in' | 'out', text: string): void {
+    this.channelLog.push({ channel, chatId, from, dir, text, ts: Date.now() });
+    if (this.channelLog.length > 800) this.channelLog.splice(0, this.channelLog.length - 800);
+  }
+
+  /** Connected messaging channels (excludes web UI + local CLI) for the Messages client. */
+  connectedChannels(): Array<{ name: string; running: boolean }> {
+    return [...this.channels.keys()].filter((n) => n !== 'web' && n !== 'cli').map((n) => ({ name: n, running: this.started.has(n) }));
+  }
+
+  /** Recent messages for one channel, grouped chronologically (newest last). */
+  channelMessages(channel: string): Array<{ chatId: string; from?: string; dir: 'in' | 'out'; text: string; ts: number }> {
+    return this.channelLog.filter((m) => m.channel === channel).slice(-200).map((m) => ({ chatId: m.chatId, from: m.from, dir: m.dir, text: m.text, ts: m.ts }));
+  }
+
+  /** Send a message out through a specific channel to a specific chat. */
+  async sendToChannel(channel: string, chatId: string, text: string): Promise<{ ok: boolean; error?: string }> {
+    const ch = this.channels.get(channel);
+    if (!ch) return { ok: false, error: 'channel not connected' };
+    try {
+      await ch.send({ chatId, text });
+      this.recordMsg(channel, chatId, 'you', 'out', text);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: String((err as Error)?.message || err) };
+    }
+  }
 
   /** Is this inbound message part of the shared main conversation?
    *  Web: only the dedicated main thread. CLI: no (local REPL). All messaging channels: yes —
@@ -90,9 +120,13 @@ export class ChannelManager {
       displayName: msg.from,
       route: msg.route,
       model: msg.model,
+      images: msg.images,
       onProgress,
     });
     logger.info({ key, costUsd: result.costUsd, isError: result.isError }, 'replied');
+    // Record the turn per channel for the Messages client (real inbound/outbound history).
+    this.recordMsg(msg.channel, msg.chatId, msg.from, 'in', msg.text);
+    this.recordMsg(msg.channel, msg.chatId, undefined, 'out', result.reply);
     // Mirror the assistant's reply to the other bridged surfaces (the origin gets it via return).
     if (bridged) this.broadcast(msg.channel, result.reply);
     return result.reply;

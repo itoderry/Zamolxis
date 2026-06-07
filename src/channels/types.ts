@@ -15,6 +15,8 @@ export interface InboundMessage {
   route?: string;
   /** Optional per-message Claude model override (alias 'opus'|'sonnet'|'haiku'); default follows config. */
   model?: string;
+  /** Optional image attachments as data URLs (data:image/...;base64,...) for multimodal/vision turns. */
+  images?: string[];
 }
 
 export interface OutboundMessage {

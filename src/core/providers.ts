@@ -21,11 +21,13 @@ export interface ProviderDef {
   /** Capable enough (large/frontier + good tool use) to be trusted with current/live FACT
    *  lookups. Weaker free models (e.g. mistral-small) are excluded from those. */
   strong?: boolean;
+  /** Accepts image inputs (multimodal) via the OpenAI-compatible image_url content block. */
+  vision?: boolean;
 }
 
 export const PROVIDERS: ProviderDef[] = [
   // ── Free tiers (rotated; one key per provider) ──
-  { id: 'google', label: 'Google AI Studio (Gemini)', kind: 'free', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash', envKey: 'GOOGLE_AI_API_KEY', freeDaily: 1500, signup: 'https://aistudio.google.com/apikey', note: 'Frontier-class Gemini 2.5 Flash. ~1,500 req/day free.', strong: true },
+  { id: 'google', label: 'Google AI Studio (Gemini)', kind: 'free', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash', envKey: 'GOOGLE_AI_API_KEY', freeDaily: 1500, signup: 'https://aistudio.google.com/apikey', note: 'Frontier-class Gemini 2.5 Flash. ~1,500 req/day free. Handles images (vision).', strong: true, vision: true },
   { id: 'cerebras', label: 'Cerebras', kind: 'free', baseUrl: 'https://api.cerebras.ai/v1', model: 'gpt-oss-120b', envKey: 'CEREBRAS_API_KEY', freeDaily: 1400, signup: 'https://cloud.cerebras.ai/', note: 'Ultra-fast; very generous free throughput (gpt-oss-120b).', strong: true },
   { id: 'groq', label: 'Groq', kind: 'free', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', envKey: 'GROQ_API_KEY', freeDaily: 1000, signup: 'https://console.groq.com/keys', note: 'Fastest free option; tight per-minute limits.', strong: true },
   { id: 'openrouter', label: 'OpenRouter (free models)', kind: 'free', baseUrl: 'https://openrouter.ai/api/v1', model: 'meta-llama/llama-3.3-70b-instruct:free', envKey: 'OPENROUTER_API_KEY', freeDaily: 200, signup: 'https://openrouter.ai/keys', note: 'Many :free models behind one key. ~200 req/day.', strong: true },

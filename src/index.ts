@@ -169,7 +169,10 @@ async function main(): Promise<void> {
           remove: (model: string, skill: string) => bans.remove(model, skill),
           capabilities: () => engine.capabilityNames(),
           models: () => ['local', ...configuredProviders().map((p) => p.id)],
-        })],
+        },
+        () => manager.connectedChannels(),
+        (name) => manager.channelMessages(name),
+        (name, chatId, text) => manager.sendToChannel(name, chatId, text))],
     ];
     for (const [enabled, make] of factories) {
       if (!enabled) continue;
