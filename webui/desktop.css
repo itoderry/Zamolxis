@@ -321,3 +321,14 @@ body[data-mode="dark"] .sm-app:hover, body[data-mode="dark"] .desk-icon:hover { 
 body[data-mode="dark"] .skill { border-bottom-color: rgba(255,255,255,.08); }
 /* Windows light bars stay bright unless dark mode; macOS keeps its own dark bars below */
 body[data-mode="dark"][data-os="mac"] .titlebar { background: rgba(40,40,40,.8); }
+
+/* Help app (localized guide) */
+.help-doc { line-height: 1.55; font-size: 14px; color: #1f1f1f; }
+.help-doc h2 { font-size: 20px; margin: 0 0 6px; }
+.help-doc h3 { font-size: 15px; margin: 18px 0 4px; border-bottom: 1px solid #eee; padding-bottom: 3px; }
+.help-doc p { margin: 6px 0; }
+.help-doc ul { margin: 6px 0; padding-left: 20px; }
+.help-doc li { margin: 3px 0; }
+.help-doc b { font-weight: 650; }
+body[data-mode="dark"] .help-doc { color: #e6e6e6; }
+body[data-mode="dark"] .help-doc h3 { border-bottom-color: rgba(255,255,255,.12); }

@@ -13,7 +13,8 @@
     zamolxis: "<svg viewBox='0 0 32 32'><polygon points='16,2 29,9 29,23 16,30 3,23 3,9' fill='#b8893f'/><polygon points='16,2 29,9 29,23 16,30 3,23 3,9' fill='none' stroke='#e8c87a' stroke-width='1'/><text x='16' y='22' font-size='15' text-anchor='middle' fill='#1a150d' font-family='Segoe UI,Arial' font-weight='700'>Z</text></svg>",
     settings: "<svg viewBox='0 0 24 24' fill='none' stroke='#3a3a3a' stroke-width='1.6'><circle cx='12' cy='12' r='3.2'/><path d='M19.4 13a7.8 7.8 0 0 0 0-2l2-1.5-2-3.4-2.4 1a7.6 7.6 0 0 0-1.7-1l-.4-2.6H9.1l-.4 2.6a7.6 7.6 0 0 0-1.7 1l-2.4-1-2 3.4L2.6 11a7.8 7.8 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7.6 7.6 0 0 0 1.7 1l.4 2.6h4.9l.4-2.6a7.6 7.6 0 0 0 1.7-1l2.4 1 2-3.4z'/></svg>",
     agent: "<svg viewBox='0 0 24 24' fill='none' stroke='#2b6fd6' stroke-width='1.6'><rect x='4' y='8' width='16' height='12' rx='2.5'/><circle cx='9' cy='14' r='1.4' fill='#2b6fd6' stroke='none'/><circle cx='15' cy='14' r='1.4' fill='#2b6fd6' stroke='none'/><path d='M12 4v4M8 20v1.5M16 20v1.5'/></svg>",
-    newagent: "<svg viewBox='0 0 24 24' fill='none' stroke='#2e9e3f' stroke-width='1.7'><circle cx='12' cy='12' r='9'/><path d='M12 8v8M8 12h8'/></svg>"
+    newagent: "<svg viewBox='0 0 24 24' fill='none' stroke='#2e9e3f' stroke-width='1.7'><circle cx='12' cy='12' r='9'/><path d='M12 8v8M8 12h8'/></svg>",
+    help: "<svg viewBox='0 0 24 24' fill='none' stroke='#7a5cd0' stroke-width='1.7'><circle cx='12' cy='12' r='9'/><path d='M9.2 9.2a2.8 2.8 0 1 1 4 2.5c-.9.5-1.7 1-1.7 2.1'/><circle cx='11.6' cy='17' r='0.4' fill='#7a5cd0' stroke='none'/></svg>"
   };
 
   // Per-agent app icon: a colored rounded tile with the agent's initial (deterministic from the name).
@@ -58,13 +59,16 @@
 
   // ---------- i18n (English default; untranslated strings fall back to English) ----------
   var I18N = {
-    es: { 'Send': 'Enviar', 'Route': 'Ruta', 'Save': 'Guardar', 'Close': 'Cerrar', 'Remove': 'Quitar', 'Appearance': 'Apariencia', 'Engine': 'Motor', 'Providers': 'Proveedores', 'Skills': 'Habilidades', 'System': 'Sistema', 'Desktop style': 'Estilo de escritorio', 'Appearance mode': 'Modo de apariencia', 'Language': 'Idioma', 'Auto': 'Auto', 'Light': 'Claro', 'Dark': 'Oscuro', 'All apps': 'Todas las apps', 'Search apps': 'Buscar apps', 'Message': 'Mensaje para', 'New Agent': 'Nuevo agente', 'Settings': 'Ajustes', 'Choose the interface language. Default is English; untranslated labels stay in English.': 'Elige el idioma de la interfaz. El valor predeterminado es inglés; las etiquetas sin traducir permanecen en inglés.' },
-    fr: { 'Send': 'Envoyer', 'Route': 'Routage', 'Save': 'Enregistrer', 'Close': 'Fermer', 'Remove': 'Retirer', 'Appearance': 'Apparence', 'Engine': 'Moteur', 'Providers': 'Fournisseurs', 'Skills': 'Compétences', 'System': 'Système', 'Desktop style': 'Style du bureau', 'Appearance mode': "Mode d'apparence", 'Language': 'Langue', 'Auto': 'Auto', 'Light': 'Clair', 'Dark': 'Sombre', 'All apps': 'Toutes les apps', 'Search apps': 'Rechercher des apps', 'Message': 'Message à', 'New Agent': 'Nouvel agent', 'Settings': 'Paramètres', 'Choose the interface language. Default is English; untranslated labels stay in English.': "Choisissez la langue de l'interface. La valeur par défaut est l'anglais ; les libellés non traduits restent en anglais." },
-    de: { 'Send': 'Senden', 'Route': 'Route', 'Save': 'Speichern', 'Close': 'Schließen', 'Remove': 'Entfernen', 'Appearance': 'Darstellung', 'Engine': 'Engine', 'Providers': 'Anbieter', 'Skills': 'Fähigkeiten', 'System': 'System', 'Desktop style': 'Desktop-Stil', 'Appearance mode': 'Darstellungsmodus', 'Language': 'Sprache', 'Auto': 'Auto', 'Light': 'Hell', 'Dark': 'Dunkel', 'All apps': 'Alle Apps', 'Search apps': 'Apps suchen', 'Message': 'Nachricht an', 'New Agent': 'Neuer Agent', 'Settings': 'Einstellungen', 'Choose the interface language. Default is English; untranslated labels stay in English.': 'Wählen Sie die Sprache der Oberfläche. Standard ist Englisch; nicht übersetzte Beschriftungen bleiben auf Englisch.' }
+    es: { 'Send': 'Enviar', 'Route': 'Ruta', 'Save': 'Guardar', 'Close': 'Cerrar', 'Remove': 'Quitar', 'Delete': 'Eliminar', 'Import': 'Importar', 'Minimize': 'Minimizar', 'Maximize': 'Maximizar', 'Appearance': 'Apariencia', 'Engine': 'Motor', 'Providers': 'Proveedores', 'Skills': 'Habilidades', 'System': 'Sistema', 'Help': 'Ayuda', 'Desktop style': 'Estilo de escritorio', 'Appearance mode': 'Modo de apariencia', 'Language': 'Idioma', 'Auto': 'Auto', 'Light': 'Claro', 'Dark': 'Oscuro', 'All apps': 'Todas las apps', 'Search apps': 'Buscar apps', 'No apps match.': 'Ninguna app coincide.', 'Message': 'Mensaje para', 'New Agent': 'Nuevo agente', 'Settings': 'Ajustes', 'Attach files': 'Adjuntar archivos', 'You': 'Tú', 'connecting...': 'conectando...', 'connected': 'conectado', 'reconnecting': 'reconectando', 'error': 'error', 'thinking...': 'pensando...', 'uploading...': 'subiendo...', 'Loading...': 'Cargando...', 'Choose the interface language. Default is English; untranslated labels stay in English.': 'Elige el idioma de la interfaz. El valor predeterminado es inglés; las etiquetas sin traducir permanecen en inglés.', 'Auto follows your OS (detected: {os}). Override below.': 'Auto sigue tu SO (detectado: {os}). Cámbialo abajo.', '"Classic" opens the previous stable Zamolxis interface (the last stable version), kept as a fourth option.': "'Classic' abre la interfaz estable anterior de Zamolxis (la última versión estable), conservada como cuarta opción.", 'Auto follows your system light/dark preference (now: {mode}).': 'Auto sigue la preferencia clara/oscura del sistema (ahora: {mode}).', 'Each model can be a Claude variant, Local, or any authenticated free provider. Model = answers your chats · Fast = simple turns · Smartest = hard turns / final fallback. "Claude (default)" keeps Claude as the rescue tier.': "Cada modelo puede ser una variante de Claude, Local o cualquier proveedor gratuito autenticado. Modelo = responde tus chats · Rápido = turnos simples · Más inteligente = turnos difíciles / respaldo final. 'Claude (predeterminado)' mantiene a Claude como nivel de rescate.", 'Model (answers your chats)': 'Modelo (responde tus chats)', 'Fast model (simple turns)': 'Modelo rápido (turnos simples)', 'Smartest model (hard turns / final fallback)': 'Modelo más inteligente (turnos difíciles / respaldo final)', 'Assistant name': 'Nombre del asistente', 'Permission mode': 'Modo de permisos', 'Max turns': 'Turnos máximos', 'Max concurrent': 'Concurrencia máxima', 'Turn timeout (seconds)': 'Tiempo límite por turno (segundos)', 'How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.': 'Cuánto puede durar un turno antes de detenerse. P. ej. 3600 = 1 hora, 14400 = 4 horas. Se aplica al instante.', 'Local-model routing (auto / off)': 'Enrutamiento de modelo local (auto / desactivado)', 'Routing': 'Enrutamiento', 'System prompt append': 'Texto añadido al prompt del sistema', 'Saving...': 'Guardando...', 'Saved.': 'Guardado.', ' Some changes need a restart (System tab).': ' Algunos cambios requieren reiniciar (pestaña Sistema).', 'Failed.': 'Falló.', 'Could not load settings.': 'No se pudieron cargar los ajustes.', 'Auto (smartest decides)': 'Auto (decide el más inteligente)', 'Free cloud (rotates free providers)': 'Nube gratuita (rota proveedores gratuitos)', 'Claude (subscription)': 'Claude (suscripción)', 'Loading providers...': 'Cargando proveedores...', 'Saving a key persists it; it takes effect after a restart (System tab).': 'Guardar una clave la conserva; surte efecto tras reiniciar (pestaña Sistema).', 'configured': 'configurado', '•••• set — paste to replace, or Save empty to remove': '•••• definida — pega para reemplazar, o Guarda vacío para quitar', 'Paste API key': 'Pega la clave API', 'Removing...': 'Quitando...', 'Removed.': 'Quitado.', 'Enter a key.': 'Introduce una clave.', 'Could not load providers.': 'No se pudieron cargar los proveedores.', 'Loading skills...': 'Cargando habilidades...', 'No skills match.': 'Ninguna habilidad coincide.', 'Could not load skills.': 'No se pudieron cargar las habilidades.', 'Search {n} skills': 'Buscar en {n} habilidades', 'Version': 'Versión', 'Primary model': 'Modelo principal', 'Fast model': 'Modelo rápido', 'Local model': 'Modelo local', 'Tokens (session)': 'Tokens (sesión)', '(none)': '(ninguno)', 'Updates': 'Actualizaciones', 'Update available — {n} new commit(s) on {branch}': 'Actualización disponible — {n} commit(s) nuevo(s) en {branch}', 'Up to date on {branch}.': 'Actualizado en {branch}.', 'Check for updates': 'Buscar actualizaciones', 'Upgrade': 'Actualizar', 'Upgrade now ({n})': 'Actualizar ahora ({n})', 'Checking...': 'Comprobando...', 'Check failed.': 'Falló la comprobación.', 'Upgrade Zamolxis now? It will pull the latest, rebuild, and restart (about a minute).': '¿Actualizar Zamolxis ahora? Descargará lo último, recompilará y reiniciará (alrededor de un minuto).', 'Upgrading — pulling, building, restarting...': 'Actualizando — descargando, compilando, reiniciando...', 'Updated — reloading...': 'Actualizado — recargando...', 'Still working... reload manually in a bit.': 'Aún trabajando... recarga manualmente en un momento.', 'Upgrade failed to start.': 'No se pudo iniciar la actualización.', 'Maintenance': 'Mantenimiento', 'Restart Zamolxis': 'Reiniciar Zamolxis', 'Open classic UI': 'Abrir interfaz clásica', 'Restarting...': 'Reiniciando...', 'Could not load status.': 'No se pudo cargar el estado.', 'Agent name': 'Nombre del agente', 'Instructions': 'Instrucciones', 'This becomes the agent app. It can run with or without a chat window.': 'Esto se convierte en la app del agente. Puede ejecutarse con o sin ventana de chat.', 'Model': 'Modelo', 'Auto, Local, Free cloud, any authenticated provider, or Claude.': 'Auto, Local, Nube gratuita, cualquier proveedor autenticado o Claude.', 'Create app': 'Crear app', 'Name is required.': 'El nombre es obligatorio.', 'Creating...': 'Creando...', 'Created. Added to the desktop.': 'Creado. Añadido al escritorio.', 'Backend unreachable.': 'Backend inaccesible.', 'e.g. researcher': 'p. ej. investigador', 'What should this agent do?': '¿Qué debe hacer este agente?', 'Toggle chat window for this app': 'Activar/desactivar la ventana de chat de esta app', 'Chat window': 'Ventana de chat', 'Run job': 'Ejecutar tarea', 'Running...': 'Ejecutando...', 'Done': 'Listo', 'Unreachable': 'Inaccesible', 'Ask me to do something, or give me a task.': 'Pídeme algo o asígname una tarea.', '(no reply)': '(sin respuesta)', 'Chat window is off — this agent runs headless: it executes its job on demand or on schedule via the existing agent/skill mechanism. Turn the chat on above to talk to it directly.': 'La ventana de chat está desactivada — este agente se ejecuta sin interfaz: realiza su tarea bajo demanda o según horario mediante el mecanismo de agentes/habilidades. Activa el chat arriba para hablar con él directamente.', 'Recent activity will appear here.': 'La actividad reciente aparecerá aquí.', 'Model: {m}': 'Modelo: {m}', '(default)': '(predeterminado)', 'Help & Guide': 'Ayuda y guía' },
+    fr: { 'Send': 'Envoyer', 'Route': 'Routage', 'Save': 'Enregistrer', 'Close': 'Fermer', 'Remove': 'Retirer', 'Delete': 'Supprimer', 'Import': 'Importer', 'Minimize': 'Réduire', 'Maximize': 'Agrandir', 'Appearance': 'Apparence', 'Engine': 'Moteur', 'Providers': 'Fournisseurs', 'Skills': 'Compétences', 'System': 'Système', 'Help': 'Aide', 'Desktop style': 'Style du bureau', 'Appearance mode': "Mode d'apparence", 'Language': 'Langue', 'Auto': 'Auto', 'Light': 'Clair', 'Dark': 'Sombre', 'All apps': 'Toutes les apps', 'Search apps': 'Rechercher des apps', 'No apps match.': 'Aucune app ne correspond.', 'Message': 'Message à', 'New Agent': 'Nouvel agent', 'Settings': 'Paramètres', 'Attach files': 'Joindre des fichiers', 'You': 'Vous', 'connecting...': 'connexion...', 'connected': 'connecté', 'reconnecting': 'reconnexion', 'error': 'erreur', 'thinking...': 'réflexion...', 'uploading...': 'téléversement...', 'Loading...': 'Chargement...', 'Choose the interface language. Default is English; untranslated labels stay in English.': "Choisissez la langue de l'interface. La valeur par défaut est l'anglais ; les libellés non traduits restent en anglais.", 'Auto follows your OS (detected: {os}). Override below.': 'Auto suit votre SE (détecté : {os}). Modifiable ci-dessous.', '"Classic" opens the previous stable Zamolxis interface (the last stable version), kept as a fourth option.': '« Classic » ouvre l’ancienne interface stable de Zamolxis (la dernière version stable), conservée comme quatrième option.', 'Auto follows your system light/dark preference (now: {mode}).': 'Auto suit la préférence claire/sombre du système (actuel : {mode}).', 'Each model can be a Claude variant, Local, or any authenticated free provider. Model = answers your chats · Fast = simple turns · Smartest = hard turns / final fallback. "Claude (default)" keeps Claude as the rescue tier.': 'Chaque modèle peut être une variante de Claude, Local ou tout fournisseur gratuit authentifié. Modèle = répond à vos discussions · Rapide = tours simples · Plus intelligent = tours difficiles / dernier recours. « Claude (par défaut) » garde Claude comme niveau de secours.', 'Model (answers your chats)': 'Modèle (répond à vos discussions)', 'Fast model (simple turns)': 'Modèle rapide (tours simples)', 'Smartest model (hard turns / final fallback)': 'Modèle le plus intelligent (tours difficiles / dernier recours)', 'Assistant name': "Nom de l'assistant", 'Permission mode': 'Mode de permission', 'Max turns': 'Tours max', 'Max concurrent': 'Concurrence max', 'Turn timeout (seconds)': 'Délai par tour (secondes)', 'How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.': "Durée maximale d'un tour avant son arrêt. Ex. 3600 = 1 heure, 14400 = 4 heures. Appliqué immédiatement.", 'Local-model routing (auto / off)': 'Routage du modèle local (auto / désactivé)', 'Routing': 'Routage', 'System prompt append': 'Ajout au prompt système', 'Saving...': 'Enregistrement...', 'Saved.': 'Enregistré.', ' Some changes need a restart (System tab).': ' Certains changements nécessitent un redémarrage (onglet Système).', 'Failed.': 'Échec.', 'Could not load settings.': 'Impossible de charger les paramètres.', 'Auto (smartest decides)': 'Auto (le plus intelligent décide)', 'Free cloud (rotates free providers)': 'Cloud gratuit (alterne les fournisseurs gratuits)', 'Claude (subscription)': 'Claude (abonnement)', 'Loading providers...': 'Chargement des fournisseurs...', 'Saving a key persists it; it takes effect after a restart (System tab).': 'Enregistrer une clé la conserve ; elle prend effet après un redémarrage (onglet Système).', 'configured': 'configuré', '•••• set — paste to replace, or Save empty to remove': '•••• définie — collez pour remplacer, ou Enregistrez vide pour retirer', 'Paste API key': 'Collez la clé API', 'Removing...': 'Suppression...', 'Removed.': 'Retiré.', 'Enter a key.': 'Saisissez une clé.', 'Could not load providers.': 'Impossible de charger les fournisseurs.', 'Loading skills...': 'Chargement des compétences...', 'No skills match.': 'Aucune compétence ne correspond.', 'Could not load skills.': 'Impossible de charger les compétences.', 'Search {n} skills': 'Rechercher dans {n} compétences', 'Version': 'Version', 'Primary model': 'Modèle principal', 'Fast model': 'Modèle rapide', 'Local model': 'Modèle local', 'Tokens (session)': 'Tokens (session)', '(none)': '(aucun)', 'Updates': 'Mises à jour', 'Update available — {n} new commit(s) on {branch}': 'Mise à jour disponible — {n} nouveau(x) commit(s) sur {branch}', 'Up to date on {branch}.': 'À jour sur {branch}.', 'Check for updates': 'Vérifier les mises à jour', 'Upgrade': 'Mettre à jour', 'Upgrade now ({n})': 'Mettre à jour ({n})', 'Checking...': 'Vérification...', 'Check failed.': 'Échec de la vérification.', 'Upgrade Zamolxis now? It will pull the latest, rebuild, and restart (about a minute).': 'Mettre à jour Zamolxis maintenant ? Il récupérera la dernière version, recompilera et redémarrera (environ une minute).', 'Upgrading — pulling, building, restarting...': 'Mise à jour — récupération, compilation, redémarrage...', 'Updated — reloading...': 'Mis à jour — rechargement...', 'Still working... reload manually in a bit.': 'Toujours en cours... rechargez manuellement dans un instant.', 'Upgrade failed to start.': 'Le démarrage de la mise à jour a échoué.', 'Maintenance': 'Maintenance', 'Restart Zamolxis': 'Redémarrer Zamolxis', 'Open classic UI': "Ouvrir l'interface classique", 'Restarting...': 'Redémarrage...', 'Could not load status.': "Impossible de charger l'état.", 'Agent name': "Nom de l'agent", 'Instructions': 'Instructions', 'This becomes the agent app. It can run with or without a chat window.': "Ceci devient l'app de l'agent. Elle peut fonctionner avec ou sans fenêtre de discussion.", 'Model': 'Modèle', 'Auto, Local, Free cloud, any authenticated provider, or Claude.': 'Auto, Local, Cloud gratuit, tout fournisseur authentifié ou Claude.', 'Create app': "Créer l'app", 'Name is required.': 'Le nom est requis.', 'Creating...': 'Création...', 'Created. Added to the desktop.': 'Créé. Ajouté au bureau.', 'Backend unreachable.': 'Backend inaccessible.', 'e.g. researcher': 'ex. chercheur', 'What should this agent do?': 'Que doit faire cet agent ?', 'Toggle chat window for this app': 'Activer/désactiver la fenêtre de discussion de cette app', 'Chat window': 'Fenêtre de discussion', 'Run job': 'Exécuter la tâche', 'Running...': 'Exécution...', 'Done': 'Terminé', 'Unreachable': 'Inaccessible', 'Ask me to do something, or give me a task.': 'Demandez-moi quelque chose ou confiez-moi une tâche.', '(no reply)': '(pas de réponse)', 'Chat window is off — this agent runs headless: it executes its job on demand or on schedule via the existing agent/skill mechanism. Turn the chat on above to talk to it directly.': "La fenêtre de discussion est désactivée — cet agent fonctionne sans interface : il exécute sa tâche à la demande ou selon un planning via le mécanisme agents/compétences existant. Activez le chat ci-dessus pour lui parler directement.", 'Recent activity will appear here.': "L'activité récente apparaîtra ici.", 'Model: {m}': 'Modèle : {m}', '(default)': '(par défaut)', 'Help & Guide': 'Aide et guide' },
+    de: { 'Send': 'Senden', 'Route': 'Route', 'Save': 'Speichern', 'Close': 'Schließen', 'Remove': 'Entfernen', 'Delete': 'Löschen', 'Import': 'Importieren', 'Minimize': 'Minimieren', 'Maximize': 'Maximieren', 'Appearance': 'Darstellung', 'Engine': 'Engine', 'Providers': 'Anbieter', 'Skills': 'Fähigkeiten', 'System': 'System', 'Help': 'Hilfe', 'Desktop style': 'Desktop-Stil', 'Appearance mode': 'Darstellungsmodus', 'Language': 'Sprache', 'Auto': 'Auto', 'Light': 'Hell', 'Dark': 'Dunkel', 'All apps': 'Alle Apps', 'Search apps': 'Apps suchen', 'No apps match.': 'Keine App passt.', 'Message': 'Nachricht an', 'New Agent': 'Neuer Agent', 'Settings': 'Einstellungen', 'Attach files': 'Dateien anhängen', 'You': 'Du', 'connecting...': 'verbinden...', 'connected': 'verbunden', 'reconnecting': 'neu verbinden', 'error': 'Fehler', 'thinking...': 'denkt nach...', 'uploading...': 'lädt hoch...', 'Loading...': 'Wird geladen...', 'Choose the interface language. Default is English; untranslated labels stay in English.': 'Wählen Sie die Sprache der Oberfläche. Standard ist Englisch; nicht übersetzte Beschriftungen bleiben auf Englisch.', 'Auto follows your OS (detected: {os}). Override below.': 'Auto folgt Ihrem Betriebssystem (erkannt: {os}). Unten änderbar.', '"Classic" opens the previous stable Zamolxis interface (the last stable version), kept as a fourth option.': '„Classic“ öffnet die vorherige stabile Zamolxis-Oberfläche (die letzte stabile Version), als vierte Option erhalten.', 'Auto follows your system light/dark preference (now: {mode}).': 'Auto folgt der Hell-/Dunkel-Einstellung des Systems (jetzt: {mode}).', 'Each model can be a Claude variant, Local, or any authenticated free provider. Model = answers your chats · Fast = simple turns · Smartest = hard turns / final fallback. "Claude (default)" keeps Claude as the rescue tier.': 'Jedes Modell kann eine Claude-Variante, Local oder ein beliebiger authentifizierter kostenloser Anbieter sein. Modell = beantwortet Ihre Chats · Schnell = einfache Schritte · Klügstes = schwierige Schritte / letzte Rückfallebene. „Claude (Standard)“ behält Claude als Rettungsebene.', 'Model (answers your chats)': 'Modell (beantwortet Ihre Chats)', 'Fast model (simple turns)': 'Schnelles Modell (einfache Schritte)', 'Smartest model (hard turns / final fallback)': 'Klügstes Modell (schwierige Schritte / letzte Rückfallebene)', 'Assistant name': 'Name des Assistenten', 'Permission mode': 'Berechtigungsmodus', 'Max turns': 'Max. Schritte', 'Max concurrent': 'Max. gleichzeitig', 'Turn timeout (seconds)': 'Zeitlimit pro Schritt (Sekunden)', 'How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.': 'Wie lange ein einzelner Schritt laufen darf, bevor er gestoppt wird. z. B. 3600 = 1 Stunde, 14400 = 4 Stunden. Sofort wirksam.', 'Local-model routing (auto / off)': 'Lokales Modell-Routing (auto / aus)', 'Routing': 'Routing', 'System prompt append': 'Zusatz zum System-Prompt', 'Saving...': 'Wird gespeichert...', 'Saved.': 'Gespeichert.', ' Some changes need a restart (System tab).': ' Einige Änderungen erfordern einen Neustart (Tab System).', 'Failed.': 'Fehlgeschlagen.', 'Could not load settings.': 'Einstellungen konnten nicht geladen werden.', 'Auto (smartest decides)': 'Auto (Klügstes entscheidet)', 'Free cloud (rotates free providers)': 'Kostenlose Cloud (wechselt kostenlose Anbieter)', 'Claude (subscription)': 'Claude (Abonnement)', 'Loading providers...': 'Anbieter werden geladen...', 'Saving a key persists it; it takes effect after a restart (System tab).': 'Ein gespeicherter Schlüssel bleibt erhalten; wirksam nach einem Neustart (Tab System).', 'configured': 'konfiguriert', '•••• set — paste to replace, or Save empty to remove': '•••• gesetzt — zum Ersetzen einfügen oder leer speichern zum Entfernen', 'Paste API key': 'API-Schlüssel einfügen', 'Removing...': 'Wird entfernt...', 'Removed.': 'Entfernt.', 'Enter a key.': 'Schlüssel eingeben.', 'Could not load providers.': 'Anbieter konnten nicht geladen werden.', 'Loading skills...': 'Fähigkeiten werden geladen...', 'No skills match.': 'Keine Fähigkeit passt.', 'Could not load skills.': 'Fähigkeiten konnten nicht geladen werden.', 'Search {n} skills': '{n} Fähigkeiten durchsuchen', 'Version': 'Version', 'Primary model': 'Primäres Modell', 'Fast model': 'Schnelles Modell', 'Local model': 'Lokales Modell', 'Tokens (session)': 'Tokens (Sitzung)', '(none)': '(keins)', 'Updates': 'Updates', 'Update available — {n} new commit(s) on {branch}': 'Update verfügbar — {n} neue(r) Commit(s) auf {branch}', 'Up to date on {branch}.': 'Aktuell auf {branch}.', 'Check for updates': 'Nach Updates suchen', 'Upgrade': 'Aktualisieren', 'Upgrade now ({n})': 'Jetzt aktualisieren ({n})', 'Checking...': 'Wird geprüft...', 'Check failed.': 'Prüfung fehlgeschlagen.', 'Upgrade Zamolxis now? It will pull the latest, rebuild, and restart (about a minute).': 'Zamolxis jetzt aktualisieren? Es lädt die neueste Version, baut neu und startet neu (etwa eine Minute).', 'Upgrading — pulling, building, restarting...': 'Aktualisierung — laden, bauen, neu starten...', 'Updated — reloading...': 'Aktualisiert — wird neu geladen...', 'Still working... reload manually in a bit.': 'Läuft noch... in Kürze manuell neu laden.', 'Upgrade failed to start.': 'Update konnte nicht gestartet werden.', 'Maintenance': 'Wartung', 'Restart Zamolxis': 'Zamolxis neu starten', 'Open classic UI': 'Klassische Oberfläche öffnen', 'Restarting...': 'Neustart...', 'Could not load status.': 'Status konnte nicht geladen werden.', 'Agent name': 'Name des Agenten', 'Instructions': 'Anweisungen', 'This becomes the agent app. It can run with or without a chat window.': 'Daraus wird die Agent-App. Sie kann mit oder ohne Chatfenster laufen.', 'Model': 'Modell', 'Auto, Local, Free cloud, any authenticated provider, or Claude.': 'Auto, Local, Kostenlose Cloud, beliebiger authentifizierter Anbieter oder Claude.', 'Create app': 'App erstellen', 'Name is required.': 'Name ist erforderlich.', 'Creating...': 'Wird erstellt...', 'Created. Added to the desktop.': 'Erstellt. Zum Desktop hinzugefügt.', 'Backend unreachable.': 'Backend nicht erreichbar.', 'e.g. researcher': 'z. B. Rechercheur', 'What should this agent do?': 'Was soll dieser Agent tun?', 'Toggle chat window for this app': 'Chatfenster für diese App umschalten', 'Chat window': 'Chatfenster', 'Run job': 'Aufgabe ausführen', 'Running...': 'Wird ausgeführt...', 'Done': 'Fertig', 'Unreachable': 'Nicht erreichbar', 'Ask me to do something, or give me a task.': 'Bitte mich um etwas oder gib mir eine Aufgabe.', '(no reply)': '(keine Antwort)', 'Chat window is off — this agent runs headless: it executes its job on demand or on schedule via the existing agent/skill mechanism. Turn the chat on above to talk to it directly.': 'Das Chatfenster ist aus — dieser Agent läuft ohne Oberfläche: Er erledigt seine Aufgabe auf Abruf oder nach Zeitplan über den vorhandenen Agenten-/Fähigkeiten-Mechanismus. Schalten Sie den Chat oben ein, um direkt mit ihm zu sprechen.', 'Recent activity will appear here.': 'Aktuelle Aktivität erscheint hier.', 'Model: {m}': 'Modell: {m}', '(default)': '(Standard)', 'Help & Guide': 'Hilfe und Anleitung' },
+    ro: { 'Send': 'Trimite', 'Route': 'Rutare', 'Save': 'Salvează', 'Close': 'Închide', 'Remove': 'Elimină', 'Delete': 'Șterge', 'Import': 'Importă', 'Minimize': 'Minimizează', 'Maximize': 'Maximizează', 'Appearance': 'Aspect', 'Engine': 'Motor', 'Providers': 'Furnizori', 'Skills': 'Abilități', 'System': 'Sistem', 'Help': 'Ajutor', 'Desktop style': 'Stil desktop', 'Appearance mode': 'Mod de aspect', 'Language': 'Limbă', 'Auto': 'Auto', 'Light': 'Luminos', 'Dark': 'Întunecat', 'All apps': 'Toate aplicațiile', 'Search apps': 'Caută aplicații', 'No apps match.': 'Nicio aplicație nu corespunde.', 'Message': 'Mesaj către', 'New Agent': 'Agent nou', 'Settings': 'Setări', 'Attach files': 'Atașează fișiere', 'You': 'Tu', 'connecting...': 'se conectează...', 'connected': 'conectat', 'reconnecting': 'se reconectează', 'error': 'eroare', 'thinking...': 'gândește...', 'uploading...': 'se încarcă...', 'Loading...': 'Se încarcă...', 'Choose the interface language. Default is English; untranslated labels stay in English.': 'Alege limba interfeței. Implicit este engleza; etichetele netraduse rămân în engleză.', 'Auto follows your OS (detected: {os}). Override below.': 'Auto urmează sistemul de operare (detectat: {os}). Modifică mai jos.', '"Classic" opens the previous stable Zamolxis interface (the last stable version), kept as a fourth option.': '„Classic” deschide interfața stabilă anterioară Zamolxis (ultima versiune stabilă), păstrată ca a patra opțiune.', 'Auto follows your system light/dark preference (now: {mode}).': 'Auto urmează preferința luminos/întunecat a sistemului (acum: {mode}).', 'Each model can be a Claude variant, Local, or any authenticated free provider. Model = answers your chats · Fast = simple turns · Smartest = hard turns / final fallback. "Claude (default)" keeps Claude as the rescue tier.': 'Fiecare model poate fi o variantă Claude, Local sau orice furnizor gratuit autentificat. Model = răspunde la conversații · Rapid = ture simple · Cel mai inteligent = ture dificile / rezervă finală. „Claude (implicit)” păstrează Claude ca nivel de salvare.', 'Model (answers your chats)': 'Model (răspunde la conversații)', 'Fast model (simple turns)': 'Model rapid (ture simple)', 'Smartest model (hard turns / final fallback)': 'Cel mai inteligent model (ture dificile / rezervă finală)', 'Assistant name': 'Numele asistentului', 'Permission mode': 'Mod de permisiune', 'Max turns': 'Ture maxime', 'Max concurrent': 'Concurență maximă', 'Turn timeout (seconds)': 'Timp limită pe tură (secunde)', 'How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.': 'Cât poate rula o singură tură înainte de a fi oprită. Ex. 3600 = 1 oră, 14400 = 4 ore. Se aplică imediat.', 'Local-model routing (auto / off)': 'Rutare model local (auto / oprit)', 'Routing': 'Rutare', 'System prompt append': 'Adăugare la promptul de sistem', 'Saving...': 'Se salvează...', 'Saved.': 'Salvat.', ' Some changes need a restart (System tab).': ' Unele modificări necesită repornire (fila Sistem).', 'Failed.': 'Eșuat.', 'Could not load settings.': 'Setările nu au putut fi încărcate.', 'Auto (smartest decides)': 'Auto (decide cel mai inteligent)', 'Free cloud (rotates free providers)': 'Cloud gratuit (rotește furnizorii gratuiți)', 'Claude (subscription)': 'Claude (abonament)', 'Loading providers...': 'Se încarcă furnizorii...', 'Saving a key persists it; it takes effect after a restart (System tab).': 'O cheie salvată este păstrată; intră în vigoare după repornire (fila Sistem).', 'configured': 'configurat', '•••• set — paste to replace, or Save empty to remove': '•••• setată — lipește pentru a înlocui sau Salvează gol pentru a elimina', 'Paste API key': 'Lipește cheia API', 'Removing...': 'Se elimină...', 'Removed.': 'Eliminat.', 'Enter a key.': 'Introdu o cheie.', 'Could not load providers.': 'Furnizorii nu au putut fi încărcați.', 'Loading skills...': 'Se încarcă abilitățile...', 'No skills match.': 'Nicio abilitate nu corespunde.', 'Could not load skills.': 'Abilitățile nu au putut fi încărcate.', 'Search {n} skills': 'Caută în {n} abilități', 'Version': 'Versiune', 'Primary model': 'Model principal', 'Fast model': 'Model rapid', 'Local model': 'Model local', 'Tokens (session)': 'Tokenuri (sesiune)', '(none)': '(niciunul)', 'Updates': 'Actualizări', 'Update available — {n} new commit(s) on {branch}': 'Actualizare disponibilă — {n} commit(uri) noi pe {branch}', 'Up to date on {branch}.': 'La zi pe {branch}.', 'Check for updates': 'Caută actualizări', 'Upgrade': 'Actualizează', 'Upgrade now ({n})': 'Actualizează acum ({n})', 'Checking...': 'Se verifică...', 'Check failed.': 'Verificarea a eșuat.', 'Upgrade Zamolxis now? It will pull the latest, rebuild, and restart (about a minute).': 'Actualizezi Zamolxis acum? Va descărca ultima versiune, va recompila și va reporni (circa un minut).', 'Upgrading — pulling, building, restarting...': 'Se actualizează — descărcare, compilare, repornire...', 'Updated — reloading...': 'Actualizat — se reîncarcă...', 'Still working... reload manually in a bit.': 'Încă lucrează... reîncarcă manual în scurt timp.', 'Upgrade failed to start.': 'Actualizarea nu a putut porni.', 'Maintenance': 'Întreținere', 'Restart Zamolxis': 'Repornește Zamolxis', 'Open classic UI': 'Deschide interfața clasică', 'Restarting...': 'Se repornește...', 'Could not load status.': 'Starea nu a putut fi încărcată.', 'Agent name': 'Numele agentului', 'Instructions': 'Instrucțiuni', 'This becomes the agent app. It can run with or without a chat window.': 'Aceasta devine aplicația agentului. Poate rula cu sau fără fereastră de chat.', 'Model': 'Model', 'Auto, Local, Free cloud, any authenticated provider, or Claude.': 'Auto, Local, Cloud gratuit, orice furnizor autentificat sau Claude.', 'Create app': 'Creează aplicația', 'Name is required.': 'Numele este obligatoriu.', 'Creating...': 'Se creează...', 'Created. Added to the desktop.': 'Creat. Adăugat pe desktop.', 'Backend unreachable.': 'Backend inaccesibil.', 'e.g. researcher': 'ex. cercetător', 'What should this agent do?': 'Ce ar trebui să facă acest agent?', 'Toggle chat window for this app': 'Comută fereastra de chat pentru această aplicație', 'Chat window': 'Fereastră de chat', 'Run job': 'Rulează sarcina', 'Running...': 'Se rulează...', 'Done': 'Gata', 'Unreachable': 'Inaccesibil', 'Ask me to do something, or give me a task.': 'Cere-mi ceva sau dă-mi o sarcină.', '(no reply)': '(niciun răspuns)', 'Chat window is off — this agent runs headless: it executes its job on demand or on schedule via the existing agent/skill mechanism. Turn the chat on above to talk to it directly.': 'Fereastra de chat este oprită — acest agent rulează fără interfață: își execută sarcina la cerere sau programat, prin mecanismul existent de agenți/abilități. Activează chatul de mai sus pentru a vorbi direct cu el.', 'Recent activity will appear here.': 'Activitatea recentă va apărea aici.', 'Model: {m}': 'Model: {m}', '(default)': '(implicit)', 'Help & Guide': 'Ajutor și ghid' },
+    it: { 'Send': 'Invia', 'Route': 'Instradamento', 'Save': 'Salva', 'Close': 'Chiudi', 'Remove': 'Rimuovi', 'Delete': 'Elimina', 'Import': 'Importa', 'Minimize': 'Riduci a icona', 'Maximize': 'Ingrandisci', 'Appearance': 'Aspetto', 'Engine': 'Motore', 'Providers': 'Provider', 'Skills': 'Competenze', 'System': 'Sistema', 'Help': 'Aiuto', 'Desktop style': 'Stile desktop', 'Appearance mode': 'Modalità aspetto', 'Language': 'Lingua', 'Auto': 'Auto', 'Light': 'Chiaro', 'Dark': 'Scuro', 'All apps': 'Tutte le app', 'Search apps': 'Cerca app', 'No apps match.': 'Nessuna app corrisponde.', 'Message': 'Messaggio a', 'New Agent': 'Nuovo agente', 'Settings': 'Impostazioni', 'Attach files': 'Allega file', 'You': 'Tu', 'connecting...': 'connessione...', 'connected': 'connesso', 'reconnecting': 'riconnessione', 'error': 'errore', 'thinking...': 'sto pensando...', 'uploading...': 'caricamento...', 'Loading...': 'Caricamento...', 'Choose the interface language. Default is English; untranslated labels stay in English.': "Scegli la lingua dell'interfaccia. L'impostazione predefinita è l'inglese; le etichette non tradotte restano in inglese.", 'Auto follows your OS (detected: {os}). Override below.': 'Auto segue il tuo SO (rilevato: {os}). Modificabile sotto.', '"Classic" opens the previous stable Zamolxis interface (the last stable version), kept as a fourth option.': "« Classic » apre la precedente interfaccia stabile di Zamolxis (l'ultima versione stabile), mantenuta come quarta opzione.", 'Auto follows your system light/dark preference (now: {mode}).': 'Auto segue la preferenza chiaro/scuro del sistema (ora: {mode}).', 'Each model can be a Claude variant, Local, or any authenticated free provider. Model = answers your chats · Fast = simple turns · Smartest = hard turns / final fallback. "Claude (default)" keeps Claude as the rescue tier.': 'Ogni modello può essere una variante di Claude, Local o qualsiasi provider gratuito autenticato. Modello = risponde alle chat · Veloce = turni semplici · Più intelligente = turni difficili / ripiego finale. « Claude (predefinito) » mantiene Claude come livello di soccorso.', 'Model (answers your chats)': 'Modello (risponde alle chat)', 'Fast model (simple turns)': 'Modello veloce (turni semplici)', 'Smartest model (hard turns / final fallback)': 'Modello più intelligente (turni difficili / ripiego finale)', 'Assistant name': "Nome dell'assistente", 'Permission mode': 'Modalità autorizzazioni', 'Max turns': 'Turni max', 'Max concurrent': 'Concorrenza max', 'Turn timeout (seconds)': 'Timeout per turno (secondi)', 'How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.': 'Per quanto può durare un singolo turno prima di essere fermato. Es. 3600 = 1 ora, 14400 = 4 ore. Applicato subito.', 'Local-model routing (auto / off)': 'Instradamento modello locale (auto / off)', 'Routing': 'Instradamento', 'System prompt append': 'Aggiunta al prompt di sistema', 'Saving...': 'Salvataggio...', 'Saved.': 'Salvato.', ' Some changes need a restart (System tab).': ' Alcune modifiche richiedono un riavvio (scheda Sistema).', 'Failed.': 'Non riuscito.', 'Could not load settings.': 'Impossibile caricare le impostazioni.', 'Auto (smartest decides)': 'Auto (decide il più intelligente)', 'Free cloud (rotates free providers)': 'Cloud gratuito (alterna i provider gratuiti)', 'Claude (subscription)': 'Claude (abbonamento)', 'Loading providers...': 'Caricamento provider...', 'Saving a key persists it; it takes effect after a restart (System tab).': 'Salvare una chiave la conserva; ha effetto dopo un riavvio (scheda Sistema).', 'configured': 'configurato', '•••• set — paste to replace, or Save empty to remove': '•••• impostata — incolla per sostituire, o Salva vuoto per rimuovere', 'Paste API key': 'Incolla la chiave API', 'Removing...': 'Rimozione...', 'Removed.': 'Rimosso.', 'Enter a key.': 'Inserisci una chiave.', 'Could not load providers.': 'Impossibile caricare i provider.', 'Loading skills...': 'Caricamento competenze...', 'No skills match.': 'Nessuna competenza corrisponde.', 'Could not load skills.': 'Impossibile caricare le competenze.', 'Search {n} skills': 'Cerca tra {n} competenze', 'Version': 'Versione', 'Primary model': 'Modello principale', 'Fast model': 'Modello veloce', 'Local model': 'Modello locale', 'Tokens (session)': 'Token (sessione)', '(none)': '(nessuno)', 'Updates': 'Aggiornamenti', 'Update available — {n} new commit(s) on {branch}': 'Aggiornamento disponibile — {n} nuovo/i commit su {branch}', 'Up to date on {branch}.': 'Aggiornato su {branch}.', 'Check for updates': 'Verifica aggiornamenti', 'Upgrade': 'Aggiorna', 'Upgrade now ({n})': 'Aggiorna ora ({n})', 'Checking...': 'Verifica...', 'Check failed.': 'Verifica non riuscita.', 'Upgrade Zamolxis now? It will pull the latest, rebuild, and restart (about a minute).': "Aggiornare Zamolxis ora? Scaricherà l'ultima versione, ricompilerà e riavvierà (circa un minuto).", 'Upgrading — pulling, building, restarting...': 'Aggiornamento — download, build, riavvio...', 'Updated — reloading...': 'Aggiornato — ricaricamento...', 'Still working... reload manually in a bit.': 'Ancora in corso... ricarica manualmente tra poco.', 'Upgrade failed to start.': "Avvio dell'aggiornamento non riuscito.", 'Maintenance': 'Manutenzione', 'Restart Zamolxis': 'Riavvia Zamolxis', 'Open classic UI': "Apri l'interfaccia classica", 'Restarting...': 'Riavvio...', 'Could not load status.': 'Impossibile caricare lo stato.', 'Agent name': "Nome dell'agente", 'Instructions': 'Istruzioni', 'This becomes the agent app. It can run with or without a chat window.': "Questo diventa l'app dell'agente. Può funzionare con o senza finestra di chat.", 'Model': 'Modello', 'Auto, Local, Free cloud, any authenticated provider, or Claude.': 'Auto, Local, Cloud gratuito, qualsiasi provider autenticato o Claude.', 'Create app': "Crea l'app", 'Name is required.': 'Il nome è obbligatorio.', 'Creating...': 'Creazione...', 'Created. Added to the desktop.': 'Creato. Aggiunto al desktop.', 'Backend unreachable.': 'Backend non raggiungibile.', 'e.g. researcher': 'es. ricercatore', 'What should this agent do?': 'Cosa deve fare questo agente?', 'Toggle chat window for this app': 'Attiva/disattiva la finestra di chat per questa app', 'Chat window': 'Finestra di chat', 'Run job': 'Esegui attività', 'Running...': 'Esecuzione...', 'Done': 'Fatto', 'Unreachable': 'Non raggiungibile', 'Ask me to do something, or give me a task.': "Chiedimi qualcosa o assegnami un'attività.", '(no reply)': '(nessuna risposta)', 'Chat window is off — this agent runs headless: it executes its job on demand or on schedule via the existing agent/skill mechanism. Turn the chat on above to talk to it directly.': "La finestra di chat è disattivata — questo agente funziona senza interfaccia: esegue la sua attività su richiesta o pianificata tramite il meccanismo esistente di agenti/competenze. Attiva la chat sopra per parlargli direttamente.", 'Recent activity will appear here.': "L'attività recente apparirà qui.", 'Model: {m}': 'Modello: {m}', '(default)': '(predefinito)', 'Help & Guide': 'Aiuto e guida' }
   };
-  var LANGS = [['en', 'English'], ['es', 'Español'], ['fr', 'Français'], ['de', 'Deutsch']];
+  var LANGS = [['en', 'English'], ['es', 'Español'], ['fr', 'Français'], ['de', 'Deutsch'], ['ro', 'Română'], ['it', 'Italiano']];
   function langChoice() { return localStorage.getItem('zx_lang') || 'en'; }
   function T(s) { var L = langChoice(); if (L === 'en') return s; var d = I18N[L]; return (d && d[s]) || s; }
+  function Tf(s, vars) { var out = T(s); if (vars) Object.keys(vars).forEach(function (k) { out = out.split('{' + k + '}').join(vars[k]); }); return out; }
   function setLang(l) { localStorage.setItem('zx_lang', l); location.reload(); }
   function applyStaticI18n() {
     var lbl = document.getElementById('startmenu-label'); if (lbl) lbl.textContent = T('All apps');
@@ -105,9 +109,9 @@
     var ticon = el('div', 't-icon', spec.iconSvg || '');
     var title = el('div', 't-title', spec.title || 'App');
     var ctrls = el('div', 'win-controls');
-    var bMin = el('button', 'min', "<span class='g'></span>"); bMin.title = 'Minimize';
-    var bMax = el('button', 'max', "<span class='g'></span>"); bMax.title = 'Maximize';
-    var bClose = el('button', 'close', "<span class='g'></span>"); bClose.title = 'Close';
+    var bMin = el('button', 'min', "<span class='g'></span>"); bMin.title = T('Minimize');
+    var bMax = el('button', 'max', "<span class='g'></span>"); bMax.title = T('Maximize');
+    var bClose = el('button', 'close', "<span class='g'></span>"); bClose.title = T('Close');
     ctrls.appendChild(bMin); ctrls.appendChild(bMax); ctrls.appendChild(bClose);
     bar.appendChild(ticon); bar.appendChild(title); bar.appendChild(ctrls);
 
@@ -248,7 +252,7 @@
       item.addEventListener('click', function () { closeStart(); launchApp(a.id); });
       wrap.appendChild(item);
     });
-    if (!list.length) wrap.appendChild(el('div', 'empty', 'No apps match.'));
+    if (!list.length) wrap.appendChild(el('div', 'empty', T('No apps match.')));
   }
 
   // ============================================================
@@ -259,8 +263,9 @@
   function builtinApps() {
     return [
       { id: 'zamolxis', name: AGENT_NAME, iconSvg: ICON.zamolxis, kind: 'builtin' },
-      { id: 'settings', name: 'Settings', iconSvg: ICON.settings, kind: 'builtin' },
-      { id: 'newagent', name: 'New Agent', iconSvg: ICON.newagent, kind: 'builtin' }
+      { id: 'settings', name: T('Settings'), iconSvg: ICON.settings, kind: 'builtin' },
+      { id: 'newagent', name: T('New Agent'), iconSvg: ICON.newagent, kind: 'builtin' },
+      { id: 'help', name: T('Help'), iconSvg: ICON.help, kind: 'builtin' }
     ];
   }
   function appList() {
@@ -299,8 +304,9 @@
     if (openByApp[appId] && wins[openByApp[appId]]) { focusWin(wins[openByApp[appId]]); return wins[openByApp[appId]]; }
     var spec;
     if (appId === 'zamolxis') spec = { appId: appId, title: AGENT_NAME, iconSvg: ICON.zamolxis, w: 460, h: 620, onMount: mountChat };
-    else if (appId === 'settings') spec = { appId: appId, title: 'Settings', iconSvg: ICON.settings, w: 620, h: 520, onMount: mountSettings };
-    else if (appId === 'newagent') spec = { appId: appId, title: 'New Agent', iconSvg: ICON.newagent, w: 460, h: 480, onMount: mountNewAgent };
+    else if (appId === 'settings') spec = { appId: appId, title: T('Settings'), iconSvg: ICON.settings, w: 620, h: 520, onMount: mountSettings };
+    else if (appId === 'newagent') spec = { appId: appId, title: T('New Agent'), iconSvg: ICON.newagent, w: 460, h: 480, onMount: mountNewAgent };
+    else if (appId === 'help') spec = { appId: appId, title: T('Help'), iconSvg: ICON.help, w: 720, h: 600, onMount: mountHelp };
     else if (app.kind === 'agent') spec = { appId: appId, title: app.name, iconSvg: app.iconSvg || agentIconSvg(app.name), w: 520, h: 560, onMount: function (b, w) { mountAgent(b, w, app.agent); } };
     if (!spec) return null;
     var w = makeWindow(spec);
@@ -331,11 +337,11 @@
     ]).then(function (res) {
       var provs = (res[0] && res[0].providers) || [];
       var st = res[1] || {};
-      var opts = [['auto', 'Auto (smartest decides)']];
+      var opts = [['auto', T('Auto (smartest decides)')]];
       if (st.models && st.models.local) opts.push(['local', 'Local (' + st.models.local + ')']);
-      opts.push(['freecloud', 'Free cloud (rotates free providers)']);
+      opts.push(['freecloud', T('Free cloud (rotates free providers)')]);
       provs.filter(function (p) { return p.configured; }).forEach(function (p) { opts.push([p.id, p.label + (p.kind === 'free' ? ' · free' : '')]); });
-      opts.push(['claude', 'Claude (subscription)']);
+      opts.push(['claude', T('Claude (subscription)')]);
       return opts;
     });
   }
@@ -364,14 +370,14 @@
     fillSelect(sel, [['auto', 'Auto']], savedRoute);
     fetchModelOpts().then(function (opts) { fillSelect(sel, opts, savedRoute); });
     sel.addEventListener('change', function () { localStorage.setItem('zx_route_' + cid, sel.value); });
-    var stat = el('span'); stat.style.marginLeft = 'auto'; stat.textContent = 'connecting...';
+    var stat = el('span'); stat.style.marginLeft = 'auto'; stat.textContent = T('connecting...');
     if (opts && opts.route) bar.appendChild(sel);
     bar.appendChild(stat);
 
     var log = el('div', 'chat-log');
     var chips = el('div'); chips.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;padding:0 10px';
     var inputRow = el('div', 'chat-input');
-    var attach = el('button'); attach.textContent = '📎'; attach.title = 'Attach files'; attach.style.cssText = 'padding:0 12px;background:#e5e5e5;border:0;border-radius:8px;cursor:pointer';
+    var attach = el('button'); attach.textContent = '📎'; attach.title = T('Attach files'); attach.style.cssText = 'padding:0 12px;background:#e5e5e5;border:0;border-radius:8px;cursor:pointer';
     var fileIn = el('input'); fileIn.type = 'file'; fileIn.multiple = true; fileIn.style.display = 'none';
     var ta = el('textarea'); ta.placeholder = T('Message') + ' ' + AGENT_NAME + '...';
     var send = el('button'); send.textContent = T('Send');
@@ -399,14 +405,14 @@
     var sock, streamEl = null;
     function connect() {
       sock = new WebSocket(proto + '://' + location.host + '/?cid=' + encodeURIComponent(cid) + '&token=');
-      sock.onopen = function () { stat.textContent = '● connected'; stat.style.color = '#2e9e3f'; };
-      sock.onclose = function () { stat.textContent = '● reconnecting'; stat.style.color = '#d13438'; setTimeout(function () { if (!win.closed) connect(); }, 2500); };
-      sock.onerror = function () { stat.textContent = '● error'; stat.style.color = '#d13438'; };
+      sock.onopen = function () { stat.textContent = '● ' + T('connected'); stat.style.color = '#2e9e3f'; };
+      sock.onclose = function () { stat.textContent = '● ' + T('reconnecting'); stat.style.color = '#d13438'; setTimeout(function () { if (!win.closed) connect(); }, 2500); };
+      sock.onerror = function () { stat.textContent = '● ' + T('error'); stat.style.color = '#d13438'; };
       sock.onmessage = function (ev) {
         var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
         if (m.type === 'status') return;
         if (m.type === 'chunk') { if (!streamEl) streamEl = addMsg(AGENT_NAME, '', 'bot', null, false); streamEl.textContent += m.text; log.scrollTop = log.scrollHeight; return; }
-        if (m.type === 'reply') { if (streamEl) { streamEl.textContent = m.text; streamEl = null; pushChatLog(logKey, { who: AGENT_NAME, text: m.text, cls: 'bot' }); } else { addMsg(AGENT_NAME, m.text, 'bot'); } stat.textContent = '● connected'; }
+        if (m.type === 'reply') { if (streamEl) { streamEl.textContent = m.text; streamEl = null; pushChatLog(logKey, { who: AGENT_NAME, text: m.text, cls: 'bot' }); } else { addMsg(AGENT_NAME, m.text, 'bot'); } stat.textContent = '● ' + T('connected'); }
       };
     }
     connect();
@@ -416,7 +422,7 @@
       var t = ta.value.trim(); var files = pending.slice();
       if ((!t && !files.length) || !sock || sock.readyState !== WebSocket.OPEN) return;
       var shown = t + (files.length ? ((t ? '\n' : '') + files.map(function (f) { return '📎 ' + f.name; }).join('\n')) : '');
-      addMsg('You', shown || '(file)', 'user'); ta.value = ''; streamEl = null; stat.textContent = 'thinking...';
+      addMsg(T('You'), shown || '(file)', 'user'); ta.value = ''; streamEl = null; stat.textContent = T('thinking...');
       if (!files.length) { sock.send(JSON.stringify({ text: t, route: sel.value })); return; }
       pending = []; renderChips();
       // Text-readable files: inject content inline (any model can read → route by your choice). Others (images/PDF/Office): upload + Claude tools.
@@ -433,13 +439,13 @@
       var base = (t || '') + (inj.length ? ((t ? '\n\n' : '') + inj.join('\n\n')) : '');
       var imgsP = imgs.length ? imgs : undefined;
       if (!upl.length) { sock.send(JSON.stringify({ text: base || '(see attached content)', route: sel.value, images: imgsP })); return; }
-      stat.textContent = 'uploading...';
+      stat.textContent = T('uploading...');
       Promise.all(upl.map(function (f) { return api('/api/upload', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ chatId: cid, name: f.name, contentB64: f.b64 }) }).then(function (d) { return d || null; }).catch(function () { return null; }); })).then(function (rs) {
         var docTexts = [], paths = [], hasBinary = false;
         rs.filter(Boolean).forEach(function (x) { if (x.text) { docTexts.push('----- ' + (x.name || 'file') + ' -----\n' + x.text + '\n-----'); } else if (x.path) { paths.push(x.path); if (!IMG_EXT.test(x.name || '')) hasBinary = true; } });
         var body2 = base + (docTexts.length ? ((base ? '\n\n' : '') + docTexts.join('\n\n')) : '');
         var note = body2 + ((body2 && paths.length) ? '\n\n' : '') + (paths.length ? ('Attached file(s) - read them with your tools to answer:\n' + paths.map(function (p) { return '- ' + p; }).join('\n')) : '');
-        stat.textContent = 'thinking...'; sock.send(JSON.stringify({ text: note, route: hasBinary ? 'claude' : sel.value, images: imgsP }));
+        stat.textContent = T('thinking...'); sock.send(JSON.stringify({ text: note, route: hasBinary ? 'claude' : sel.value, images: imgsP }));
       });
     }
     send.addEventListener('click', doSend);
@@ -450,7 +456,7 @@
   // ---------- App: Settings (tabbed, wired to the real backend) ----------
   function osName(o) { return o === 'mac' ? 'macOS' : (o === 'ubuntu' ? 'Ubuntu' : 'Windows'); }
   function postSettings(patch) { return api('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch) }); }
-  function restartZam(btn, status) { if (btn) btn.disabled = true; if (status) status.textContent = 'Restarting...'; api('/api/restart', { method: 'POST' }).then(function () { setTimeout(function () { location.reload(); }, 4500); }).catch(function () { if (btn) btn.disabled = false; if (status) status.textContent = 'Failed.'; }); }
+  function restartZam(btn, status) { if (btn) btn.disabled = true; if (status) status.textContent = T('Restarting...'); api('/api/restart', { method: 'POST' }).then(function () { setTimeout(function () { location.reload(); }, 4500); }).catch(function () { if (btn) btn.disabled = false; if (status) status.textContent = T('Failed.'); }); }
   function fld(labelTxt, node, hint) { var f = el('div', 'field'); f.appendChild(el('label', null, labelTxt)); if (hint) f.appendChild(el('div', 'hint', hint)); f.appendChild(node); return f; }
   function inp(val) { var i = el('input', 'inp'); i.style.width = '100%'; i.value = (val == null ? '' : val); return i; }
 
@@ -518,7 +524,7 @@
   }
 
   function tabEngine(pane) {
-    pane.appendChild(el('div', 'hint', 'Loading...'));
+    pane.appendChild(el('div', 'hint', T('Loading...')));
     api('/api/settings').then(function (s) {
       pane.innerHTML = '';
       var live = s.live || {};
@@ -539,76 +545,76 @@
       routing.addEventListener('click', function () { routing.classList.toggle('on'); });
       var sys = el('textarea', 'inp'); sys.style.cssText = 'width:100%;height:80px'; sys.value = live.systemPromptAppend || '';
 
-      pane.appendChild(el('div', 'hint', 'Each model can be a Claude variant, Local, or any authenticated free provider. Model = answers your chats · Fast = simple turns · Smartest = hard turns / final fallback. "Claude (default)" keeps Claude as the rescue tier.'));
-      pane.appendChild(fld('Model (answers your chats)', model));
-      pane.appendChild(fld('Fast model (simple turns)', fast));
-      pane.appendChild(fld('Smartest model (hard turns / final fallback)', smart));
-      pane.appendChild(fld('Assistant name', name));
-      pane.appendChild(fld('Permission mode', perm));
-      var row = el('div', 'row2'); var c1 = el('div'); c1.style.flex = '1'; c1.appendChild(fld('Max turns', turns)); var c2 = el('div'); c2.style.flex = '1'; c2.appendChild(fld('Max concurrent', conc)); row.appendChild(c1); row.appendChild(c2); pane.appendChild(row);
-      pane.appendChild(fld('Turn timeout (seconds)', tmo, 'How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.'));
-      var rrow = el('div'); rrow.style.cssText = 'display:flex;align-items:center;gap:8px'; rrow.appendChild(routing); rrow.appendChild(el('span', 'hint', 'Local-model routing (auto / off)')); pane.appendChild(fld('Routing', rrow));
-      pane.appendChild(fld('System prompt append', sys));
-      var status = el('span', 'hint'); var save = el('button', 'btn', 'Save');
+      pane.appendChild(el('div', 'hint', T('Each model can be a Claude variant, Local, or any authenticated free provider. Model = answers your chats · Fast = simple turns · Smartest = hard turns / final fallback. "Claude (default)" keeps Claude as the rescue tier.')));
+      pane.appendChild(fld(T('Model (answers your chats)'), model));
+      pane.appendChild(fld(T('Fast model (simple turns)'), fast));
+      pane.appendChild(fld(T('Smartest model (hard turns / final fallback)'), smart));
+      pane.appendChild(fld(T('Assistant name'), name));
+      pane.appendChild(fld(T('Permission mode'), perm));
+      var row = el('div', 'row2'); var c1 = el('div'); c1.style.flex = '1'; c1.appendChild(fld(T('Max turns'), turns)); var c2 = el('div'); c2.style.flex = '1'; c2.appendChild(fld(T('Max concurrent'), conc)); row.appendChild(c1); row.appendChild(c2); pane.appendChild(row);
+      pane.appendChild(fld(T('Turn timeout (seconds)'), tmo, T('How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.')));
+      var rrow = el('div'); rrow.style.cssText = 'display:flex;align-items:center;gap:8px'; rrow.appendChild(routing); rrow.appendChild(el('span', 'hint', T('Local-model routing (auto / off)'))); pane.appendChild(fld(T('Routing'), rrow));
+      pane.appendChild(fld(T('System prompt append'), sys));
+      var status = el('span', 'hint'); var save = el('button', 'btn', T('Save'));
       var sr = el('div', 'save-row'); sr.appendChild(save); sr.appendChild(status); pane.appendChild(sr);
       save.addEventListener('click', function () {
-        save.disabled = true; status.textContent = 'Saving...';
+        save.disabled = true; status.textContent = T('Saving...');
         postSettings({ live: { agentName: name.value.trim(), model: model.value, fastModel: fast.value, smartModel: smart.value, permissionMode: perm.value, maxTurns: Number(turns.value) || undefined, maxConcurrent: Number(conc.value) || undefined, turnTimeoutSeconds: Number(tmo.value) || undefined, localRouting: routing.classList.contains('on') ? 'auto' : 'off', systemPromptAppend: sys.value } })
-          .then(function (r) { save.disabled = false; status.textContent = 'Saved.' + (r && r.restartRequired ? ' Some changes need a restart (System tab).' : ''); })
-          .catch(function () { save.disabled = false; status.textContent = 'Failed.'; });
+          .then(function (r) { save.disabled = false; status.textContent = T('Saved.') + (r && r.restartRequired ? T(' Some changes need a restart (System tab).') : ''); })
+          .catch(function () { save.disabled = false; status.textContent = T('Failed.'); });
       });
-    }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', 'Could not load settings.')); });
+    }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', T('Could not load settings.'))); });
   }
 
   function tabProviders(pane) {
-    pane.appendChild(el('div', 'hint', 'Loading providers...'));
+    pane.appendChild(el('div', 'hint', T('Loading providers...')));
     api('/api/providers').then(function (d) {
       pane.innerHTML = '';
-      pane.appendChild(el('div', 'hint', 'Saving a key persists it; it takes effect after a restart (System tab).'));
+      pane.appendChild(el('div', 'hint', T('Saving a key persists it; it takes effect after a restart (System tab).')));
       (d.providers || []).forEach(function (p) {
         var card = el('div', 'prov');
         var top = el('div', 'top');
         top.appendChild(el('span', 'name', p.label || p.id));
         top.appendChild(el('span', 'tag ' + (p.kind === 'paid' ? 'paid' : 'free'), p.kind || 'free'));
-        if (p.configured) top.appendChild(el('span', 'tag ok', 'configured'));
+        if (p.configured) top.appendChild(el('span', 'tag ok', T('configured')));
         card.appendChild(top);
         card.appendChild(el('div', 'hint', (p.model || '') + (p.note ? (' — ' + p.note) : '') + (typeof p.used === 'number' ? (' · used ' + p.used + (p.freeDaily ? ('/' + p.freeDaily) : '')) : '')));
         if (p.envKey) {
           var krow = el('div'); krow.style.cssText = 'display:flex;gap:8px;margin-top:8px';
           var key = el('input', 'inp'); key.type = 'password'; key.style.flex = '1';
-          key.placeholder = p.configured ? '•••• set — paste to replace, or Save empty to remove' : 'Paste API key';
-          var sv = el('button', 'btn', 'Save'); var st = el('div', 'hint'); st.style.marginTop = '4px';
+          key.placeholder = p.configured ? T('•••• set — paste to replace, or Save empty to remove') : T('Paste API key');
+          var sv = el('button', 'btn', T('Save')); var st = el('div', 'hint'); st.style.marginTop = '4px';
           krow.appendChild(key); krow.appendChild(sv);
           function clearKey() {
-            sv.disabled = true; st.textContent = 'Removing...';
-            postSettings({ clearCredentials: [p.envKey] }).then(function () { st.textContent = 'Removed.'; tabProviders(pane); }).catch(function () { sv.disabled = false; st.textContent = 'Failed.'; });
+            sv.disabled = true; st.textContent = T('Removing...');
+            postSettings({ clearCredentials: [p.envKey] }).then(function () { st.textContent = T('Removed.'); tabProviders(pane); }).catch(function () { sv.disabled = false; st.textContent = T('Failed.'); });
           }
-          if (p.configured) { var rm = el('button', 'btn ghost', 'Remove'); rm.addEventListener('click', clearKey); krow.appendChild(rm); }
+          if (p.configured) { var rm = el('button', 'btn ghost', T('Remove')); rm.addEventListener('click', clearKey); krow.appendChild(rm); }
           card.appendChild(krow); card.appendChild(st);
           sv.addEventListener('click', function () {
             var v = key.value.trim();
-            if (!v) { if (p.configured) clearKey(); else st.textContent = 'Enter a key.'; return; }
-            sv.disabled = true; st.textContent = 'Saving...'; var cred = {}; cred[p.envKey] = v;
-            postSettings({ credentials: cred }).then(function () { sv.disabled = false; key.value = ''; st.textContent = 'Saved.'; tabProviders(pane); }).catch(function () { sv.disabled = false; st.textContent = 'Failed.'; });
+            if (!v) { if (p.configured) clearKey(); else st.textContent = T('Enter a key.'); return; }
+            sv.disabled = true; st.textContent = T('Saving...'); var cred = {}; cred[p.envKey] = v;
+            postSettings({ credentials: cred }).then(function () { sv.disabled = false; key.value = ''; st.textContent = T('Saved.'); tabProviders(pane); }).catch(function () { sv.disabled = false; st.textContent = T('Failed.'); });
           });
         }
         pane.appendChild(card);
       });
-    }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', 'Could not load providers.')); });
+    }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', T('Could not load providers.'))); });
   }
 
   function tabSkills(pane) {
-    pane.appendChild(el('div', 'hint', 'Loading skills...'));
+    pane.appendChild(el('div', 'hint', T('Loading skills...')));
     api('/api/skills').then(function (arr) {
       pane.innerHTML = '';
       var list = Array.isArray(arr) ? arr : [];
-      var search = inp(''); search.placeholder = 'Search ' + list.length + ' skills'; search.style.marginBottom = '10px';
+      var search = inp(''); search.placeholder = Tf('Search {n} skills', { n: list.length }); search.style.marginBottom = '10px';
       pane.appendChild(search);
       var box = el('div'); pane.appendChild(box);
       function draw(f) {
         box.innerHTML = ''; var q = (f || '').toLowerCase();
         var shown = list.filter(function (s) { return !q || (s.name + ' ' + (s.description || '')).toLowerCase().indexOf(q) !== -1; });
-        if (!shown.length) { box.appendChild(el('div', 'empty', 'No skills match.')); return; }
+        if (!shown.length) { box.appendChild(el('div', 'empty', T('No skills match.'))); return; }
         shown.forEach(function (s) {
           var rowEl = el('div', 'skill');
           var meta = el('div', 'meta');
@@ -616,7 +622,7 @@
           meta.appendChild(el('div', 'sdesc', (s.description || '').slice(0, 160)));
           rowEl.appendChild(meta);
           if (s.source === 'external') {
-            var imp = el('button', 'btn ghost', 'Import'); imp.style.cssText = 'padding:5px 10px;flex:0 0 auto';
+            var imp = el('button', 'btn ghost', T('Import')); imp.style.cssText = 'padding:5px 10px;flex:0 0 auto';
             imp.addEventListener('click', function () { imp.disabled = true; api('/api/skills', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'import', slug: s.name }) }).then(function () { s.source = 'own'; draw(search.value); }).catch(function () { imp.disabled = false; }); });
             rowEl.appendChild(imp);
           } else {
@@ -633,103 +639,360 @@
       }
       search.addEventListener('input', function () { draw(this.value); });
       draw('');
-    }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', 'Could not load skills.')); });
+    }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', T('Could not load skills.'))); });
   }
 
   function tabSystem(pane) {
-    pane.appendChild(el('div', 'hint', 'Loading...'));
+    pane.appendChild(el('div', 'hint', T('Loading...')));
     api('/api/status').then(function (s) {
       pane.innerHTML = '';
       var v = s.version || {}, m = s.models || {}, u = s.update || {};
       function kv(k, val) { var r = el('div'); r.style.cssText = 'display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f0f0;font-size:13px'; r.appendChild(el('span', null, k)); var b = el('span'); b.style.color = '#555'; b.textContent = val; r.appendChild(b); return r; }
-      pane.appendChild(kv('Version', (v.pkg || '?') + ' · build ' + (v.build != null ? v.build : '?') + ' · ' + (v.commit || '')));
-      pane.appendChild(kv('Primary model', m.primary || '?'));
-      pane.appendChild(kv('Fast model', m.fast || '?'));
-      pane.appendChild(kv('Local model', m.local || '(none)'));
-      pane.appendChild(kv('Tokens (session)', String((s.engineTokens && s.engineTokens.session) || 0)));
+      pane.appendChild(kv(T('Version'), (v.pkg || '?') + ' · build ' + (v.build != null ? v.build : '?') + ' · ' + (v.commit || '')));
+      pane.appendChild(kv(T('Primary model'), m.primary || '?'));
+      pane.appendChild(kv(T('Fast model'), m.fast || '?'));
+      pane.appendChild(kv(T('Local model'), m.local || T('(none)')));
+      pane.appendChild(kv(T('Tokens (session)'), String((s.engineTokens && s.engineTokens.session) || 0)));
 
       // --- Updates: one-click upgrade (pull + build + restart) ---
-      pane.appendChild(el('label', null, 'Updates'));
+      pane.appendChild(el('label', null, T('Updates')));
       var ustat = el('div', 'hint');
       function setUStat(behind, branch) {
-        ustat.textContent = (behind ? ('⬆ Update available — ' + behind + ' new commit' + (behind > 1 ? 's' : '') + ' on ' + branch) : ('Up to date on ' + (branch || '?') + '.'));
+        ustat.textContent = (behind ? ('⬆ ' + Tf('Update available — {n} new commit(s) on {branch}', { n: behind, branch: branch })) : Tf('Up to date on {branch}.', { branch: branch || '?' }));
       }
       setUStat(u.behind, u.branch);
       pane.appendChild(ustat);
       var upRow = el('div', 'save-row');
-      var checkBtn = el('button', 'btn ghost', 'Check for updates');
-      var upBtn = el('button', 'btn', u.behind ? ('Upgrade now (' + u.behind + ')') : 'Upgrade');
+      var checkBtn = el('button', 'btn ghost', T('Check for updates'));
+      var upBtn = el('button', 'btn', u.behind ? Tf('Upgrade now ({n})', { n: u.behind }) : T('Upgrade'));
       var upMsg = el('span', 'hint');
       upRow.appendChild(checkBtn); upRow.appendChild(upBtn); upRow.appendChild(upMsg); pane.appendChild(upRow);
 
       checkBtn.addEventListener('click', function () {
-        checkBtn.disabled = true; upMsg.textContent = 'Checking...';
+        checkBtn.disabled = true; upMsg.textContent = T('Checking...');
         api('/api/checkupdate', { method: 'POST' }).then(function (uu) {
           checkBtn.disabled = false; upMsg.textContent = '';
           setUStat(uu && uu.behind, uu && uu.branch);
-          upBtn.textContent = (uu && uu.behind) ? ('Upgrade now (' + uu.behind + ')') : 'Upgrade';
-        }).catch(function () { checkBtn.disabled = false; upMsg.textContent = 'Check failed.'; });
+          upBtn.textContent = (uu && uu.behind) ? Tf('Upgrade now ({n})', { n: uu.behind }) : T('Upgrade');
+        }).catch(function () { checkBtn.disabled = false; upMsg.textContent = T('Check failed.'); });
       });
       upBtn.addEventListener('click', function () {
-        if (!confirm('Upgrade Zamolxis now? It will pull the latest, rebuild, and restart (about a minute).')) return;
-        upBtn.disabled = true; checkBtn.disabled = true; upMsg.textContent = 'Upgrading — pulling, building, restarting...';
+        if (!confirm(T('Upgrade Zamolxis now? It will pull the latest, rebuild, and restart (about a minute).'))) return;
+        upBtn.disabled = true; checkBtn.disabled = true; upMsg.textContent = T('Upgrading — pulling, building, restarting...');
         var before = (s.build && s.build.started) || 0;
         api('/api/update', { method: 'POST' }).then(function () {
           var tries = 0;
           (function poll() {
             tries++;
             api('/api/status').then(function (ns) {
-              if (ns && ns.build && ns.build.started && ns.build.started !== before) { upMsg.textContent = 'Updated — reloading...'; setTimeout(function () { location.reload(); }, 800); }
+              if (ns && ns.build && ns.build.started && ns.build.started !== before) { upMsg.textContent = T('Updated — reloading...'); setTimeout(function () { location.reload(); }, 800); }
               else if (tries < 60) { setTimeout(poll, 3000); }
-              else { upMsg.textContent = 'Still working... reload manually in a bit.'; }
+              else { upMsg.textContent = T('Still working... reload manually in a bit.'); }
             }).catch(function () { if (tries < 60) setTimeout(poll, 3000); });
           })();
-        }).catch(function () { upBtn.disabled = false; checkBtn.disabled = false; upMsg.textContent = 'Upgrade failed to start.'; });
+        }).catch(function () { upBtn.disabled = false; checkBtn.disabled = false; upMsg.textContent = T('Upgrade failed to start.'); });
       });
 
       // --- Maintenance ---
-      pane.appendChild(el('label', null, 'Maintenance'));
-      var rb = el('button', 'btn ghost', 'Restart Zamolxis');
-      var cl = el('a', 'btn ghost', 'Open classic UI'); cl.href = '/classic'; cl.target = '_blank'; cl.style.cssText = 'text-decoration:none;line-height:30px';
+      pane.appendChild(el('label', null, T('Maintenance')));
+      var rb = el('button', 'btn ghost', T('Restart Zamolxis'));
+      var cl = el('a', 'btn ghost', T('Open classic UI')); cl.href = '/classic'; cl.target = '_blank'; cl.style.cssText = 'text-decoration:none;line-height:30px';
       var st = el('span', 'hint');
       var sr = el('div', 'save-row'); sr.appendChild(rb); sr.appendChild(cl); sr.appendChild(st); pane.appendChild(sr);
       rb.addEventListener('click', function () { restartZam(rb, st); });
-    }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', 'Could not load status.')); });
+    }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', T('Could not load status.'))); });
   }
 
   // ---------- App: New Agent ----------
   function mountNewAgent(body, win) {
     var pad = el('div', 'app-pad');
     function field(labelTxt, node, hint) { var f = el('div', 'field'); f.appendChild(el('label', null, labelTxt)); if (hint) f.appendChild(el('div', 'hint', hint)); f.appendChild(node); return f; }
-    var name = el('input'); name.placeholder = 'e.g. researcher';
-    var job = el('textarea'); job.rows = 4; job.placeholder = 'What should this agent do?';
+    var name = el('input'); name.placeholder = T('e.g. researcher');
+    var job = el('textarea'); job.rows = 4; job.placeholder = T('What should this agent do?');
     var model = el('select');
     name.style.cssText = 'width:100%;height:36px;border:1px solid #d6d6d6;border-radius:8px;padding:0 10px;font:inherit';
     model.style.cssText = 'width:100%;height:36px;border:1px solid #d6d6d6;border-radius:8px;padding:0 10px;font:inherit';
     job.style.cssText = 'width:100%;border:1px solid #d6d6d6;border-radius:8px;padding:8px 10px;font:inherit;resize:vertical';
     fillSelect(model, [['auto', 'Auto']], 'auto');
     fetchModelOpts().then(function (opts) { fillSelect(model, opts, 'auto'); });
-    pad.appendChild(field('Agent name', name));
-    pad.appendChild(field('Instructions', job, 'This becomes the agent app. It can run with or without a chat window.'));
-    pad.appendChild(field('Model', model, 'Auto, Local, Free cloud, any authenticated provider, or Claude.'));
+    pad.appendChild(field(T('Agent name'), name));
+    pad.appendChild(field(T('Instructions'), job, T('This becomes the agent app. It can run with or without a chat window.')));
+    pad.appendChild(field(T('Model'), model, T('Auto, Local, Free cloud, any authenticated provider, or Claude.')));
     var msg = el('div', 'hint'); msg.style.minHeight = '16px';
-    var create = el('button', 'btn', 'Create app');
+    var create = el('button', 'btn', T('Create app'));
     create.addEventListener('click', function () {
-      var n = name.value.trim(); if (!n) { msg.textContent = 'Name is required.'; return; }
-      create.disabled = true; msg.textContent = 'Creating...';
+      var n = name.value.trim(); if (!n) { msg.textContent = T('Name is required.'); return; }
+      create.disabled = true; msg.textContent = T('Creating...');
       api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'create', name: n, job: job.value.trim(), model: (model.value && model.value !== 'auto') ? model.value : undefined }) })
         .then(function (d) {
           create.disabled = false;
           if (d && d.error) { msg.textContent = String(d.error); return; }
-          msg.textContent = 'Created. Added to the desktop.';
+          msg.textContent = T('Created. Added to the desktop.');
           if (d && d.agents) agents = d.agents; else loadAgents();
           renderDesktop();
         })
-        .catch(function () { create.disabled = false; msg.textContent = 'Backend unreachable.'; });
+        .catch(function () { create.disabled = false; msg.textContent = T('Backend unreachable.'); });
     });
     var row = el('div'); row.style.cssText = 'display:flex;gap:10px;align-items:center'; row.appendChild(create); row.appendChild(msg);
     pad.appendChild(row);
     body.appendChild(pad);
+  }
+
+  // ---------- App: Help (extensive guide, localized) ----------
+  var HELP = {
+    en: `<h2>Zamolxis — Help &amp; Guide</h2>
+<p>Zamolxis is your always-on personal assistant with a desktop you can use like a real operating system. This guide explains every part of the interface.</p>
+<h3>The desktop</h3>
+<ul>
+<li><b>Windows</b> — every app opens in a window you can drag by its title bar, resize from any edge, minimize, maximize, or close.</li>
+<li><b>Taskbar</b> — shows running apps; click one to focus it, or click it again to minimize. Zamolxis is always pinned.</li>
+<li><b>Start menu</b> — click Start to see all apps and search them by name.</li>
+<li><b>Desktop icons</b> — double-click to open an app. Drag icons anywhere; their position is remembered.</li>
+</ul>
+<h3>Apps are agents</h3>
+<p>In Zamolxis every app is an agent (an AI worker). <b>Zamolxis</b> is the default app and hosts your main chat. Use <b>New Agent</b> to create your own: give it a name, instructions (what it should do) and a model. Each agent has a <b>Chat window</b> switch — turn it off to run headless (on demand or on a schedule) with just an activity feed, or on to chat with it directly.</p>
+<h3>Chatting</h3>
+<ul>
+<li>Type your message and press Enter to send (Shift+Enter for a new line).</li>
+<li>The <b>Route</b> selector picks which model answers: Auto, a local model, the free-cloud rotation, any provider you set up, or Claude.</li>
+<li>The <b>attach</b> button adds files to your message (see Files below).</li>
+<li>Conversations are saved on this device and restored when you reopen the app.</li>
+</ul>
+<h3>Models &amp; routing</h3>
+<p>Zamolxis answers with a <b>free</b> model whenever one can do the job, and escalates to your Claude subscription only when needed — saving your Claude usage. In <b>Settings → Engine</b> you set three roles: <b>Model</b> (answers your chats), <b>Fast</b> (simple turns) and <b>Smartest</b> (hard turns / final fallback). Each can be a Claude variant, a local model, or any authenticated free provider.</p>
+<h3>Providers &amp; free keys</h3>
+<p>In <b>Settings → Providers</b> you can paste an API key for each provider (many have generous free tiers — Google Gemini, Cerebras, Groq and more). A key takes effect after a restart (System tab). Saving an empty key, or pressing <b>Remove</b>, deletes that provider's key.</p>
+<h3>Files</h3>
+<ul>
+<li><b>Text &amp; code</b> — read inline by any model.</li>
+<li><b>PDF, Word, Excel, PowerPoint</b> — their text is extracted on the server so any model can read it.</li>
+<li><b>Images</b> — sent to a free vision model (Gemini) to be described or analyzed.</li>
+</ul>
+<p>The same free-first rule applies: only files that truly need Claude are routed to it.</p>
+<h3>Skills</h3>
+<p><b>Settings → Skills</b> lists the abilities Zamolxis can use. Toggle one on or off, or <b>Import</b> an external skill to make it your own.</p>
+<h3>Appearance &amp; language</h3>
+<p><b>Settings → Appearance</b> lets you match Windows, macOS or Ubuntu (or Auto-detect), switch Light/Dark (or follow the system), and choose the interface <b>Language</b>. English is the default; anything not yet translated stays in English.</p>
+<h3>Keeping up to date</h3>
+<p><b>Settings → System</b> shows your version and a one-click <b>Upgrade</b> that pulls the latest, rebuilds and restarts — no manual commands. You can also restart Zamolxis or open the classic interface here.</p>
+<h3>Tips</h3>
+<ul>
+<li>Click the clock to open Settings quickly.</li>
+<li>Double-click a window's title bar to maximize it.</li>
+<li>Your open windows and their positions are restored next time you load the desktop.</li>
+</ul>`,
+    es: `<h2>Zamolxis — Ayuda y guía</h2>
+<p>Zamolxis es tu asistente personal siempre activo, con un escritorio que puedes usar como un sistema operativo real. Esta guía explica cada parte de la interfaz.</p>
+<h3>El escritorio</h3>
+<ul>
+<li><b>Ventanas</b> — cada app se abre en una ventana que puedes arrastrar por su barra de título, redimensionar desde cualquier borde, minimizar, maximizar o cerrar.</li>
+<li><b>Barra de tareas</b> — muestra las apps en ejecución; haz clic para enfocar una o clic de nuevo para minimizarla. Zamolxis siempre está fijado.</li>
+<li><b>Menú de inicio</b> — haz clic en Inicio para ver todas las apps y buscarlas por nombre.</li>
+<li><b>Iconos del escritorio</b> — doble clic para abrir una app. Arrastra los iconos a donde quieras; se recuerda su posición.</li>
+</ul>
+<h3>Las apps son agentes</h3>
+<p>En Zamolxis cada app es un agente (un trabajador de IA). <b>Zamolxis</b> es la app predeterminada y aloja tu chat principal. Usa <b>Nuevo agente</b> para crear el tuyo: dale un nombre, instrucciones (qué debe hacer) y un modelo. Cada agente tiene un interruptor de <b>Ventana de chat</b> — desactívalo para ejecutarlo sin interfaz (bajo demanda o según horario) con solo un registro de actividad, o actívalo para hablar con él directamente.</p>
+<h3>Conversar</h3>
+<ul>
+<li>Escribe tu mensaje y pulsa Enter para enviar (Mayús+Enter para una nueva línea).</li>
+<li>El selector de <b>Ruta</b> elige qué modelo responde: Auto, un modelo local, la rotación de nube gratuita, cualquier proveedor que hayas configurado o Claude.</li>
+<li>El botón de <b>adjuntar</b> añade archivos a tu mensaje (ver Archivos más abajo).</li>
+<li>Las conversaciones se guardan en este dispositivo y se restauran al reabrir la app.</li>
+</ul>
+<h3>Modelos y enrutamiento</h3>
+<p>Zamolxis responde con un modelo <b>gratuito</b> siempre que alguno pueda hacer el trabajo, y solo recurre a tu suscripción de Claude cuando hace falta, ahorrando tu uso de Claude. En <b>Ajustes → Motor</b> defines tres roles: <b>Modelo</b> (responde tus chats), <b>Rápido</b> (turnos simples) y <b>Más inteligente</b> (turnos difíciles / respaldo final). Cada uno puede ser una variante de Claude, un modelo local o cualquier proveedor gratuito autenticado.</p>
+<h3>Proveedores y claves gratuitas</h3>
+<p>En <b>Ajustes → Proveedores</b> puedes pegar una clave API para cada proveedor (muchos tienen generosos planes gratuitos: Google Gemini, Cerebras, Groq y más). Una clave surte efecto tras reiniciar (pestaña Sistema). Guardar una clave vacía, o pulsar <b>Quitar</b>, elimina la clave de ese proveedor.</p>
+<h3>Archivos</h3>
+<ul>
+<li><b>Texto y código</b> — los lee directamente cualquier modelo.</li>
+<li><b>PDF, Word, Excel, PowerPoint</b> — su texto se extrae en el servidor para que cualquier modelo pueda leerlo.</li>
+<li><b>Imágenes</b> — se envían a un modelo de visión gratuito (Gemini) para describirlas o analizarlas.</li>
+</ul>
+<p>Se aplica la misma regla de gratis primero: solo los archivos que realmente necesitan a Claude se le envían.</p>
+<h3>Habilidades</h3>
+<p><b>Ajustes → Habilidades</b> enumera las capacidades que Zamolxis puede usar. Activa o desactiva una, o <b>Importa</b> una habilidad externa para hacerla tuya.</p>
+<h3>Apariencia e idioma</h3>
+<p><b>Ajustes → Apariencia</b> te permite imitar Windows, macOS o Ubuntu (o detectarlo automáticamente), alternar entre claro y oscuro (o seguir al sistema) y elegir el <b>Idioma</b> de la interfaz. El inglés es el predeterminado; lo que aún no esté traducido permanece en inglés.</p>
+<h3>Mantenerse al día</h3>
+<p><b>Ajustes → Sistema</b> muestra tu versión y un botón <b>Actualizar</b> de un clic que descarga lo último, recompila y reinicia, sin comandos manuales. Aquí también puedes reiniciar Zamolxis o abrir la interfaz clásica.</p>
+<h3>Consejos</h3>
+<ul>
+<li>Haz clic en el reloj para abrir Ajustes rápidamente.</li>
+<li>Doble clic en la barra de título de una ventana para maximizarla.</li>
+<li>Tus ventanas abiertas y sus posiciones se restauran la próxima vez que cargues el escritorio.</li>
+</ul>`,
+    fr: `<h2>Zamolxis — Aide et guide</h2>
+<p>Zamolxis est votre assistant personnel toujours actif, doté d'un bureau que vous utilisez comme un véritable système d'exploitation. Ce guide explique chaque partie de l'interface.</p>
+<h3>Le bureau</h3>
+<ul>
+<li><b>Fenêtres</b> — chaque app s'ouvre dans une fenêtre que vous pouvez déplacer par sa barre de titre, redimensionner depuis n'importe quel bord, réduire, agrandir ou fermer.</li>
+<li><b>Barre des tâches</b> — affiche les apps en cours ; cliquez pour en activer une, ou recliquez pour la réduire. Zamolxis est toujours épinglé.</li>
+<li><b>Menu Démarrer</b> — cliquez sur Démarrer pour voir toutes les apps et les rechercher par nom.</li>
+<li><b>Icônes du bureau</b> — double-cliquez pour ouvrir une app. Déplacez les icônes où vous voulez ; leur position est mémorisée.</li>
+</ul>
+<h3>Les apps sont des agents</h3>
+<p>Dans Zamolxis, chaque app est un agent (un travailleur IA). <b>Zamolxis</b> est l'app par défaut et héberge votre discussion principale. Utilisez <b>Nouvel agent</b> pour créer le vôtre : donnez-lui un nom, des instructions (ce qu'il doit faire) et un modèle. Chaque agent possède un interrupteur <b>Fenêtre de discussion</b> — désactivez-le pour un fonctionnement sans interface (à la demande ou planifié) avec un simple flux d'activité, ou activez-le pour lui parler directement.</p>
+<h3>Discuter</h3>
+<ul>
+<li>Saisissez votre message et appuyez sur Entrée pour l'envoyer (Maj+Entrée pour une nouvelle ligne).</li>
+<li>Le sélecteur <b>Routage</b> choisit le modèle qui répond : Auto, un modèle local, la rotation du cloud gratuit, tout fournisseur configuré, ou Claude.</li>
+<li>Le bouton <b>joindre</b> ajoute des fichiers à votre message (voir Fichiers ci-dessous).</li>
+<li>Les conversations sont enregistrées sur cet appareil et restaurées à la réouverture de l'app.</li>
+</ul>
+<h3>Modèles et routage</h3>
+<p>Zamolxis répond avec un modèle <b>gratuit</b> dès que l'un d'eux peut faire le travail, et ne recourt à votre abonnement Claude que si nécessaire, économisant votre usage de Claude. Dans <b>Paramètres → Moteur</b>, vous définissez trois rôles : <b>Modèle</b> (répond à vos discussions), <b>Rapide</b> (tours simples) et <b>Plus intelligent</b> (tours difficiles / dernier recours). Chacun peut être une variante de Claude, un modèle local ou tout fournisseur gratuit authentifié.</p>
+<h3>Fournisseurs et clés gratuites</h3>
+<p>Dans <b>Paramètres → Fournisseurs</b>, vous pouvez coller une clé API pour chaque fournisseur (beaucoup offrent des paliers gratuits généreux : Google Gemini, Cerebras, Groq et d'autres). Une clé prend effet après un redémarrage (onglet Système). Enregistrer une clé vide, ou appuyer sur <b>Retirer</b>, supprime la clé de ce fournisseur.</p>
+<h3>Fichiers</h3>
+<ul>
+<li><b>Texte et code</b> — lus directement par n'importe quel modèle.</li>
+<li><b>PDF, Word, Excel, PowerPoint</b> — leur texte est extrait sur le serveur pour que tout modèle puisse le lire.</li>
+<li><b>Images</b> — envoyées à un modèle de vision gratuit (Gemini) pour être décrites ou analysées.</li>
+</ul>
+<p>La même règle « gratuit d'abord » s'applique : seuls les fichiers qui nécessitent vraiment Claude lui sont envoyés.</p>
+<h3>Compétences</h3>
+<p><b>Paramètres → Compétences</b> répertorie les capacités que Zamolxis peut utiliser. Activez ou désactivez l'une d'elles, ou <b>Importez</b> une compétence externe pour qu'elle devienne la vôtre.</p>
+<h3>Apparence et langue</h3>
+<p><b>Paramètres → Apparence</b> vous permet d'imiter Windows, macOS ou Ubuntu (ou la détection automatique), de basculer entre clair et sombre (ou de suivre le système) et de choisir la <b>Langue</b> de l'interface. L'anglais est la langue par défaut ; ce qui n'est pas encore traduit reste en anglais.</p>
+<h3>Rester à jour</h3>
+<p><b>Paramètres → Système</b> affiche votre version et un bouton <b>Mettre à jour</b> en un clic qui récupère la dernière version, recompile et redémarre, sans commandes manuelles. Vous pouvez aussi y redémarrer Zamolxis ou ouvrir l'interface classique.</p>
+<h3>Astuces</h3>
+<ul>
+<li>Cliquez sur l'horloge pour ouvrir rapidement les Paramètres.</li>
+<li>Double-cliquez sur la barre de titre d'une fenêtre pour l'agrandir.</li>
+<li>Vos fenêtres ouvertes et leurs positions sont restaurées au prochain chargement du bureau.</li>
+</ul>`,
+    de: `<h2>Zamolxis — Hilfe und Anleitung</h2>
+<p>Zamolxis ist Ihr stets verfügbarer persönlicher Assistent mit einem Desktop, den Sie wie ein echtes Betriebssystem nutzen. Diese Anleitung erklärt jeden Teil der Oberfläche.</p>
+<h3>Der Desktop</h3>
+<ul>
+<li><b>Fenster</b> — jede App öffnet sich in einem Fenster, das Sie an der Titelleiste verschieben, an jeder Kante in der Größe ändern, minimieren, maximieren oder schließen können.</li>
+<li><b>Taskleiste</b> — zeigt laufende Apps; klicken Sie zum Fokussieren oder erneut zum Minimieren. Zamolxis ist immer angeheftet.</li>
+<li><b>Startmenü</b> — klicken Sie auf Start, um alle Apps zu sehen und nach Namen zu suchen.</li>
+<li><b>Desktop-Symbole</b> — doppelklicken zum Öffnen einer App. Ziehen Sie Symbole beliebig; ihre Position wird gemerkt.</li>
+</ul>
+<h3>Apps sind Agenten</h3>
+<p>In Zamolxis ist jede App ein Agent (ein KI-Arbeiter). <b>Zamolxis</b> ist die Standard-App und beherbergt Ihren Haupt-Chat. Mit <b>Neuer Agent</b> erstellen Sie eigene: geben Sie Name, Anweisungen (was er tun soll) und ein Modell an. Jeder Agent hat einen Schalter <b>Chatfenster</b> — schalten Sie ihn aus, um ohne Oberfläche zu laufen (auf Abruf oder nach Zeitplan) mit nur einem Aktivitäts-Feed, oder ein, um direkt mit ihm zu chatten.</p>
+<h3>Chatten</h3>
+<ul>
+<li>Tippen Sie Ihre Nachricht und drücken Sie Enter zum Senden (Umschalt+Enter für eine neue Zeile).</li>
+<li>Der <b>Route</b>-Wähler bestimmt, welches Modell antwortet: Auto, ein lokales Modell, die kostenlose Cloud-Rotation, ein eingerichteter Anbieter oder Claude.</li>
+<li>Die Schaltfläche <b>Anhängen</b> fügt Dateien zu Ihrer Nachricht hinzu (siehe Dateien unten).</li>
+<li>Unterhaltungen werden auf diesem Gerät gespeichert und beim erneuten Öffnen der App wiederhergestellt.</li>
+</ul>
+<h3>Modelle und Routing</h3>
+<p>Zamolxis antwortet mit einem <b>kostenlosen</b> Modell, sobald eines die Aufgabe erledigen kann, und greift nur bei Bedarf auf Ihr Claude-Abonnement zurück — das spart Ihre Claude-Nutzung. Unter <b>Einstellungen → Engine</b> legen Sie drei Rollen fest: <b>Modell</b> (beantwortet Ihre Chats), <b>Schnell</b> (einfache Schritte) und <b>Klügstes</b> (schwierige Schritte / letzte Rückfallebene). Jede kann eine Claude-Variante, ein lokales Modell oder ein beliebiger authentifizierter kostenloser Anbieter sein.</p>
+<h3>Anbieter und kostenlose Schlüssel</h3>
+<p>Unter <b>Einstellungen → Anbieter</b> können Sie für jeden Anbieter einen API-Schlüssel einfügen (viele haben großzügige kostenlose Kontingente — Google Gemini, Cerebras, Groq und mehr). Ein Schlüssel wird nach einem Neustart wirksam (Tab System). Ein leerer Schlüssel beim Speichern oder <b>Entfernen</b> löscht den Schlüssel dieses Anbieters.</p>
+<h3>Dateien</h3>
+<ul>
+<li><b>Text und Code</b> — direkt von jedem Modell gelesen.</li>
+<li><b>PDF, Word, Excel, PowerPoint</b> — ihr Text wird auf dem Server extrahiert, damit jedes Modell ihn lesen kann.</li>
+<li><b>Bilder</b> — an ein kostenloses Vision-Modell (Gemini) gesendet, um beschrieben oder analysiert zu werden.</li>
+</ul>
+<p>Es gilt dieselbe Regel „kostenlos zuerst“: nur Dateien, die wirklich Claude brauchen, gehen an ihn.</p>
+<h3>Fähigkeiten</h3>
+<p><b>Einstellungen → Fähigkeiten</b> listet die Fähigkeiten auf, die Zamolxis nutzen kann. Schalten Sie eine ein oder aus, oder <b>Importieren</b> Sie eine externe Fähigkeit, um sie zu Ihrer eigenen zu machen.</p>
+<h3>Darstellung und Sprache</h3>
+<p><b>Einstellungen → Darstellung</b> lässt Sie Windows, macOS oder Ubuntu nachahmen (oder automatisch erkennen), zwischen Hell und Dunkel wechseln (oder dem System folgen) und die <b>Sprache</b> der Oberfläche wählen. Englisch ist Standard; noch nicht Übersetztes bleibt auf Englisch.</p>
+<h3>Aktuell bleiben</h3>
+<p><b>Einstellungen → System</b> zeigt Ihre Version und eine <b>Aktualisieren</b>-Schaltfläche mit einem Klick, die die neueste Version lädt, neu baut und neu startet — ohne manuelle Befehle. Hier können Sie auch Zamolxis neu starten oder die klassische Oberfläche öffnen.</p>
+<h3>Tipps</h3>
+<ul>
+<li>Klicken Sie auf die Uhr, um die Einstellungen schnell zu öffnen.</li>
+<li>Doppelklicken Sie auf die Titelleiste eines Fensters, um es zu maximieren.</li>
+<li>Ihre geöffneten Fenster und deren Positionen werden beim nächsten Laden des Desktops wiederhergestellt.</li>
+</ul>`,
+    ro: `<h2>Zamolxis — Ajutor și ghid</h2>
+<p>Zamolxis este asistentul tău personal mereu activ, cu un desktop pe care îl folosești ca un sistem de operare adevărat. Acest ghid explică fiecare parte a interfeței.</p>
+<h3>Desktopul</h3>
+<ul>
+<li><b>Ferestre</b> — fiecare aplicație se deschide într-o fereastră pe care o poți muta de bara de titlu, redimensiona din orice margine, minimiza, maximiza sau închide.</li>
+<li><b>Bara de activități</b> — arată aplicațiile pornite; dă clic pentru a focaliza una sau clic din nou pentru a o minimiza. Zamolxis este mereu fixat.</li>
+<li><b>Meniul Start</b> — dă clic pe Start pentru a vedea toate aplicațiile și a le căuta după nume.</li>
+<li><b>Pictograme pe desktop</b> — dublu clic pentru a deschide o aplicație. Trage pictogramele oriunde; poziția lor este reținută.</li>
+</ul>
+<h3>Aplicațiile sunt agenți</h3>
+<p>În Zamolxis fiecare aplicație este un agent (un lucrător IA). <b>Zamolxis</b> este aplicația implicită și găzduiește conversația principală. Folosește <b>Agent nou</b> pentru a-l crea pe al tău: dă-i un nume, instrucțiuni (ce trebuie să facă) și un model. Fiecare agent are un comutator <b>Fereastră de chat</b> — oprește-l pentru a rula fără interfață (la cerere sau programat) doar cu un flux de activitate, sau pornește-l pentru a vorbi direct cu el.</p>
+<h3>Conversația</h3>
+<ul>
+<li>Scrie mesajul și apasă Enter pentru a-l trimite (Shift+Enter pentru rând nou).</li>
+<li>Selectorul <b>Rutare</b> alege ce model răspunde: Auto, un model local, rotația de cloud gratuit, orice furnizor configurat sau Claude.</li>
+<li>Butonul de <b>atașare</b> adaugă fișiere la mesajul tău (vezi Fișiere mai jos).</li>
+<li>Conversațiile se salvează pe acest dispozitiv și se restaurează la redeschiderea aplicației.</li>
+</ul>
+<h3>Modele și rutare</h3>
+<p>Zamolxis răspunde cu un model <b>gratuit</b> ori de câte ori unul poate face treaba și recurge la abonamentul Claude doar când e nevoie, economisind utilizarea Claude. În <b>Setări → Motor</b> stabilești trei roluri: <b>Model</b> (răspunde la conversații), <b>Rapid</b> (ture simple) și <b>Cel mai inteligent</b> (ture dificile / rezervă finală). Fiecare poate fi o variantă Claude, un model local sau orice furnizor gratuit autentificat.</p>
+<h3>Furnizori și chei gratuite</h3>
+<p>În <b>Setări → Furnizori</b> poți lipi o cheie API pentru fiecare furnizor (mulți au niveluri gratuite generoase — Google Gemini, Cerebras, Groq și altele). O cheie intră în vigoare după repornire (fila Sistem). Salvarea unei chei goale sau apăsarea pe <b>Elimină</b> șterge cheia acelui furnizor.</p>
+<h3>Fișiere</h3>
+<ul>
+<li><b>Text și cod</b> — citite direct de orice model.</li>
+<li><b>PDF, Word, Excel, PowerPoint</b> — textul lor este extras pe server ca orice model să îl poată citi.</li>
+<li><b>Imagini</b> — trimise unui model de vedere gratuit (Gemini) pentru a fi descrise sau analizate.</li>
+</ul>
+<p>Se aplică aceeași regulă „întâi gratuit”: doar fișierele care chiar au nevoie de Claude îi sunt trimise.</p>
+<h3>Abilități</h3>
+<p><b>Setări → Abilități</b> listează capacitățile pe care Zamolxis le poate folosi. Activează sau dezactivează una, sau <b>Importă</b> o abilitate externă ca să devină a ta.</p>
+<h3>Aspect și limbă</h3>
+<p><b>Setări → Aspect</b> îți permite să imiți Windows, macOS sau Ubuntu (sau detectare automată), să comuți între luminos și întunecat (sau să urmezi sistemul) și să alegi <b>Limba</b> interfeței. Engleza este implicită; ce nu este încă tradus rămâne în engleză.</p>
+<h3>Menținerea la zi</h3>
+<p><b>Setări → Sistem</b> arată versiunea ta și un buton <b>Actualizează</b> dintr-un clic care descarcă ultima versiune, recompilează și repornește, fără comenzi manuale. Tot aici poți reporni Zamolxis sau deschide interfața clasică.</p>
+<h3>Sfaturi</h3>
+<ul>
+<li>Dă clic pe ceas pentru a deschide rapid Setările.</li>
+<li>Dublu clic pe bara de titlu a unei ferestre pentru a o maximiza.</li>
+<li>Ferestrele deschise și pozițiile lor se restaurează la următoarea încărcare a desktopului.</li>
+</ul>`,
+    it: `<h2>Zamolxis — Aiuto e guida</h2>
+<p>Zamolxis è il tuo assistente personale sempre attivo, con un desktop che puoi usare come un vero sistema operativo. Questa guida spiega ogni parte dell'interfaccia.</p>
+<h3>Il desktop</h3>
+<ul>
+<li><b>Finestre</b> — ogni app si apre in una finestra che puoi spostare dalla barra del titolo, ridimensionare da qualsiasi bordo, ridurre a icona, ingrandire o chiudere.</li>
+<li><b>Barra delle applicazioni</b> — mostra le app in esecuzione; fai clic per attivarne una o di nuovo per ridurla a icona. Zamolxis è sempre fissato.</li>
+<li><b>Menu Start</b> — fai clic su Start per vedere tutte le app e cercarle per nome.</li>
+<li><b>Icone del desktop</b> — doppio clic per aprire un'app. Trascina le icone dove vuoi; la loro posizione viene ricordata.</li>
+</ul>
+<h3>Le app sono agenti</h3>
+<p>In Zamolxis ogni app è un agente (un lavoratore IA). <b>Zamolxis</b> è l'app predefinita e ospita la chat principale. Usa <b>Nuovo agente</b> per crearne uno tuo: dagli un nome, istruzioni (cosa deve fare) e un modello. Ogni agente ha un interruttore <b>Finestra di chat</b> — spegnilo per eseguirlo senza interfaccia (su richiesta o pianificato) con solo un flusso di attività, oppure accendilo per parlarci direttamente.</p>
+<h3>Chattare</h3>
+<ul>
+<li>Scrivi il messaggio e premi Invio per inviarlo (Maiusc+Invio per andare a capo).</li>
+<li>Il selettore <b>Instradamento</b> sceglie quale modello risponde: Auto, un modello locale, la rotazione del cloud gratuito, qualsiasi provider configurato o Claude.</li>
+<li>Il pulsante <b>allega</b> aggiunge file al tuo messaggio (vedi File qui sotto).</li>
+<li>Le conversazioni vengono salvate su questo dispositivo e ripristinate alla riapertura dell'app.</li>
+</ul>
+<h3>Modelli e instradamento</h3>
+<p>Zamolxis risponde con un modello <b>gratuito</b> ogni volta che uno può svolgere il compito e passa al tuo abbonamento Claude solo quando serve, risparmiando l'uso di Claude. In <b>Impostazioni → Motore</b> imposti tre ruoli: <b>Modello</b> (risponde alle chat), <b>Veloce</b> (turni semplici) e <b>Più intelligente</b> (turni difficili / ripiego finale). Ognuno può essere una variante di Claude, un modello locale o qualsiasi provider gratuito autenticato.</p>
+<h3>Provider e chiavi gratuite</h3>
+<p>In <b>Impostazioni → Provider</b> puoi incollare una chiave API per ogni provider (molti hanno generosi piani gratuiti — Google Gemini, Cerebras, Groq e altri). Una chiave ha effetto dopo un riavvio (scheda Sistema). Salvare una chiave vuota, o premere <b>Rimuovi</b>, elimina la chiave di quel provider.</p>
+<h3>File</h3>
+<ul>
+<li><b>Testo e codice</b> — letti direttamente da qualsiasi modello.</li>
+<li><b>PDF, Word, Excel, PowerPoint</b> — il loro testo viene estratto sul server così qualsiasi modello può leggerlo.</li>
+<li><b>Immagini</b> — inviate a un modello di visione gratuito (Gemini) per essere descritte o analizzate.</li>
+</ul>
+<p>Vale la stessa regola del gratuito prima: solo i file che hanno davvero bisogno di Claude vengono inviati a lui.</p>
+<h3>Competenze</h3>
+<p><b>Impostazioni → Competenze</b> elenca le capacità che Zamolxis può usare. Attiva o disattiva una, oppure <b>Importa</b> una competenza esterna per renderla tua.</p>
+<h3>Aspetto e lingua</h3>
+<p><b>Impostazioni → Aspetto</b> ti permette di imitare Windows, macOS o Ubuntu (o il rilevamento automatico), passare tra chiaro e scuro (o seguire il sistema) e scegliere la <b>Lingua</b> dell'interfaccia. L'inglese è predefinito; ciò che non è ancora tradotto resta in inglese.</p>
+<h3>Restare aggiornati</h3>
+<p><b>Impostazioni → Sistema</b> mostra la tua versione e un pulsante <b>Aggiorna</b> con un clic che scarica l'ultima versione, ricompila e riavvia, senza comandi manuali. Qui puoi anche riavviare Zamolxis o aprire l'interfaccia classica.</p>
+<h3>Suggerimenti</h3>
+<ul>
+<li>Fai clic sull'orologio per aprire rapidamente le Impostazioni.</li>
+<li>Doppio clic sulla barra del titolo di una finestra per ingrandirla.</li>
+<li>Le finestre aperte e le loro posizioni vengono ripristinate al successivo caricamento del desktop.</li>
+</ul>`
+  };
+  function mountHelp(body, win) {
+    body.style.padding = '0';
+    var wrap = el('div', 'help-doc');
+    wrap.style.cssText = 'height:100%;overflow:auto;padding:18px 24px';
+    wrap.innerHTML = (HELP[langChoice()] || HELP.en);
+    body.appendChild(wrap);
   }
 
   // ---------- per-app chat-window setting (the "is chat needed?" toggle) ----------
@@ -742,16 +1005,16 @@
     var wrap = el('div'); wrap.style.cssText = 'height:100%;display:flex;flex-direction:column';
     var head = el('div', 'agent-head');
     head.appendChild(el('div', 'a-name', agent.label || agent.name));
-    head.appendChild(el('div', 'a-sub', 'Model: ' + (agent.model || '(default)')));
+    head.appendChild(el('div', 'a-sub', Tf('Model: {m}', { m: agent.model || T('(default)') })));
     if (agent.job) { var j = el('div', 'a-sub'); j.textContent = agent.job; head.appendChild(j); }
     var bar = el('div'); bar.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:10px';
     var toggle = el('button', 'switch' + (appChatEnabled(win.appId, true) ? ' on' : ''), "<span class='knob'></span>");
-    toggle.title = 'Toggle chat window for this app';
-    var lbl = el('span', 'hint', 'Chat window');
+    toggle.title = T('Toggle chat window for this app');
+    var lbl = el('span', 'hint', T('Chat window'));
     var spacer = el('div'); spacer.style.flex = '1';
     var note = el('span', 'hint');
-    var runBtn = el('button', 'btn ghost', 'Run job');
-    var delBtn = el('button', 'btn ghost', 'Delete');
+    var runBtn = el('button', 'btn ghost', T('Run job'));
+    var delBtn = el('button', 'btn ghost', T('Delete'));
     bar.appendChild(toggle); bar.appendChild(lbl); bar.appendChild(spacer); bar.appendChild(note); bar.appendChild(runBtn); bar.appendChild(delBtn);
     head.appendChild(bar);
     wrap.appendChild(head);
@@ -770,16 +1033,16 @@
       setAppChat(win.appId, now); toggle.classList.toggle('on', now); render();
     });
     runBtn.addEventListener('click', function () {
-      runBtn.disabled = true; note.textContent = 'Running...';
+      runBtn.disabled = true; note.textContent = T('Running...');
       api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'run', name: agent.name }) })
-        .then(function (d) { runBtn.disabled = false; note.textContent = (d && d.error) ? String(d.error) : ('Done' + (d.via ? ' · ' + d.via : '')); })
-        .catch(function () { runBtn.disabled = false; note.textContent = 'Unreachable'; });
+        .then(function (d) { runBtn.disabled = false; note.textContent = (d && d.error) ? String(d.error) : (T('Done') + (d.via ? ' · ' + d.via : '')); })
+        .catch(function () { runBtn.disabled = false; note.textContent = T('Unreachable'); });
     });
     delBtn.addEventListener('click', function () {
       if (!confirm('Delete agent "' + agent.name + '"?')) return;
       api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'delete', name: agent.name }) })
         .then(function (d) { if (d && d.agents) agents = d.agents; else loadAgents(); closeWin(win); renderDesktop(); })
-        .catch(function () { note.textContent = 'Unreachable'; });
+        .catch(function () { note.textContent = T('Unreachable'); });
     });
     win.cleanup.push(function () { win.closed = true; if (win._consoleIv) clearInterval(win._consoleIv); });
     render();
@@ -798,18 +1061,18 @@
     function addMsg(who, text, cls, via, persist) { var m = el('div', 'msg ' + cls); m.appendChild(el('div', 'who', who + (via ? ' · via ' + via : ''))); var c = el('div'); c.textContent = text; m.appendChild(c); log.appendChild(m); log.scrollTop = log.scrollHeight; if (persist !== false) pushChatLog(logKey, { who: who, text: text, cls: cls, via: via }); return m; }
     var hist = loadChatLog(logKey);
     if (hist.length) hist.forEach(function (r) { addMsg(r.who, r.text, r.cls, r.via, false); });
-    else addMsg(agent.label || agent.name, 'Ask me to do something, or give me a task.', 'bot', null, false);
+    else addMsg(agent.label || agent.name, T('Ask me to do something, or give me a task.'), 'bot', null, false);
     function doSend() {
-      var t = ta.value.trim(); if (!t) return; addMsg('You', t, 'user'); ta.value = '';
-      var pend = addMsg(agent.label || agent.name, 'thinking...', 'bot', null, false); send.disabled = true;
+      var t = ta.value.trim(); if (!t) return; addMsg(T('You'), t, 'user'); ta.value = '';
+      var pend = addMsg(agent.label || agent.name, T('thinking...'), 'bot', null, false); send.disabled = true;
       api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'run', name: agent.name, task: t }) })
         .then(function (d) {
           send.disabled = false;
           var c = pend.querySelector('div:last-child'), who = pend.querySelector('.who');
           if (d && d.error) { c.textContent = '(' + d.error + ')'; return; }
           who.textContent = (agent.label || agent.name) + (d.via ? ' · via ' + d.via : '');
-          c.textContent = d.reply || '(no reply)';
-          pushChatLog(logKey, { who: agent.label || agent.name, text: d.reply || '(no reply)', cls: 'bot', via: d.via });
+          c.textContent = d.reply || T('(no reply)');
+          pushChatLog(logKey, { who: agent.label || agent.name, text: d.reply || T('(no reply)'), cls: 'bot', via: d.via });
           if (d.scheduled && d.scheduled.cron) addMsg('System', 'Scheduled: ' + (d.scheduled.note || d.scheduled.cron), 'bot');
           log.scrollTop = log.scrollHeight;
         })
@@ -823,9 +1086,9 @@
   // Headless view: no chat; run-on-demand + live activity feed.
   function buildAgentConsole(content, agent, win) {
     var pad = el('div', 'app-pad');
-    pad.appendChild(el('div', 'hint', 'Chat window is off — this agent runs headless: it executes its job on demand or on schedule via the existing agent/skill mechanism. Turn the chat on above to talk to it directly.'));
+    pad.appendChild(el('div', 'hint', T('Chat window is off — this agent runs headless: it executes its job on demand or on schedule via the existing agent/skill mechanism. Turn the chat on above to talk to it directly.')));
     var log = el('div', 'chat-log'); log.style.borderTop = '1px solid #eee';
-    var empty = el('div', 'empty', 'Recent activity will appear here.'); log.appendChild(empty);
+    var empty = el('div', 'empty', T('Recent activity will appear here.')); log.appendChild(empty);
     content.appendChild(pad); content.appendChild(log);
     var since = 0;
     function poll() {
