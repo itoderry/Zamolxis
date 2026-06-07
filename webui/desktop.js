@@ -96,6 +96,14 @@
     it: { 'File': 'File', 'Edit': 'Modifica', 'View': 'Visualizza', 'Page': 'Pagina', 'Session': 'Sessione', 'New': 'Nuovo', 'Select all': 'Seleziona tutto', 'Rotate': 'Ruota', 'Delete page': 'Elimina pagina', 'Save as new file': 'Salva come nuovo file', 'Connect': 'Connetti', 'Disconnect': 'Disconnetti', 'Upload': 'Carica', 'Save As': 'Salva con nome' }
   };
   Object.keys(I18N_MENUS).forEach(function (l) { if (I18N[l]) Object.keys(I18N_MENUS[l]).forEach(function (k) { I18N[l][k] = I18N_MENUS[l][k]; }); });
+  var I18N_SET = {
+    es: { 'Timezone': 'Zona horaria', 'Autostart': 'Inicio automático', 'Run Zamolxis at login': 'Ejecutar Zamolxis al iniciar sesión', 'Export setup': 'Exportar configuración' },
+    fr: { 'Timezone': 'Fuseau horaire', 'Autostart': 'Démarrage auto', 'Run Zamolxis at login': 'Lancer Zamolxis à la connexion', 'Export setup': 'Exporter la configuration' },
+    de: { 'Timezone': 'Zeitzone', 'Autostart': 'Autostart', 'Run Zamolxis at login': 'Zamolxis bei Anmeldung starten', 'Export setup': 'Setup exportieren' },
+    ro: { 'Timezone': 'Fus orar', 'Autostart': 'Pornire automată', 'Run Zamolxis at login': 'Pornește Zamolxis la autentificare', 'Export setup': 'Exportă configurația' },
+    it: { 'Timezone': 'Fuso orario', 'Autostart': 'Avvio automatico', 'Run Zamolxis at login': "Avvia Zamolxis all'accesso", 'Export setup': 'Esporta configurazione' }
+  };
+  Object.keys(I18N_SET).forEach(function (l) { if (I18N[l]) Object.keys(I18N_SET[l]).forEach(function (k) { I18N[l][k] = I18N_SET[l][k]; }); });
   function langChoice() { return localStorage.getItem('zx_lang') || 'en'; }
   function T(s) { var L = langChoice(); if (L === 'en') return s; var d = I18N[L]; return (d && d[s]) || s; }
   function Tf(s, vars) { var out = T(s); if (vars) Object.keys(vars).forEach(function (k) { out = out.split('{' + k + '}').join(vars[k]); }); return out; }
@@ -654,6 +662,7 @@
       pane.innerHTML = '';
       var live = s.live || {};
       var name = inp(live.agentName);
+      var tz = inp(live.timezone); tz.placeholder = 'e.g. Europe/Bucharest';
       // Unified model list from the backend snapshot: Claude variants + 'local' + every configured provider.
       function mlabel(v) { return v === '' ? 'Claude (default)' : v === 'local' ? 'Local' : v === 'freecloud' ? 'Free cloud' : v; }
       var modelOpts = (((s.meta && s.meta.models) || ['']).map(function (v) { return [v, mlabel(v)]; }));
@@ -675,6 +684,7 @@
       pane.appendChild(fld(T('Fast model (simple turns)'), fast));
       pane.appendChild(fld(T('Smartest model (hard turns / final fallback)'), smart));
       pane.appendChild(fld(T('Assistant name'), name));
+      pane.appendChild(fld(T('Timezone'), tz, 'IANA name used for time-aware replies and schedules (blank = server default).'));
       pane.appendChild(fld(T('Permission mode'), perm));
       var row = el('div', 'row2'); var c1 = el('div'); c1.style.flex = '1'; c1.appendChild(fld(T('Max turns'), turns)); var c2 = el('div'); c2.style.flex = '1'; c2.appendChild(fld(T('Max concurrent'), conc)); row.appendChild(c1); row.appendChild(c2); pane.appendChild(row);
       pane.appendChild(fld(T('Turn timeout (seconds)'), tmo, T('How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.')));
@@ -684,7 +694,7 @@
       var sr = el('div', 'save-row'); sr.appendChild(save); sr.appendChild(status); pane.appendChild(sr);
       save.addEventListener('click', function () {
         save.disabled = true; status.textContent = T('Saving...');
-        postSettings({ live: { agentName: name.value.trim(), model: model.value, fastModel: fast.value, smartModel: smart.value, permissionMode: perm.value, maxTurns: Number(turns.value) || undefined, maxConcurrent: Number(conc.value) || undefined, turnTimeoutSeconds: Number(tmo.value) || undefined, localRouting: routing.classList.contains('on') ? 'auto' : 'off', systemPromptAppend: sys.value } })
+        postSettings({ live: { agentName: name.value.trim(), timezone: tz.value.trim(), model: model.value, fastModel: fast.value, smartModel: smart.value, permissionMode: perm.value, maxTurns: Number(turns.value) || undefined, maxConcurrent: Number(conc.value) || undefined, turnTimeoutSeconds: Number(tmo.value) || undefined, localRouting: routing.classList.contains('on') ? 'auto' : 'off', systemPromptAppend: sys.value } })
           .then(function (r) { save.disabled = false; status.textContent = T('Saved.') + (r && r.restartRequired ? T(' Some changes need a restart (System tab).') : ''); })
           .catch(function () { save.disabled = false; status.textContent = T('Failed.'); });
       });
@@ -825,6 +835,25 @@
       var st = el('span', 'hint');
       var sr = el('div', 'save-row'); sr.appendChild(rb); sr.appendChild(cl); sr.appendChild(st); pane.appendChild(sr);
       rb.addEventListener('click', function () { restartZam(rb, st); });
+
+      // --- Startup ---
+      pane.appendChild(el('label', null, T('Autostart')));
+      var asRow = el('div'); asRow.style.cssText = 'display:flex;align-items:center;gap:8px';
+      var asTog = el('button', 'switch', "<span class='knob'></span>");
+      var asNote = el('span', 'hint');
+      asRow.appendChild(asTog); asRow.appendChild(el('span', 'hint', T('Run Zamolxis at login'))); asRow.appendChild(asNote);
+      pane.appendChild(asRow);
+      api('/api/autostart').then(function (st2) { if (!st2) return; if (st2.enabled) asTog.classList.add('on'); if (!st2.supported) asTog.style.opacity = '.5'; asNote.textContent = st2.note || ''; }).catch(function () {});
+      asTog.addEventListener('click', function () { var want = !asTog.classList.contains('on'); asNote.textContent = '...'; api('/api/autostart', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: want }) }).then(function (r) { asTog.classList.toggle('on', !!(r && r.enabled)); asNote.textContent = (r && r.note) || ''; }).catch(function () { asNote.textContent = T('Failed.'); }); });
+
+      // --- Export setup (skills bundle; never includes secrets) ---
+      pane.appendChild(el('label', null, T('Export setup')));
+      var exBtn = el('button', 'btn ghost', T('Export setup')); var exNote = el('span', 'hint');
+      var exRow = el('div', 'save-row'); exRow.appendChild(exBtn); exRow.appendChild(exNote); pane.appendChild(exRow);
+      exBtn.addEventListener('click', function () {
+        exBtn.disabled = true; exNote.textContent = '...'; var fn = 'zamolxis-setup.zip';
+        fetch('/api/pack', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) }).then(function (r) { if (!r.ok) throw 0; var cd = r.headers.get('content-disposition') || ''; var m = /filename="?([^";]+)"?/.exec(cd); if (m) fn = m[1]; return r.blob(); }).then(function (b) { var u = URL.createObjectURL(b); var a = document.createElement('a'); a.href = u; a.download = fn; a.click(); URL.revokeObjectURL(u); exBtn.disabled = false; exNote.textContent = T('Saved.'); }).catch(function () { exBtn.disabled = false; exNote.textContent = T('Failed.'); });
+      });
     }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', T('Could not load status.'))); });
   }
 
