@@ -97,11 +97,11 @@
   };
   Object.keys(I18N_MENUS).forEach(function (l) { if (I18N[l]) Object.keys(I18N_MENUS[l]).forEach(function (k) { I18N[l][k] = I18N_MENUS[l][k]; }); });
   var I18N_SET = {
-    es: { 'Timezone': 'Zona horaria', 'Autostart': 'Inicio automático', 'Run Zamolxis at login': 'Ejecutar Zamolxis al iniciar sesión', 'Export setup': 'Exportar configuración' },
-    fr: { 'Timezone': 'Fuseau horaire', 'Autostart': 'Démarrage auto', 'Run Zamolxis at login': 'Lancer Zamolxis à la connexion', 'Export setup': 'Exporter la configuration' },
-    de: { 'Timezone': 'Zeitzone', 'Autostart': 'Autostart', 'Run Zamolxis at login': 'Zamolxis bei Anmeldung starten', 'Export setup': 'Setup exportieren' },
-    ro: { 'Timezone': 'Fus orar', 'Autostart': 'Pornire automată', 'Run Zamolxis at login': 'Pornește Zamolxis la autentificare', 'Export setup': 'Exportă configurația' },
-    it: { 'Timezone': 'Fuso orario', 'Autostart': 'Avvio automatico', 'Run Zamolxis at login': "Avvia Zamolxis all'accesso", 'Export setup': 'Esporta configurazione' }
+    es: { 'Timezone': 'Zona horaria', 'Autostart': 'Inicio automático', 'Run Zamolxis at login': 'Ejecutar Zamolxis al iniciar sesión', 'Export setup': 'Exportar configuración', 'Channels': 'Canales', 'Enable a channel and add its credentials. Changes take effect after a restart (System tab).': 'Activa un canal y añade sus credenciales. Los cambios surten efecto tras reiniciar (pestaña Sistema).' },
+    fr: { 'Timezone': 'Fuseau horaire', 'Autostart': 'Démarrage auto', 'Run Zamolxis at login': 'Lancer Zamolxis à la connexion', 'Export setup': 'Exporter la configuration', 'Channels': 'Canaux', 'Enable a channel and add its credentials. Changes take effect after a restart (System tab).': "Activez un canal et ajoutez ses identifiants. Les changements prennent effet après un redémarrage (onglet Système)." },
+    de: { 'Timezone': 'Zeitzone', 'Autostart': 'Autostart', 'Run Zamolxis at login': 'Zamolxis bei Anmeldung starten', 'Export setup': 'Setup exportieren', 'Channels': 'Kanäle', 'Enable a channel and add its credentials. Changes take effect after a restart (System tab).': 'Aktivieren Sie einen Kanal und fügen Sie seine Anmeldedaten hinzu. Änderungen werden nach einem Neustart wirksam (Tab System).' },
+    ro: { 'Timezone': 'Fus orar', 'Autostart': 'Pornire automată', 'Run Zamolxis at login': 'Pornește Zamolxis la autentificare', 'Export setup': 'Exportă configurația', 'Channels': 'Canale', 'Enable a channel and add its credentials. Changes take effect after a restart (System tab).': 'Activează un canal și adaugă-i credențialele. Modificările intră în vigoare după repornire (fila Sistem).' },
+    it: { 'Timezone': 'Fuso orario', 'Autostart': 'Avvio automatico', 'Run Zamolxis at login': "Avvia Zamolxis all'accesso", 'Export setup': 'Esporta configurazione', 'Channels': 'Canali', 'Enable a channel and add its credentials. Changes take effect after a restart (System tab).': 'Abilita un canale e aggiungi le sue credenziali. Le modifiche hanno effetto dopo un riavvio (scheda Sistema).' }
   };
   Object.keys(I18N_SET).forEach(function (l) { if (I18N[l]) Object.keys(I18N_SET[l]).forEach(function (k) { I18N[l][k] = I18N_SET[l][k]; }); });
   function langChoice() { return localStorage.getItem('zx_lang') || 'en'; }
@@ -601,13 +601,14 @@
     var nav = el('div', 'set-nav');
     var pane = el('div', 'set-pane');
     wrap.appendChild(nav); wrap.appendChild(pane); body.appendChild(wrap);
-    var tabs = [['appearance', T('Appearance')], ['engine', T('Engine')], ['providers', T('Providers')], ['skills', T('Skills')], ['system', T('System')]];
+    var tabs = [['appearance', T('Appearance')], ['engine', T('Engine')], ['providers', T('Providers')], ['channels', T('Channels')], ['skills', T('Skills')], ['system', T('System')]];
     function renderNav() { nav.innerHTML = ''; tabs.forEach(function (t) { var b = el('button', state.tab === t[0] ? 'active' : null, t[1]); b.addEventListener('click', function () { state.tab = t[0]; renderNav(); renderTab(); }); nav.appendChild(b); }); }
     function renderTab() {
       pane.innerHTML = '';
       if (state.tab === 'appearance') tabAppearance(pane);
       else if (state.tab === 'engine') tabEngine(pane);
       else if (state.tab === 'providers') tabProviders(pane);
+      else if (state.tab === 'channels') tabChannels(pane);
       else if (state.tab === 'skills') tabSkills(pane);
       else tabSystem(pane);
     }
@@ -736,6 +737,37 @@
         pane.appendChild(card);
       });
     }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', T('Could not load providers.'))); });
+  }
+
+  // Channels setup tab — enable messaging channels + set their credentials (parity with classic).
+  function tabChannels(pane) {
+    pane.appendChild(el('div', 'hint', T('Loading...')));
+    api('/api/settings').then(function (s) {
+      pane.innerHTML = '';
+      pane.appendChild(el('div', 'hint', T('Enable a channel and add its credentials. Changes take effect after a restart (System tab).')));
+      var chMap = s.channels || {}; var creds = s.credentials || []; var list = (s.meta && s.meta.channels) || [];
+      list.filter(function (n) { return n !== 'web' && n !== 'cli'; }).forEach(function (name) {
+        var card = el('div', 'prov');
+        var top = el('div', 'top');
+        top.appendChild(el('span', 'name', name));
+        var tog = el('button', 'switch' + (chMap[name] ? ' on' : ''), "<span class='knob'></span>");
+        tog.addEventListener('click', function () { var want = !tog.classList.contains('on'); tog.classList.toggle('on', want); var patch = { channels: {} }; patch.channels[name] = want; postSettings(patch).catch(function () {}); });
+        var sp = el('div'); sp.style.flex = '1'; top.appendChild(sp); top.appendChild(tog);
+        card.appendChild(top);
+        var fields = creds.filter(function (c) { return c.group === name; });
+        if (!fields.length) card.appendChild(el('div', 'hint', 'No credentials needed.'));
+        fields.forEach(function (c) {
+          var row = el('div'); row.style.cssText = 'display:flex;gap:8px;margin-top:6px;align-items:center';
+          var lbl = el('div', 'hint'); lbl.style.cssText = 'flex:0 0 42%'; lbl.textContent = c.label;
+          var inpv = el('input', 'inp'); inpv.style.flex = '1';
+          if (c.secret) { inpv.type = 'password'; inpv.placeholder = c.set ? '•••• set — paste to replace' : 'paste value'; } else { inpv.value = c.value || ''; }
+          var sv = el('button', 'btn ghost', T('Save'));
+          sv.addEventListener('click', function () { var v = inpv.value.trim(); var cred = {}; cred[c.key] = v; sv.disabled = true; sv.textContent = '...'; postSettings({ credentials: cred }).then(function () { sv.disabled = false; sv.textContent = T('Saved.'); if (c.secret) inpv.value = ''; }).catch(function () { sv.disabled = false; sv.textContent = T('Failed.'); }); });
+          row.appendChild(lbl); row.appendChild(inpv); row.appendChild(sv); card.appendChild(row);
+        });
+        pane.appendChild(card);
+      });
+    }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', T('Could not load settings.'))); });
   }
 
   function tabSkills(pane) {
