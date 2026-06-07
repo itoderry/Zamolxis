@@ -686,14 +686,16 @@ export class WebChannel implements Channel {
       (async () => {
         try {
           if (ext === '.docx' || ext === '.doc') {
-            const mammoth = await import('mammoth');
-            const r = await (mammoth as unknown as { convertToHtml: (o: { path: string }) => Promise<{ value: string }> }).convertToHtml({ path: target });
+            const mod = (await import('mammoth')) as unknown as { default?: unknown };
+            const mammoth = (mod.default || mod) as { convertToHtml: (o: { path: string }) => Promise<{ value: string }> };
+            const r = await mammoth.convertToHtml({ path: target });
             return this.json(res, 200, { kind: 'doc', html: r.value || '<p>(empty document)</p>' });
           }
           if (ext === '.xlsx' || ext === '.xls' || ext === '.csv') {
-            const xlsx = await import('xlsx');
-            const wb = (xlsx as unknown as { readFile: (p: string) => { SheetNames: string[]; Sheets: Record<string, unknown> }; utils: { sheet_to_html: (ws: unknown) => string } }).readFile(target);
-            const sheets = wb.SheetNames.map((n) => ({ name: n, html: (xlsx as unknown as { utils: { sheet_to_html: (ws: unknown) => string } }).utils.sheet_to_html(wb.Sheets[n]) }));
+            const mod = (await import('xlsx')) as unknown as { default?: unknown };
+            const XLSX = (mod.default || mod) as { readFile: (p: string) => { SheetNames: string[]; Sheets: Record<string, unknown> }; utils: { sheet_to_html: (ws: unknown) => string } };
+            const wb = XLSX.readFile(target);
+            const sheets = wb.SheetNames.map((n) => ({ name: n, html: XLSX.utils.sheet_to_html(wb.Sheets[n]) }));
             return this.json(res, 200, { kind: 'sheet', sheets });
           }
           return this.json(res, 400, { error: 'unsupported document type' });
