@@ -262,32 +262,36 @@
   var startMenu = $('#startmenu');
   function toggleStart() { startMenu.classList.toggle('hidden'); if (!startMenu.classList.contains('hidden')) { renderStart(); $('#start-search-input').value = ''; $('#start-search-input').focus(); } }
   function closeStart() { startMenu.classList.add('hidden'); }
-  function smItem(a) {
-    var item = el('div', 'sm-app');
-    item.appendChild(el('div', 'ico', a.iconSvg));
-    item.appendChild(el('div', 'label', a.name));
-    item.title = a.name;
-    item.addEventListener('click', function () { closeStart(); launchApp(a.id); });
-    return item;
+  function smRow(a) {
+    var r = el('div', 'sm-row'); r.appendChild(el('div', 'ico', a.iconSvg)); r.appendChild(el('div', 'label', a.name)); r.title = a.name;
+    r.addEventListener('click', function () { closeStart(); launchApp(a.id); });
+    return r;
   }
+  function smTile(a) {
+    var t = el('div', 'sm-tile'); t.appendChild(el('div', 'ico', a.iconSvg)); t.appendChild(el('div', 'label', a.name)); t.title = a.name;
+    t.addEventListener('click', function () { closeStart(); launchApp(a.id); });
+    return t;
+  }
+  // Windows-10-style: left = app list grouped by category, right = tiles.
   function renderStart(filter) {
     var wrap = $('#startmenu-apps'); wrap.innerHTML = '';
     var list = appList();
+    var cols = el('div', 'sm-cols'); var left = el('div', 'sm-list'); var right = el('div', 'sm-tiles');
+    cols.appendChild(left); cols.appendChild(right); wrap.appendChild(cols);
     if (filter) {
       var f = filter.toLowerCase(); list = list.filter(function (a) { return a.name.toLowerCase().indexOf(f) !== -1; });
-      var grid0 = el('div', 'sm-grid'); list.forEach(function (a) { grid0.appendChild(smItem(a)); }); wrap.appendChild(grid0);
-      if (!list.length) wrap.appendChild(el('div', 'empty', T('No apps match.')));
+      if (!list.length) { left.appendChild(el('div', 'empty', T('No apps match.'))); return; }
+      list.forEach(function (a) { left.appendChild(smRow(a)); right.appendChild(smTile(a)); });
       return;
     }
     var byCat = {}; list.forEach(function (a) { var c = a.cat || 'Utilities'; (byCat[c] = byCat[c] || []).push(a); });
     var cats = CAT_ORDER.filter(function (c) { return byCat[c]; });
     Object.keys(byCat).forEach(function (c) { if (cats.indexOf(c) < 0) cats.push(c); });
     cats.forEach(function (c) {
-      wrap.appendChild(el('div', 'sm-cat', T(c)));
-      var grid = el('div', 'sm-grid');
-      byCat[c].forEach(function (a) { grid.appendChild(smItem(a)); });
-      wrap.appendChild(grid);
+      left.appendChild(el('div', 'sm-cat', T(c)));
+      byCat[c].forEach(function (a) { left.appendChild(smRow(a)); });
     });
+    list.forEach(function (a) { right.appendChild(smTile(a)); });
   }
 
   // ============================================================

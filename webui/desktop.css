@@ -253,9 +253,15 @@ body[data-os="mac"] #taskbar-tray, body[data-os="mac"] #start-btn { display: non
 body[data-os="mac"] #taskbar-apps { grid-column: 1; }
 body[data-os="mac"] .win-controls { order: -1; padding-left: 8px; gap: 8px; align-items: center; }
 body[data-os="mac"] .win-controls button { width: 13px; height: 13px; border-radius: 50%; margin: 0; font-size: 0; }
-body[data-os="mac"] .win-controls button.close { background: #ff5f57; }
-body[data-os="mac"] .win-controls button.min { background: #febc2e; }
-body[data-os="mac"] .win-controls button.max { background: #28c840; }
+body[data-os="mac"] .win-controls button.close { background: #ff5f57; order: 1; }
+body[data-os="mac"] .win-controls button.min { background: #febc2e; order: 2; }
+body[data-os="mac"] .win-controls button.max { background: #28c840; order: 3; }
+/* macOS hover glyphs inside the traffic lights */
+body[data-os="mac"] .win-controls button { position: relative; }
+body[data-os="mac"] .win-controls:hover button.close::after { content: "\00d7"; }
+body[data-os="mac"] .win-controls:hover button.min::after { content: "\2013"; }
+body[data-os="mac"] .win-controls:hover button.max::after { content: "+"; }
+body[data-os="mac"] .win-controls button::after { position: absolute; inset: 0; display: grid; place-items: center; font-size: 9px; line-height: 1; color: rgba(0,0,0,.55); }
 body[data-os="mac"] .titlebar { justify-content: center; background: rgba(246,246,246,.72); }
 body[data-os="mac"] .titlebar .t-title { flex: 0 1 auto; text-align: center; }
 body[data-os="mac"] .titlebar .t-icon { display: none; }
@@ -356,3 +362,28 @@ body[data-mode="dark"] .help-doc h3 { border-bottom-color: rgba(255,255,255,.12)
 #apps-btn { background: transparent; border: 0; color: inherit; font: inherit; cursor: pointer; padding: 2px 10px; margin-left: 8px; border-radius: 6px; }
 #apps-btn:hover { background: rgba(128,128,128,.2); }
 body[data-os="win"] #apps-btn { display: none; }
+
+/* ===== Windows-10-style Start menu (left-anchored, two-pane: app list + tiles) ===== */
+#startmenu { background: rgba(28,28,30,.975) !important; color: #f3f3f3 !important; border: 1px solid rgba(255,255,255,.08) !important; width: min(600px, 96vw) !important; }
+#startmenu-search input { background: rgba(255,255,255,.08); color: #f3f3f3; border-color: rgba(255,255,255,.16); }
+#startmenu-label { display: none; }
+#startmenu-apps { display: flex !important; flex: 1; min-height: 0; padding: 0 !important; }
+.sm-cols { display: flex; gap: 14px; flex: 1; min-height: 0; width: 100%; }
+.sm-list { width: 232px; flex: 0 0 auto; overflow: auto; padding-right: 4px; }
+.sm-tiles { flex: 1; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(98px, 1fr)); gap: 8px; align-content: start; }
+.sm-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; cursor: default; }
+.sm-row:hover { background: rgba(255,255,255,.12); }
+.sm-row .ico { width: 22px; height: 22px; display: grid; place-items: center; flex: 0 0 auto; }
+.sm-row .ico svg { width: 20px; height: 20px; }
+.sm-row .label { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sm-tile { height: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border-radius: 6px; cursor: default; background: rgba(255,255,255,.06); padding: 8px; text-align: center; }
+.sm-tile:hover { background: rgba(255,255,255,.15); }
+.sm-tile .ico svg { width: 34px; height: 34px; }
+.sm-tile .label { font-size: 12px; word-break: break-word; }
+#startmenu .sm-cat { color: rgba(255,255,255,.5); margin: 10px 4px 4px; }
+#startmenu .sm-cat:first-child { margin-top: 2px; }
+#startmenu .empty { color: rgba(255,255,255,.6); padding: 8px; }
+/* Windows 10 puts Start at the far left of the taskbar */
+body[data-os="win"] #taskbar { justify-content: flex-start; }
+body[data-os="win"] #taskbar-center { margin-left: 4px; }
+body[data-os="win"] #startmenu { left: 8px; transform: none; bottom: calc(var(--tb-h) + 8px); height: 560px; max-height: 80vh; }
