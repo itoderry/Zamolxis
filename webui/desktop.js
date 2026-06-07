@@ -56,6 +56,22 @@
   function applyMode() { var c = modeChoice(); document.body.dataset.mode = resolveMode(c); return c; }
   function setMode(c) { localStorage.setItem('zx_mode', c); applyMode(); rerenderSettings(); }
 
+  // ---------- i18n (English default; untranslated strings fall back to English) ----------
+  var I18N = {
+    es: { 'Send': 'Enviar', 'Route': 'Ruta', 'Save': 'Guardar', 'Close': 'Cerrar', 'Remove': 'Quitar', 'Appearance': 'Apariencia', 'Engine': 'Motor', 'Providers': 'Proveedores', 'Skills': 'Habilidades', 'System': 'Sistema', 'Desktop style': 'Estilo de escritorio', 'Appearance mode': 'Modo de apariencia', 'Language': 'Idioma', 'Auto': 'Auto', 'Light': 'Claro', 'Dark': 'Oscuro', 'All apps': 'Todas las apps', 'Search apps': 'Buscar apps', 'Message': 'Mensaje para', 'New Agent': 'Nuevo agente', 'Settings': 'Ajustes', 'Choose the interface language. Default is English; untranslated labels stay in English.': 'Elige el idioma de la interfaz. El valor predeterminado es inglés; las etiquetas sin traducir permanecen en inglés.' },
+    fr: { 'Send': 'Envoyer', 'Route': 'Routage', 'Save': 'Enregistrer', 'Close': 'Fermer', 'Remove': 'Retirer', 'Appearance': 'Apparence', 'Engine': 'Moteur', 'Providers': 'Fournisseurs', 'Skills': 'Compétences', 'System': 'Système', 'Desktop style': 'Style du bureau', 'Appearance mode': "Mode d'apparence", 'Language': 'Langue', 'Auto': 'Auto', 'Light': 'Clair', 'Dark': 'Sombre', 'All apps': 'Toutes les apps', 'Search apps': 'Rechercher des apps', 'Message': 'Message à', 'New Agent': 'Nouvel agent', 'Settings': 'Paramètres', 'Choose the interface language. Default is English; untranslated labels stay in English.': "Choisissez la langue de l'interface. La valeur par défaut est l'anglais ; les libellés non traduits restent en anglais." },
+    de: { 'Send': 'Senden', 'Route': 'Route', 'Save': 'Speichern', 'Close': 'Schließen', 'Remove': 'Entfernen', 'Appearance': 'Darstellung', 'Engine': 'Engine', 'Providers': 'Anbieter', 'Skills': 'Fähigkeiten', 'System': 'System', 'Desktop style': 'Desktop-Stil', 'Appearance mode': 'Darstellungsmodus', 'Language': 'Sprache', 'Auto': 'Auto', 'Light': 'Hell', 'Dark': 'Dunkel', 'All apps': 'Alle Apps', 'Search apps': 'Apps suchen', 'Message': 'Nachricht an', 'New Agent': 'Neuer Agent', 'Settings': 'Einstellungen', 'Choose the interface language. Default is English; untranslated labels stay in English.': 'Wählen Sie die Sprache der Oberfläche. Standard ist Englisch; nicht übersetzte Beschriftungen bleiben auf Englisch.' }
+  };
+  var LANGS = [['en', 'English'], ['es', 'Español'], ['fr', 'Français'], ['de', 'Deutsch']];
+  function langChoice() { return localStorage.getItem('zx_lang') || 'en'; }
+  function T(s) { var L = langChoice(); if (L === 'en') return s; var d = I18N[L]; return (d && d[s]) || s; }
+  function setLang(l) { localStorage.setItem('zx_lang', l); location.reload(); }
+  function applyStaticI18n() {
+    var lbl = document.getElementById('startmenu-label'); if (lbl) lbl.textContent = T('All apps');
+    var si = document.getElementById('start-search-input'); if (si) si.placeholder = T('Search apps');
+    document.documentElement.lang = langChoice();
+  }
+
   // ============================================================
   // Window Manager
   // ============================================================
@@ -342,7 +358,7 @@
     var logKey = 'zx_log_' + cid;
     var wrap = el('div', 'chat');
     var bar = el('div', 'chat-bar');
-    bar.innerHTML = "<span>Route</span>";
+    bar.innerHTML = "<span>" + T('Route') + "</span>";
     var sel = el('select');
     var savedRoute = localStorage.getItem('zx_route_' + cid) || localStorage.getItem('zx_default_route') || 'auto';
     fillSelect(sel, [['auto', 'Auto']], savedRoute);
@@ -357,8 +373,8 @@
     var inputRow = el('div', 'chat-input');
     var attach = el('button'); attach.textContent = '📎'; attach.title = 'Attach files'; attach.style.cssText = 'padding:0 12px;background:#e5e5e5;border:0;border-radius:8px;cursor:pointer';
     var fileIn = el('input'); fileIn.type = 'file'; fileIn.multiple = true; fileIn.style.display = 'none';
-    var ta = el('textarea'); ta.placeholder = 'Message ' + AGENT_NAME + '...';
-    var send = el('button'); send.textContent = 'Send';
+    var ta = el('textarea'); ta.placeholder = T('Message') + ' ' + AGENT_NAME + '...';
+    var send = el('button'); send.textContent = T('Send');
     inputRow.appendChild(attach); inputRow.appendChild(ta); inputRow.appendChild(send);
     wrap.appendChild(bar); wrap.appendChild(log); wrap.appendChild(chips); wrap.appendChild(inputRow);
     body.appendChild(wrap); body.appendChild(fileIn);
@@ -446,7 +462,7 @@
     var nav = el('div', 'set-nav');
     var pane = el('div', 'set-pane');
     wrap.appendChild(nav); wrap.appendChild(pane); body.appendChild(wrap);
-    var tabs = [['appearance', 'Appearance'], ['engine', 'Engine'], ['providers', 'Providers'], ['skills', 'Skills'], ['system', 'System']];
+    var tabs = [['appearance', T('Appearance')], ['engine', T('Engine')], ['providers', T('Providers')], ['skills', T('Skills')], ['system', T('System')]];
     function renderNav() { nav.innerHTML = ''; tabs.forEach(function (t) { var b = el('button', state.tab === t[0] ? 'active' : null, t[1]); b.addEventListener('click', function () { state.tab = t[0]; renderNav(); renderTab(); }); nav.appendChild(b); }); }
     function renderTab() {
       pane.innerHTML = '';
@@ -465,11 +481,11 @@
   function tabAppearance(pane) {
     var t = applyTheme();
     var f = el('div', 'field');
-    f.appendChild(el('label', null, 'Desktop style'));
+    f.appendChild(el('label', null, T('Desktop style')));
     f.appendChild(el('div', 'hint', 'Auto follows your OS (detected: ' + osName(t.effective) + '). Override below.'));
     var seg = el('div', 'seg');
     [['auto', 'Auto'], ['win', 'Windows 11'], ['mac', 'macOS'], ['ubuntu', 'Ubuntu'], ['classic', 'Classic']].forEach(function (o) {
-      var b = el('button', t.choice === o[0] ? 'active' : null, o[1]);
+      var b = el('button', t.choice === o[0] ? 'active' : null, T(o[1]));
       b.addEventListener('click', function () { if (o[0] === 'classic') { location.href = '/classic'; } else { setTheme(o[0]); } });
       seg.appendChild(b);
     });
@@ -478,15 +494,27 @@
 
     var mc = modeChoice();
     var f2 = el('div', 'field');
-    f2.appendChild(el('label', null, 'Appearance mode'));
+    f2.appendChild(el('label', null, T('Appearance mode')));
     f2.appendChild(el('div', 'hint', 'Auto follows your system light/dark preference (now: ' + resolveMode(mc) + ').'));
     var seg2 = el('div', 'seg');
     [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].forEach(function (o) {
-      var b = el('button', mc === o[0] ? 'active' : null, o[1]);
+      var b = el('button', mc === o[0] ? 'active' : null, T(o[1]));
       b.addEventListener('click', function () { setMode(o[0]); });
       seg2.appendChild(b);
     });
     f2.appendChild(seg2); pane.appendChild(f2);
+
+    var lc = langChoice();
+    var f3 = el('div', 'field');
+    f3.appendChild(el('label', null, T('Language')));
+    f3.appendChild(el('div', 'hint', T('Choose the interface language. Default is English; untranslated labels stay in English.')));
+    var seg3 = el('div', 'seg');
+    LANGS.forEach(function (o) {
+      var b = el('button', lc === o[0] ? 'active' : null, o[1]);
+      b.addEventListener('click', function () { if (o[0] !== langChoice()) setLang(o[0]); });
+      seg3.appendChild(b);
+    });
+    f3.appendChild(seg3); pane.appendChild(f3);
   }
 
   function tabEngine(pane) {
@@ -763,8 +791,8 @@
     var chat = el('div', 'chat');
     var log = el('div', 'chat-log');
     var row = el('div', 'chat-input');
-    var ta = el('textarea'); ta.placeholder = 'Message ' + (agent.label || agent.name) + '...';
-    var send = el('button'); send.textContent = 'Send';
+    var ta = el('textarea'); ta.placeholder = T('Message') + ' ' + (agent.label || agent.name) + '...';
+    var send = el('button'); send.textContent = T('Send');
     row.appendChild(ta); row.appendChild(send);
     chat.appendChild(log); chat.appendChild(row); content.appendChild(chat);
     function addMsg(who, text, cls, via, persist) { var m = el('div', 'msg ' + cls); m.appendChild(el('div', 'who', who + (via ? ' · via ' + via : ''))); var c = el('div'); c.textContent = text; m.appendChild(c); log.appendChild(m); log.scrollTop = log.scrollHeight; if (persist !== false) pushChatLog(logKey, { who: who, text: text, cls: cls, via: via }); return m; }
@@ -900,6 +928,7 @@
   // boot
   applyTheme();
   applyMode();
+  applyStaticI18n();
   if (window.matchMedia) { try { window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () { if (modeChoice() === 'auto') applyMode(); }); } catch (e) {} }
   tickClock(); setInterval(tickClock, 10000);
   pollStatus(); setInterval(pollStatus, 15000);
