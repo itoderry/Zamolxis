@@ -175,8 +175,11 @@ export function loadConfig(): ZamolxisConfig {
     workspacesDir: path.join(dataDir, 'workspaces'),
     // User-facing output + script folders. Default to C:\Zamolxis / C:\bat on Windows, ~/Zamolxis /
     // ~/zamolxis-bat elsewhere. Overridable via env or the Settings panel.
-    workDir: process.env.ZAMOLXIS_WORK_DIR || (process.platform === 'win32' ? 'C:\\Zamolxis' : path.join(os.homedir(), 'Zamolxis')),
-    batDir: process.env.ZAMOLXIS_BAT_DIR || (process.platform === 'win32' ? 'C:\\bat' : path.join(os.homedir(), 'zamolxis-bat')),
+    // Keep ALL of Zamolxis's footprint inside dataDir by default (no scattering across the disk):
+    // work + bat live under it unless explicitly overridden. Point ZAMOLXIS_DATA_DIR at one folder
+    // and everything (state, skills, uploads, workspaces, work, bat, logs) follows.
+    workDir: process.env.ZAMOLXIS_WORK_DIR || path.join(dataDir, 'work'),
+    batDir: process.env.ZAMOLXIS_BAT_DIR || path.join(dataDir, 'bat'),
     skillsDir: path.join(dataDir, 'skills'),
     extraSkillsDirs: detectExtraSkillsDirs(dataDir),
     agentName: process.env.ZAMOLXIS_AGENT_NAME || 'Zamolxis',

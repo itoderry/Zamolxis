@@ -28,20 +28,34 @@ import { logger } from '../logger.js';
 
 const LOOPBACK = ['127.0.0.1', 'localhost', '::1'];
 
-// ── Filesystem API root for the desktop apps (File Manager, editors, media/doc viewers). ──
-// Rooted at the user's home directory; all paths are resolved under it and traversal above it is
-// rejected. This is a single-user, localhost-bound tool operating on the owner's own machine.
-const FS_ROOT = os.homedir();
-function fsResolve(rel: string): string | null {
+// ── Filesystem API for the desktop apps (File Manager, editors, media/doc viewers). ──
+// Gives the same reach as the OS file explorer: the whole filesystem (all drives on Windows,
+// '/' on macOS/Linux). This is a single-user, localhost-bound tool on the owner's own machine
+// (the web channel refuses to bind a non-loopback address without an auth token).
+const FS_DRIVES = '::drives'; // sentinel for the Windows "This PC" / drive-letter view
+function fsResolve(p: string): string | null {
   try {
-    const target = path.resolve(FS_ROOT, rel && rel !== '/' ? rel.replace(/^[/\\]+/, '') : '.');
-    if (target === FS_ROOT) return target;
-    const r = path.relative(FS_ROOT, target);
-    if (!r || r.startsWith('..') || path.isAbsolute(r)) return null;
-    return target;
+    if (!p) return os.homedir();
+    if (p === FS_DRIVES) return FS_DRIVES;
+    return path.resolve(p);
   } catch {
     return null;
   }
+}
+function fsParent(abs: string): string | null {
+  if (abs === FS_DRIVES) return null;
+  if (process.platform === 'win32' && /^[A-Za-z]:[\\/]?$/.test(abs)) return FS_DRIVES;
+  const up = path.dirname(abs);
+  if (up === abs) return process.platform === 'win32' ? FS_DRIVES : null;
+  return up;
+}
+function fsDrives(): Array<{ name: string; dir: boolean; size: number; mtime: number; ext: string; abs: string }> {
+  const out: Array<{ name: string; dir: boolean; size: number; mtime: number; ext: string; abs: string }> = [];
+  for (const L of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+    const d = L + ':\\';
+    try { fs.statSync(d); out.push({ name: L + ':', dir: true, size: 0, mtime: 0, ext: '', abs: d }); } catch { /* no such drive */ }
+  }
+  return out;
 }
 const FILE_TYPES: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8', '.json': 'application/json',
@@ -614,22 +628,25 @@ export class WebChannel implements Channel {
         try {
           const o = JSON.parse(body || '{}');
           const op = String(o.op || '');
-          const target = fsResolve(String(o.path || '.'));
-          if (target === null) return this.json(res, 400, { error: 'path outside root' });
+          const target = fsResolve(String(o.path == null ? '' : o.path));
+          if (target === null) return this.json(res, 400, { error: 'bad path' });
           if (op === 'list') {
+            if (target === FS_DRIVES) {
+              return this.json(res, 200, { path: FS_DRIVES, parent: null, sep: '\\', home: os.homedir(), drives: true, items: fsDrives() });
+            }
             const entries = fs.readdirSync(target, { withFileTypes: true });
             const items = entries.filter((e) => !e.name.startsWith('.') || o.showHidden).map((e) => {
-              let size = 0, mtime = 0;
-              try { const st = fs.statSync(path.join(target, e.name)); size = st.size; mtime = st.mtimeMs; } catch { /* skip */ }
-              const ext = path.extname(e.name).toLowerCase();
-              return { name: e.name, dir: e.isDirectory(), size, mtime, ext };
+              const abs = path.join(target, e.name);
+              let size = 0, mtime = 0, dir = e.isDirectory();
+              try { const st = fs.statSync(abs); size = st.size; mtime = st.mtimeMs; dir = st.isDirectory(); } catch { /* unreadable */ }
+              return { name: e.name, dir, size, mtime, ext: path.extname(e.name).toLowerCase(), abs };
             }).sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
-            return this.json(res, 200, { path: path.relative(FS_ROOT, target).replace(/\\/g, '/'), abs: target, root: FS_ROOT, items });
+            return this.json(res, 200, { path: target, parent: fsParent(target), sep: path.sep, home: os.homedir(), items });
           }
           if (op === 'read') {
             const st = fs.statSync(target);
             if (st.size > 2_000_000) return this.json(res, 413, { error: 'file too large to edit (2 MB)' });
-            return this.json(res, 200, { path: path.relative(FS_ROOT, target).replace(/\\/g, '/'), text: fs.readFileSync(target, 'utf8') });
+            return this.json(res, 200, { path: target, text: fs.readFileSync(target, 'utf8') });
           }
           if (op === 'write') {
             fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -792,7 +809,7 @@ export class WebChannel implements Channel {
           const buf = await fn(html);
           const out = target.replace(/\.(docx?|odt)$/i, '') + '-edited.docx';
           fs.writeFileSync(out, Buffer.isBuffer(buf) ? buf : Buffer.from(buf as ArrayBuffer));
-          return this.json(res, 200, { ok: true, path: path.relative(FS_ROOT, out).replace(/\\/g, '/') });
+          return this.json(res, 200, { ok: true, path: out });
         } catch (err) {
           return this.json(res, 500, { error: String((err as Error)?.message || err) });
         }

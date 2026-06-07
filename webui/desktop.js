@@ -104,7 +104,13 @@
     it: { 'Timezone': 'Fuso orario', 'Autostart': 'Avvio automatico', 'Run Zamolxis at login': "Avvia Zamolxis all'accesso", 'Export setup': 'Esporta configurazione', 'Channels': 'Canali', 'Enable a channel and add its credentials. Changes take effect after a restart (System tab).': 'Abilita un canale e aggiungi le sue credenziali. Le modifiche hanno effetto dopo un riavvio (scheda Sistema).' }
   };
   Object.keys(I18N_SET).forEach(function (l) { if (I18N[l]) Object.keys(I18N_SET[l]).forEach(function (k) { I18N[l][k] = I18N_SET[l][k]; }); });
-  var I18N_X = { es: { 'Clear conversation': 'Borrar conversación' }, fr: { 'Clear conversation': 'Effacer la conversation' }, de: { 'Clear conversation': 'Unterhaltung löschen' }, ro: { 'Clear conversation': 'Șterge conversația' }, it: { 'Clear conversation': 'Cancella conversazione' } };
+  var I18N_X = {
+    es: { 'Clear conversation': 'Borrar conversación', 'Select a file to open': 'Selecciona un archivo para abrir' },
+    fr: { 'Clear conversation': 'Effacer la conversation', 'Select a file to open': 'Sélectionnez un fichier à ouvrir' },
+    de: { 'Clear conversation': 'Unterhaltung löschen', 'Select a file to open': 'Wählen Sie eine Datei zum Öffnen' },
+    ro: { 'Clear conversation': 'Șterge conversația', 'Select a file to open': 'Selectează un fișier de deschis' },
+    it: { 'Clear conversation': 'Cancella conversazione', 'Select a file to open': 'Seleziona un file da aprire' }
+  };
   Object.keys(I18N_X).forEach(function (l) { if (I18N[l]) Object.keys(I18N_X[l]).forEach(function (k) { I18N[l][k] = I18N_X[l][k]; }); });
   function langChoice() { return localStorage.getItem('zx_lang') || 'en'; }
   function T(s) { var L = langChoice(); if (L === 'en') return s; var d = I18N[L]; return (d && d[s]) || s; }
@@ -1214,71 +1220,104 @@
     var inst = makeWindow({ appId: idBase, title: title, iconSvg: iconSvg, w: w, h: h, onMount: mountFn });
     inst._iconSvg = iconSvg; inst._appTitle = title; syncTaskbar(); return inst;
   }
-  function openFile(rel) {
-    var name = rel.split('/').pop(); var ext = '.' + (name.split('.').pop() || '').toLowerCase();
-    if (TEXT_OPEN.test(name)) return spawnApp('texteditor:' + rel, name, ICON.editor, 720, 560, function (b, w) { mountTextEditor(b, w, rel); });
-    if (IMG_OPEN.test(name)) return spawnApp('imageviewer:' + rel, name, ICON.image, 780, 620, function (b, w) { mountImageViewer(b, w, rel); });
-    if (AV_OPEN.test(name)) return spawnApp('mediaplayer:' + rel, name, ICON.film, 720, 500, function (b, w) { mountMediaPlayer(b, w, rel); });
-    if (ext === '.pdf') return spawnApp('pdf:' + rel, name, ICON.pdf, 840, 700, function (b, w) { mountPdf(b, w, rel); });
-    if (ext === '.epub') return spawnApp('ebook:' + rel, name, ICON.book, 760, 700, function (b, w) { mountEbook(b, w, rel); });
-    if (DOC_OPEN.test(name)) return spawnApp('word:' + rel, name, ICON.doc, 780, 660, function (b, w) { mountDocViewer(b, w, rel, 'doc'); });
-    if (SHEET_OPEN.test(name)) return spawnApp('excel:' + rel, name, ICON.sheet, 860, 620, function (b, w) { mountDocViewer(b, w, rel, 'sheet'); });
-    window.open(fileUrl(rel, true), '_blank');
+  function baseName(p) { return (p || '').split(/[\\/]/).pop(); }
+  // Mount the right viewer/editor for a file INTO the given window body.
+  function mountForFile(body, win, abs) {
+    var name = baseName(abs);
+    if (TEXT_OPEN.test(name)) return mountTextEditor(body, win, abs);
+    if (IMG_OPEN.test(name)) return mountImageViewer(body, win, abs);
+    if (AV_OPEN.test(name)) return mountMediaPlayer(body, win, abs);
+    if (/\.pdf$/i.test(name)) return mountPdf(body, win, abs);
+    if (/\.epub$/i.test(name)) return mountEbook(body, win, abs);
+    if (DOC_OPEN.test(name)) return mountDocViewer(body, win, abs, 'doc');
+    if (SHEET_OPEN.test(name)) return mountDocViewer(body, win, abs, 'sheet');
+    window.open(fileUrl(abs, true), '_blank');
+    body.appendChild(el('div', 'hint', name));
+  }
+  // Open a file in a NEW window (used by File Manager double-click).
+  function openFile(abs) {
+    var name = baseName(abs);
+    spawnApp('view:' + abs, name, iconForName(name), 820, 660, function (b, w) { mountForFile(b, w, abs); });
+  }
+  // Open a file by REUSING an existing window (used by the "Open…" file picker so we don't
+  // pile up windows): clear the window, re-title it, and mount the right viewer in place.
+  function openInWindow(win, abs) {
+    win.cleanup.forEach(function (fn) { try { fn(); } catch (e) {} }); win.cleanup = [];
+    if (win.menubar) { win.menubar.innerHTML = ''; win.menubar.style.display = 'none'; }
+    win._menuModel = null; win.body.innerHTML = ''; win.body.style.padding = '';
+    win._appTitle = baseName(abs); win.titleEl.textContent = win._appTitle; win._iconSvg = iconForName(baseName(abs));
+    mountForFile(win.body, win, abs);
+    focusWin(win); syncTaskbar();
+  }
+  // A File-Manager window in "pick a file" mode: choosing a file calls cb(abs) then closes the picker.
+  function pickFile(cb) {
+    spawnApp('filepick:' + (++seq), T('Open') + '…', ICON.files, 720, 520, function (b, w) {
+      mountFiles(b, w, { pick: function (abs) { try { cb(abs); } catch (e) {} closeWin(w); } });
+    });
   }
 
-  function mountFiles(body, win) {
+  function mountFiles(body, win, opts) {
+    opts = opts || {};
     body.style.padding = '0';
     var wrap = el('div'); wrap.style.cssText = 'height:100%;display:flex;flex-direction:column;font-size:13px';
     var bar = el('div'); bar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px;border-bottom:1px solid rgba(128,128,128,.2);flex-wrap:wrap';
     var upBtn = el('button', 'btn ghost', '↰'); upBtn.title = 'Up';
+    var homeBtn = el('button', 'btn ghost', '⌂'); homeBtn.title = 'Home';
     var pathInp = el('input', 'inp'); pathInp.style.cssText = 'flex:1;min-width:120px';
     var refreshBtn = el('button', 'btn ghost', T('Refresh'));
     var mkdirBtn = el('button', 'btn ghost', T('New folder'));
     var newFileBtn = el('button', 'btn ghost', T('New file'));
     var upFileBtn = el('button', 'btn ghost', '📎'); upFileBtn.title = T('Attach files');
     var fileIn = el('input'); fileIn.type = 'file'; fileIn.multiple = true; fileIn.style.display = 'none';
-    [upBtn, pathInp, refreshBtn, mkdirBtn, newFileBtn, upFileBtn].forEach(function (e) { bar.appendChild(e); });
+    [upBtn, homeBtn, pathInp, refreshBtn, mkdirBtn, newFileBtn, upFileBtn].forEach(function (e) { bar.appendChild(e); });
+    if (opts.pick) { var pb = el('div', 'hint'); pb.style.cssText = 'padding:4px 10px;background:rgba(0,103,192,.14)'; pb.textContent = T('Select a file to open'); wrap.appendChild(bar); wrap.appendChild(pb); } else { wrap.appendChild(bar); }
     var list = el('div'); list.style.cssText = 'flex:1;overflow:auto;padding:6px';
     var status = el('div', 'hint'); status.style.cssText = 'padding:4px 8px;border-top:1px solid rgba(128,128,128,.2)';
-    wrap.appendChild(bar); wrap.appendChild(list); wrap.appendChild(status); body.appendChild(wrap); body.appendChild(fileIn);
-    var cur = localStorage.getItem('zx_fm_path') || '';
-    function parent(p) { var i = p.lastIndexOf('/'); return i < 0 ? '' : p.slice(0, i); }
+    wrap.appendChild(list); wrap.appendChild(status); body.appendChild(wrap); body.appendChild(fileIn);
+    var cur = '', sep = '\\', homePath = '', parentPath = null;
+    function join(dir, name) { if (!dir) return name; var last = dir.charAt(dir.length - 1); return (last === sep || last === '/') ? dir + name : dir + sep + name; }
     function load(p) {
       fsapi('list', { path: p }).then(function (d) {
         if (d.error) { status.textContent = d.error; return; }
-        cur = d.path; try { localStorage.setItem('zx_fm_path', cur); } catch (e) {} pathInp.value = '/' + cur;
+        cur = d.path; sep = d.sep || sep; homePath = d.home || homePath; parentPath = (d.parent === undefined ? null : d.parent);
+        try { localStorage.setItem('zx_fm_path', cur); } catch (e) {}
+        pathInp.value = (cur === '::drives' || cur === '') ? 'This PC' : cur;
+        upBtn.style.visibility = (parentPath == null) ? 'hidden' : '';
         list.innerHTML = '';
         if (!d.items.length) list.appendChild(el('div', 'hint', T('empty folder')));
         d.items.forEach(function (it) {
-          var childPath = (cur ? cur + '/' : '') + it.name;
+          var childAbs = it.abs;
           var row = el('div', 'fm-row');
           var ic = el('span', 'fm-ico', it.dir ? ICON.files : iconForName(it.name));
           var nm = el('span'); nm.textContent = it.name; nm.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
           var meta = el('span', 'hint'); meta.textContent = it.dir ? '' : humanSize(it.size);
           var act = el('span', 'fm-act');
-          var rn = el('button', 'btn ghost mini', T('Rename'));
-          rn.addEventListener('click', function (e) { e.stopPropagation(); var nn = prompt(T('Rename'), it.name); if (nn && nn !== it.name) fsapi('rename', { path: childPath, to: (cur ? cur + '/' : '') + nn }).then(function () { load(cur); }); });
-          var del = el('button', 'btn ghost mini', T('Delete'));
-          del.addEventListener('click', function (e) { e.stopPropagation(); if (confirm(T('Delete') + ' "' + it.name + '"?')) fsapi('delete', { path: childPath }).then(function () { load(cur); }); });
-          act.appendChild(rn);
-          if (!it.dir) { var dl = el('a', 'btn ghost mini', T('Download')); dl.href = fileUrl(childPath, true); dl.style.cssText = 'text-decoration:none'; act.appendChild(dl); }
-          act.appendChild(del);
+          if (!d.drives) {
+            var rn = el('button', 'btn ghost mini', T('Rename'));
+            rn.addEventListener('click', function (e) { e.stopPropagation(); var nn = prompt(T('Rename'), it.name); if (nn && nn !== it.name) fsapi('rename', { path: childAbs, to: join(cur, nn) }).then(function () { load(cur); }); });
+            act.appendChild(rn);
+            if (!it.dir) { var dl = el('a', 'btn ghost mini', T('Download')); dl.href = fileUrl(childAbs, true); dl.style.cssText = 'text-decoration:none'; act.appendChild(dl); }
+            var del = el('button', 'btn ghost mini', T('Delete'));
+            del.addEventListener('click', function (e) { e.stopPropagation(); if (confirm(T('Delete') + ' "' + it.name + '"?')) fsapi('delete', { path: childAbs }).then(function () { load(cur); }); });
+            act.appendChild(del);
+          }
           row.appendChild(ic); row.appendChild(nm); row.appendChild(meta); row.appendChild(act);
-          row.addEventListener('dblclick', function () { if (it.dir) load(childPath); else openFile(childPath); });
+          row.addEventListener('dblclick', function () { if (it.dir) load(childAbs); else if (opts.pick) opts.pick(childAbs); else openFile(childAbs); });
           list.appendChild(row);
         });
-        status.textContent = d.items.length + ' items · ' + d.root;
+        status.textContent = d.items.length + ' items' + (cur && cur !== '::drives' ? ' · ' + cur : '');
       }).catch(function () { status.textContent = 'error'; });
     }
-    upBtn.addEventListener('click', function () { load(parent(cur)); });
+    upBtn.addEventListener('click', function () { if (parentPath != null) load(parentPath); });
+    homeBtn.addEventListener('click', function () { load(homePath || ''); });
     refreshBtn.addEventListener('click', function () { load(cur); });
-    pathInp.addEventListener('keydown', function (e) { if (e.key === 'Enter') load(pathInp.value.replace(/^\/+/, '')); });
-    mkdirBtn.addEventListener('click', function () { var n = prompt(T('New folder')); if (n) fsapi('mkdir', { path: (cur ? cur + '/' : '') + n }).then(function () { load(cur); }); });
-    newFileBtn.addEventListener('click', function () { var n = prompt(T('New file')); if (n) fsapi('write', { path: (cur ? cur + '/' : '') + n, content: '' }).then(function () { load(cur); openFile((cur ? cur + '/' : '') + n); }); });
+    pathInp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { var v = pathInp.value.trim(); load(v === 'This PC' ? '::drives' : v); } });
+    mkdirBtn.addEventListener('click', function () { var n = prompt(T('New folder')); if (n) fsapi('mkdir', { path: join(cur, n) }).then(function () { load(cur); }); });
+    newFileBtn.addEventListener('click', function () { var n = prompt(T('New file')); if (n) { var np = join(cur, n); fsapi('write', { path: np, content: '' }).then(function () { load(cur); if (opts.pick) opts.pick(np); else openFile(np); }); } });
     upFileBtn.addEventListener('click', function () { fileIn.click(); });
     fileIn.addEventListener('change', function () {
       var arr = [].slice.call(fileIn.files || []); fileIn.value = '';
-      var i = 0; function next() { if (i >= arr.length) { load(cur); return; } var f = arr[i++]; var rd = new FileReader(); rd.onload = function () { var s = String(rd.result || ''); var c = s.indexOf(','); var b64 = c >= 0 ? s.slice(c + 1) : s; fsapi('writeB64', { path: (cur ? cur + '/' : '') + f.name, content: b64 }).then(next).catch(next); }; rd.readAsDataURL(f); }
+      var i = 0; function next() { if (i >= arr.length) { load(cur); return; } var f = arr[i++]; var rd = new FileReader(); rd.onload = function () { var s = String(rd.result || ''); var c = s.indexOf(','); var b64 = c >= 0 ? s.slice(c + 1) : s; fsapi('writeB64', { path: join(cur, f.name), content: b64 }).then(next).catch(next); }; rd.readAsDataURL(f); }
       next();
     });
     win.setMenus([
@@ -1289,10 +1328,12 @@
       ] },
       { label: T('View'), items: [
         { label: T('Refresh'), accel: 'F5', action: function () { refreshBtn.click(); } },
-        { label: 'Up', action: function () { upBtn.click(); } }
+        { label: 'Home', action: function () { homeBtn.click(); } },
+        { label: 'Up', action: function () { upBtn.click(); } },
+        { label: 'This PC', action: function () { load('::drives'); } }
       ] }
     ]);
-    load(cur);
+    load(localStorage.getItem('zx_fm_path') || '');
   }
 
   function mountTextEditor(body, win, rel) {
@@ -1308,7 +1349,7 @@
     ta.spellcheck = false; wrap.appendChild(bar); wrap.appendChild(ta); body.appendChild(wrap);
     var pathRef = rel;
     if (rel) fsapi('read', { path: rel }).then(function (d) { if (d.error) { status.textContent = d.error; return; } ta.value = d.text; }).catch(function () { status.textContent = 'error'; });
-    openBtn.addEventListener('click', function () { launchApp('files'); });
+    openBtn.addEventListener('click', function () { pickFile(function (abs) { openInWindow(win, abs); }); });
     saveBtn.addEventListener('click', function () {
       if (!pathRef) { var n = prompt(T('New file'), 'untitled.txt'); if (!n) return; pathRef = n; nameSpan.textContent = pathRef; }
       saveBtn.disabled = true; status.textContent = T('Saving...');
@@ -1354,9 +1395,9 @@
     pad.appendChild(ic);
     pad.appendChild(el('div', 'hint', T('No file open')));
     var b = el('button', 'btn', T('Open from File Manager'));
-    b.addEventListener('click', function () { launchApp('files'); });
+    b.addEventListener('click', function () { pickFile(function (abs) { openInWindow(win, abs); }); });
     pad.appendChild(b); body.appendChild(pad);
-    win.setMenus([{ label: T('File'), items: [ { label: T('Open') + '...', action: function () { launchApp('files'); } } ] }]);
+    win.setMenus([{ label: T('File'), items: [ { label: T('Open') + '...', action: function () { pickFile(function (abs) { openInWindow(win, abs); }); } } ] }]);
   }
 
   function mountImageViewer(body, win, rel) {
@@ -1367,7 +1408,7 @@
     bar.appendChild(el('span', null, rel.split('/').pop())); var sp = el('div'); sp.style.flex = '1'; bar.appendChild(sp);
     var dl = el('a', 'btn ghost', T('Download')); dl.href = fileUrl(rel, true); dl.style.cssText = 'text-decoration:none;color:#ccc'; bar.appendChild(dl);
     wrap.appendChild(img); wrap.appendChild(bar); body.appendChild(wrap);
-    win.setMenus([{ label: T('File'), items: [ { label: T('Download'), action: function () { dl.click(); } }, { label: T('Open from File Manager'), action: function () { launchApp('files'); } } ] }]);
+    win.setMenus([{ label: T('File'), items: [ { label: T('Download'), action: function () { dl.click(); } }, { label: T('Open from File Manager'), action: function () { pickFile(function (abs) { openInWindow(win, abs); }); } } ] }]);
   }
 
   function mountMediaPlayer(body, win, rel) {
@@ -1380,7 +1421,7 @@
     wrap.appendChild(media); body.appendChild(wrap);
     win.setMenus([{ label: T('File'), items: [
       { label: T('Download'), action: function () { window.open(fileUrl(rel, true), '_blank'); } },
-      { label: T('Open from File Manager'), action: function () { launchApp('files'); } }
+      { label: T('Open from File Manager'), action: function () { pickFile(function (abs) { openInWindow(win, abs); }); } }
     ] }]);
   }
 
@@ -1394,7 +1435,7 @@
     nav.appendChild(prev); nav.appendChild(next); wrap.appendChild(area); wrap.appendChild(nav); body.appendChild(wrap);
     win.setMenus([{ label: T('File'), items: [
       { label: T('Download'), action: function () { window.open(fileUrl(rel, true), '_blank'); } },
-      { label: T('Open from File Manager'), action: function () { launchApp('files'); } }
+      { label: T('Open from File Manager'), action: function () { pickFile(function (abs) { openInWindow(win, abs); }); } }
     ] }]);
     area.appendChild(el('div', 'hint', T('Loading...')));
     loadScript('https://cdn.jsdelivr.net/npm/jszip/dist/jszip.min.js', function () {
