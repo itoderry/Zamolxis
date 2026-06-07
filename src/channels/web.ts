@@ -1456,12 +1456,21 @@ function sendMsg(){var t=el('in').value.trim();var files=pending.slice();if(!t&&
   cur=add('bot',BOT_LABEL,'thinking...');curStarted=false;
   renameThreadFrom(t||(files[0]&&files[0].name));
   if(!files.length){setStatus('thinking...');startGen();ws.send(JSON.stringify({text:t,route:curRoute(),model:sendModel}));return}
-  setStatus('uploading...');clearAttach();startGen();
-  Promise.all(files.map(function(f){return fetch('/api/upload',{method:'POST',headers:hdrs(),body:JSON.stringify({chatId:cid,name:f.name,contentB64:f.b64})}).then(function(r){return r.ok?r.json():null})})).then(function(rs){
+  // Text-readable files: inject their content inline so ANY model can read them (route by your choice;
+  // escalates to Claude only if the model can't). Images/PDF/Office/binary still need Claude's file tools.
+  var TEXT_EXT=/\\.(txt|md|markdown|csv|tsv|json|jsonl|ya?ml|xml|html?|js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|kt|c|cc|cpp|h|hpp|cs|php|swift|sh|bash|zsh|ps1|bat|sql|ini|toml|cfg|conf|log|env|tex|rst|gradle|properties|dockerfile|makefile|gitignore)$/i;
+  function b64text(b){try{return decodeURIComponent(escape(atob(b)))}catch(e){try{return atob(b)}catch(e2){return ''}}}
+  var inj=[],up=[];
+  files.forEach(function(f){var tx=(TEXT_EXT.test(f.name)&&f.size<=400000)?b64text(f.b64):null;if(tx!==null){var clip=tx.length>100000?(tx.slice(0,100000)+'\\n...[truncated]'):tx;inj.push('----- '+f.name+' -----\\n'+clip+'\\n-----')}else{up.push(f)}});
+  var base=(t||'')+(inj.length?((t?'\\n\\n':'')+inj.join('\\n\\n')):'');
+  function finish(text,route){setStatus('thinking...');startGen();ws.send(JSON.stringify({text:text,route:route,model:sendModel}))}
+  if(!up.length){clearAttach();finish(base||'(see attached content)',curRoute());return}
+  setStatus('uploading...');clearAttach();
+  Promise.all(up.map(function(f){return fetch('/api/upload',{method:'POST',headers:hdrs(),body:JSON.stringify({chatId:cid,name:f.name,contentB64:f.b64})}).then(function(r){return r.ok?r.json():null})})).then(function(rs){
     var paths=rs.filter(Boolean).map(function(x){return x.path});
-    if(!paths.length){setStatus('upload failed');if(cur){cur.textContent='(upload failed)'}return}
-    var note=(t?t+'\\n\\n':'')+'Attached file(s) - read them with your tools to answer:\\n'+paths.map(function(p){return '- '+p}).join('\\n');
-    setStatus('thinking...');ws.send(JSON.stringify({text:note,route:'claude',model:sendModel}));
+    if(!paths.length&&!inj.length){setStatus('upload failed');if(cur){cur.textContent='(upload failed)'}return}
+    var note=base+((base&&paths.length)?'\\n\\n':'')+(paths.length?('Attached file(s) - read them with your tools to answer:\\n'+paths.map(function(p){return '- '+p}).join('\\n')):'');
+    finish(note,'claude');
   }).catch(function(){setStatus('upload failed');if(cur){cur.textContent='(upload failed)'}})}
 el('route').onchange=function(){routes[cid]=el('route').value;localStorage.zx_routes=JSON.stringify(routes);updateModelVis()};applyRoute();
 el('model').onchange=function(){models[cid]=el('model').value;localStorage.zx_models=JSON.stringify(models)};applyModel();
