@@ -104,6 +104,8 @@
     it: { 'Timezone': 'Fuso orario', 'Autostart': 'Avvio automatico', 'Run Zamolxis at login': "Avvia Zamolxis all'accesso", 'Export setup': 'Esporta configurazione', 'Channels': 'Canali', 'Enable a channel and add its credentials. Changes take effect after a restart (System tab).': 'Abilita un canale e aggiungi le sue credenziali. Le modifiche hanno effetto dopo un riavvio (scheda Sistema).' }
   };
   Object.keys(I18N_SET).forEach(function (l) { if (I18N[l]) Object.keys(I18N_SET[l]).forEach(function (k) { I18N[l][k] = I18N_SET[l][k]; }); });
+  var I18N_X = { es: { 'Clear conversation': 'Borrar conversación' }, fr: { 'Clear conversation': 'Effacer la conversation' }, de: { 'Clear conversation': 'Unterhaltung löschen' }, ro: { 'Clear conversation': 'Șterge conversația' }, it: { 'Clear conversation': 'Cancella conversazione' } };
+  Object.keys(I18N_X).forEach(function (l) { if (I18N[l]) Object.keys(I18N_X[l]).forEach(function (k) { I18N[l][k] = I18N_X[l][k]; }); });
   function langChoice() { return localStorage.getItem('zx_lang') || 'en'; }
   function T(s) { var L = langChoice(); if (L === 'en') return s; var d = I18N[L]; return (d && d[s]) || s; }
   function Tf(s, vars) { var out = T(s); if (vars) Object.keys(vars).forEach(function (k) { out = out.split('{' + k + '}').join(vars[k]); }); return out; }
@@ -167,8 +169,10 @@
     w.root.style.zIndex = ++zTop;
     w.minimized = false; w.root.classList.remove('minimized');
     var nm = document.getElementById('tb-appname'); if (nm) nm.textContent = w._appTitle || w.titleEl.textContent || 'Desktop';
-    applyWinMenus(w);
-    closeDD();
+    // macOS shows the focused window's menus in the global top bar — swap them on focus.
+    // On Windows/Ubuntu the in-window menu bar is built once (in setMenus) and must NOT be
+    // rebuilt here, or a click on a menu button would detach the button before its action fires.
+    if (document.body.dataset.os === 'mac') applyWinMenus(w);
     syncTaskbar();
     saveSession();
   }
@@ -583,6 +587,10 @@
     }
     send.addEventListener('click', doSend);
     ta.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } });
+    if (win.setMenus) win.setMenus([
+      { label: T('File'), items: [ { label: T('Clear conversation'), action: function () { if (confirm(T('Clear conversation') + '?')) { log.innerHTML = ''; try { localStorage.removeItem(logKey); } catch (e) {} api('/api/forget', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cid: cid }) }).catch(function () {}); } } } ] },
+      { label: T('Help'), items: [ { label: T('Help & Guide'), action: function () { launchApp('help'); } } ] }
+    ]);
     setTimeout(function () { ta.focus(); }, 50);
   }
 
@@ -1348,6 +1356,7 @@
     var b = el('button', 'btn', T('Open from File Manager'));
     b.addEventListener('click', function () { launchApp('files'); });
     pad.appendChild(b); body.appendChild(pad);
+    win.setMenus([{ label: T('File'), items: [ { label: T('Open') + '...', action: function () { launchApp('files'); } } ] }]);
   }
 
   function mountImageViewer(body, win, rel) {
@@ -1369,6 +1378,10 @@
     var media = el(isAudio ? 'audio' : 'video'); media.src = fileUrl(rel); media.controls = true; media.autoplay = false;
     media.style.cssText = isAudio ? 'width:90%' : 'max-width:100%;max-height:100%';
     wrap.appendChild(media); body.appendChild(wrap);
+    win.setMenus([{ label: T('File'), items: [
+      { label: T('Download'), action: function () { window.open(fileUrl(rel, true), '_blank'); } },
+      { label: T('Open from File Manager'), action: function () { launchApp('files'); } }
+    ] }]);
   }
 
   function mountEbook(body, win, rel) {
@@ -1379,6 +1392,10 @@
     var nav = el('div'); nav.style.cssText = 'display:flex;gap:8px;justify-content:center;padding:6px;border-top:1px solid rgba(128,128,128,.2)';
     var prev = el('button', 'btn ghost', '‹ '); var next = el('button', 'btn ghost', ' ›');
     nav.appendChild(prev); nav.appendChild(next); wrap.appendChild(area); wrap.appendChild(nav); body.appendChild(wrap);
+    win.setMenus([{ label: T('File'), items: [
+      { label: T('Download'), action: function () { window.open(fileUrl(rel, true), '_blank'); } },
+      { label: T('Open from File Manager'), action: function () { launchApp('files'); } }
+    ] }]);
     area.appendChild(el('div', 'hint', T('Loading...')));
     loadScript('https://cdn.jsdelivr.net/npm/jszip/dist/jszip.min.js', function () {
       loadScript('https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js', function (ok) {
@@ -1407,30 +1424,48 @@
     var dl = el('a', 'btn ghost', T('Download')); dl.href = fileUrl(rel, true); dl.style.cssText = 'text-decoration:none;line-height:26px';
     var msg = el('span', 'hint');
     [rotBtn, delBtn, saveBtn, dl, msg].forEach(function (e) { bar.appendChild(e); });
-    var emb = el('embed'); emb.type = 'application/pdf'; emb.src = fileUrl(rel); emb.style.cssText = 'flex:1;width:100%';
-    wrap.appendChild(bar); wrap.appendChild(emb); body.appendChild(wrap);
-    var pdfDoc = null, dirty = false;
-    function ensureLib(cb) {
-      if (window.PDFLib) return cb(true);
-      msg.textContent = 'Loading editor...';
-      loadScript('https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js', function (ok) { msg.textContent = ''; cb(ok && !!window.PDFLib); });
-    }
-    function ensureDoc(cb) {
-      if (pdfDoc) return cb();
-      ensureLib(function (ok) {
-        if (!ok) { msg.textContent = T('Could not open.'); return; }
-        fetch(fileUrl(rel)).then(function (r) { return r.arrayBuffer(); }).then(function (buf) {
-          window.PDFLib.PDFDocument.load(buf).then(function (d) { pdfDoc = d; cb(); }).catch(function () { msg.textContent = T('Could not open.'); });
-        });
+    var pageInfo = el('span', 'hint'); bar.insertBefore(pageInfo, sp.nextSibling);
+    var pages = el('div'); pages.style.cssText = 'flex:1;overflow:auto;background:#3a3a3a;padding:10px';
+    pages.appendChild(el('div', 'hint', T('Loading...')));
+    wrap.appendChild(bar); wrap.appendChild(pages); body.appendChild(wrap);
+    var bytes = null, pdfDoc = null;
+    function ensurePdfjs(cb) {
+      if (window.pdfjsLib) return cb(true);
+      loadScript('https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js', function (ok) {
+        if (ok && window.pdfjsLib) { try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'; } catch (e) {} cb(true); } else cb(false);
       });
     }
-    rotBtn.addEventListener('click', function () { ensureDoc(function () { pdfDoc.getPages().forEach(function (p) { p.setRotation(window.PDFLib.degrees((p.getRotation().angle + 90) % 360)); }); dirty = true; msg.textContent = 'Rotated (unsaved)'; }); });
-    delBtn.addEventListener('click', function () { ensureDoc(function () { var n = parseInt(prompt('Delete which page? (1-' + pdfDoc.getPageCount() + ')'), 10); if (!n || n < 1 || n > pdfDoc.getPageCount()) return; pdfDoc.removePage(n - 1); dirty = true; msg.textContent = 'Page ' + n + ' removed (unsaved)'; }); });
+    function renderBytes(buf) {
+      ensurePdfjs(function (ok) {
+        if (!ok) { pages.innerHTML = ''; pages.appendChild(el('div', 'hint', T('Could not open.') + ' (pdf.js)')); return; }
+        window.pdfjsLib.getDocument({ data: buf.slice(0) }).promise.then(function (doc) {
+          pages.innerHTML = ''; pageInfo.textContent = doc.numPages + 'p';
+          var chain = Promise.resolve();
+          for (var i = 1; i <= doc.numPages; i++) (function (pageNum) {
+            chain = chain.then(function () {
+              return doc.getPage(pageNum).then(function (page) {
+                var vp = page.getViewport({ scale: 1.4 });
+                var cv = el('canvas'); cv.width = vp.width; cv.height = vp.height;
+                cv.style.cssText = 'display:block;margin:0 auto 10px;max-width:100%;box-shadow:0 2px 12px rgba(0,0,0,.5);background:#fff';
+                pages.appendChild(cv);
+                return page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+              });
+            });
+          })(i);
+        }).catch(function () { pages.innerHTML = ''; pages.appendChild(el('div', 'hint', T('Could not open.'))); });
+      });
+    }
+    fetch(fileUrl(rel)).then(function (r) { return r.arrayBuffer(); }).then(function (buf) { bytes = buf; renderBytes(buf); }).catch(function () { pages.innerHTML = ''; pages.appendChild(el('div', 'hint', T('Could not open.'))); });
+    function ensureLib(cb) { if (window.PDFLib) return cb(true); msg.textContent = '...'; loadScript('https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js', function (ok) { msg.textContent = ''; cb(ok && !!window.PDFLib); }); }
+    function ensureDoc(cb) { if (pdfDoc) return cb(); ensureLib(function (ok) { if (!ok || !bytes) { msg.textContent = T('Could not open.'); return; } window.PDFLib.PDFDocument.load(bytes.slice(0)).then(function (d) { pdfDoc = d; cb(); }).catch(function () { msg.textContent = T('Could not open.'); }); }); }
+    function reflow() { pdfDoc.save().then(function (b) { bytes = b; renderBytes(b); }); }
+    rotBtn.addEventListener('click', function () { ensureDoc(function () { pdfDoc.getPages().forEach(function (p) { p.setRotation(window.PDFLib.degrees((p.getRotation().angle + 90) % 360)); }); msg.textContent = 'rotated'; reflow(); }); });
+    delBtn.addEventListener('click', function () { ensureDoc(function () { var n = parseInt(prompt('Delete which page? (1-' + pdfDoc.getPageCount() + ')'), 10); if (!n || n < 1 || n > pdfDoc.getPageCount()) return; pdfDoc.removePage(n - 1); msg.textContent = 'page removed'; reflow(); }); });
     saveBtn.addEventListener('click', function () {
       ensureDoc(function () {
         var out = rel.replace(/\.pdf$/i, '') + '-edited.pdf';
         msg.textContent = T('Saving...');
-        pdfDoc.save().then(function (bytes) { return fsapi('writeB64', { path: out, content: bytesToB64(bytes) }); }).then(function (d) { msg.textContent = d && d.error ? d.error : (T('Saved.') + ' ' + out); dirty = false; }).catch(function () { msg.textContent = T('Failed.'); });
+        pdfDoc.save().then(function (b) { return fsapi('writeB64', { path: out, content: bytesToB64(b) }); }).then(function (d) { msg.textContent = d && d.error ? d.error : (T('Saved.') + ' ' + out); }).catch(function () { msg.textContent = T('Failed.'); });
       });
     });
     win.setMenus([
@@ -1636,6 +1671,7 @@
     send.addEventListener('click', doSend);
     ta.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); doSend(); } });
     loadChannels(); timer = setInterval(function () { if (!win.closed) refresh(); }, 5000);
+    win.setMenus([{ label: T('View'), items: [ { label: T('Refresh'), accel: 'F5', action: function () { loadChannels(); refresh(); } } ] }]);
     win.cleanup.push(function () { if (timer) clearInterval(timer); });
   }
 
@@ -1689,6 +1725,12 @@
         .catch(function () { note.textContent = T('Unreachable'); });
     });
     win.cleanup.push(function () { win.closed = true; if (win._consoleIv) clearInterval(win._consoleIv); });
+    win.setMenus([{ label: 'Agent', items: [
+      { label: T('Run job'), action: function () { runBtn.click(); } },
+      { label: T('Chat window'), action: function () { toggle.click(); } },
+      '---',
+      { label: T('Delete'), action: function () { delBtn.click(); } }
+    ] }]);
     render();
   }
 
