@@ -406,17 +406,24 @@
       // Text-readable files: inject content inline (any model can read → route by your choice). Others (images/PDF/Office): upload + Claude tools.
       var TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|jsonl|ya?ml|xml|html?|js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|kt|c|cc|cpp|h|hpp|cs|php|swift|sh|bash|zsh|ps1|bat|sql|ini|toml|cfg|conf|log|env|tex|rst|gradle|properties|dockerfile|makefile|gitignore)$/i;
       function b64text(b) { try { return decodeURIComponent(escape(atob(b))); } catch (e) { try { return atob(b); } catch (e2) { return ''; } } }
-      var inj = [], upl = [];
-      files.forEach(function (f) { var tx = (TEXT_EXT.test(f.name) && f.size <= 400000) ? b64text(f.b64) : null; if (tx !== null) { var clip = tx.length > 100000 ? (tx.slice(0, 100000) + '\n...[truncated]') : tx; inj.push('----- ' + f.name + ' -----\n' + clip + '\n-----'); } else { upl.push(f); } });
+      var IMG_EXT = /\.(png|jpe?g|gif|webp|bmp)$/i;
+      function imgMime(n) { var e = (n.split('.').pop() || '').toLowerCase(); return e === 'png' ? 'image/png' : e === 'gif' ? 'image/gif' : e === 'webp' ? 'image/webp' : e === 'bmp' ? 'image/bmp' : 'image/jpeg'; }
+      var inj = [], upl = [], imgs = [];
+      files.forEach(function (f) {
+        if (IMG_EXT.test(f.name) && f.size <= 4 * 1024 * 1024) imgs.push('data:' + imgMime(f.name) + ';base64,' + f.b64); // inline for vision (Gemini)
+        var tx = (TEXT_EXT.test(f.name) && f.size <= 400000) ? b64text(f.b64) : null;
+        if (tx !== null) { var clip = tx.length > 100000 ? (tx.slice(0, 100000) + '\n...[truncated]') : tx; inj.push('----- ' + f.name + ' -----\n' + clip + '\n-----'); } else { upl.push(f); }
+      });
       var base = (t || '') + (inj.length ? ((t ? '\n\n' : '') + inj.join('\n\n')) : '');
-      if (!upl.length) { sock.send(JSON.stringify({ text: base || '(see attached content)', route: sel.value })); return; }
+      var imgsP = imgs.length ? imgs : undefined;
+      if (!upl.length) { sock.send(JSON.stringify({ text: base || '(see attached content)', route: sel.value, images: imgsP })); return; }
       stat.textContent = 'uploading...';
       Promise.all(upl.map(function (f) { return api('/api/upload', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ chatId: cid, name: f.name, contentB64: f.b64 }) }).then(function (d) { return d || null; }).catch(function () { return null; }); })).then(function (rs) {
-        var docTexts = [], paths = [];
-        rs.filter(Boolean).forEach(function (x) { if (x.text) { docTexts.push('----- ' + (x.name || 'file') + ' -----\n' + x.text + '\n-----'); } else if (x.path) { paths.push(x.path); } });
+        var docTexts = [], paths = [], hasBinary = false;
+        rs.filter(Boolean).forEach(function (x) { if (x.text) { docTexts.push('----- ' + (x.name || 'file') + ' -----\n' + x.text + '\n-----'); } else if (x.path) { paths.push(x.path); if (!IMG_EXT.test(x.name || '')) hasBinary = true; } });
         var body2 = base + (docTexts.length ? ((base ? '\n\n' : '') + docTexts.join('\n\n')) : '');
         var note = body2 + ((body2 && paths.length) ? '\n\n' : '') + (paths.length ? ('Attached file(s) - read them with your tools to answer:\n' + paths.map(function (p) { return '- ' + p; }).join('\n')) : '');
-        stat.textContent = 'thinking...'; sock.send(JSON.stringify({ text: note, route: paths.length ? 'claude' : sel.value }));
+        stat.textContent = 'thinking...'; sock.send(JSON.stringify({ text: note, route: hasBinary ? 'claude' : sel.value, images: imgsP }));
       });
     }
     send.addEventListener('click', doSend);

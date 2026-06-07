@@ -41,6 +41,8 @@ export interface RunRequest {
   /** Routing override: 'local' forces on-device, 'claude' forces the subscription, 'freecloud'
    *  rotates free providers, a provider id forces that provider, 'auto'/undefined follows config. */
   route?: string;
+  /** Image attachments (data URLs) for vision turns — routed to a vision-capable tier (Gemini/Claude). */
+  images?: string[];
   /** Internal: this turn is a user-driven escalation (so prompt the smart model to teach the local one). */
   escalated?: boolean;
   /** Agent run: the agent's role/instructions, prepended to the system prompt. */
@@ -1087,7 +1089,7 @@ export class Engine {
   }
 
   /** OpenAI-compatible tool-use loop (local Ollama or a free cloud provider). */
-  private async toolLoop(o: { url: string; model: string; apiKey?: string; system: string; userText: string; tools: LocalToolset; history?: Array<{ role: string; content: string }>; numCtx?: number; keepAlive?: string; temp?: number }): Promise<{
+  private async toolLoop(o: { url: string; model: string; apiKey?: string; system: string; userText: string; tools: LocalToolset; history?: Array<{ role: string; content: string }>; numCtx?: number; keepAlive?: string; temp?: number; images?: string[] }): Promise<{
     failed: boolean;
     exhausted: boolean;
     finalText: string;
@@ -1098,10 +1100,14 @@ export class Engine {
   }> {
     // System, then the prior conversation (so a model that didn't answer earlier turns still
     // knows what was discussed), then this turn's user message.
+    // The current user turn carries images as multimodal content blocks when present (vision providers).
+    const userContent = (o.images && o.images.length)
+      ? [{ type: 'text', text: o.userText }, ...o.images.map((u) => ({ type: 'image_url', image_url: { url: u } }))]
+      : o.userText;
     const messages: Array<Record<string, unknown>> = [
       { role: 'system', content: o.system },
       ...(o.history ?? []),
-      { role: 'user', content: o.userText },
+      { role: 'user', content: userContent },
     ];
     const MAX_STEPS = 5;
     let inTok = 0;
@@ -1231,7 +1237,7 @@ export class Engine {
     const bannedCaps = this.deps.bans?.bannedSkillsFor(p.id) ?? [];
     const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill });
     const history = this.recentHistory(req.conversationKey);
-    const r = await this.toolLoop({ url: `${p.baseUrl}/chat/completions`, model: p.model, apiKey: key, system, userText: req.text, tools, history, temp: req.agentJob ? 0 : undefined });
+    const r = await this.toolLoop({ url: `${p.baseUrl}/chat/completions`, model: p.model, apiKey: key, system, userText: req.text, tools, history, temp: req.agentJob ? 0 : undefined, images: p.vision ? req.images : undefined });
     recordProviderUse(p.id);
     if (!r.failed) this.deps.usage?.recordEngine({ [`${p.kind}:${p.id}:${p.model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
     if (!r.failed) logger.info({ provider: p.id, kind: p.kind }, 'cloud provider handled the turn');
@@ -1310,6 +1316,14 @@ export class Engine {
     // Drop 'local' if the user turned local routing off (keeps that toggle meaningful), then order
     // the cheap tiers free → paid → local (local is the least reliable, so it's the last resort).
     const cloud = this.cheapOrder(chain.filter((t) => t !== 'claude').filter((t) => !(t === 'local' && config.localRouting === 'off')));
+    // Image attachments → a vision-capable tier. Honor an explicit vision provider; else (auto) use a
+    // configured free vision provider (Gemini) if present; otherwise Claude (reads the uploaded image
+    // via its file tools). A non-vision chosen model can't see images, so it falls through to Claude.
+    if (req.images && req.images.length) {
+      if (req.route && req.route !== 'auto' && providerById(req.route)?.vision) return { tiers: [req.route], claude: claudeIn || elev };
+      if (!req.route || req.route === 'auto') { const vp = configuredProviders().find((p) => p.vision); if (vp) return { tiers: [vp.id], claude: claudeIn || elev }; }
+      return { tiers: [], claude: true };
+    }
     if (req.route === 'claude') return { tiers: [], claude: true }; // explicit → Claude
     if (req.escalated) return claudeIn ? { tiers: [], claude: true } : { tiers: cloud.slice(-1), claude: false };
     if (req.route === 'local') return { tiers: cloud.includes('local') ? ['local'] : cloud.slice(0, 1), claude: elev };

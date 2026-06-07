@@ -819,11 +819,13 @@ export class WebChannel implements Channel {
       let text: unknown;
       let route: unknown;
       let model: unknown;
+      let images: unknown;
       try {
         const parsed = JSON.parse(data.toString());
         text = parsed.text;
         route = parsed.route;
         model = parsed.model;
+        images = parsed.images;
       } catch {
         return;
       }
@@ -832,9 +834,11 @@ export class WebChannel implements Channel {
       const r = typeof route === 'string' && /^[a-z0-9_-]{1,32}$/i.test(route) && route !== 'auto' ? route : undefined;
       // Only allow safe model aliases from the UI (never an arbitrary string).
       const mdl = model === 'opus' || model === 'sonnet' || model === 'haiku' ? model : undefined;
+      // Image attachments as data URLs (capped) for vision routing.
+      const imgs = Array.isArray(images) ? images.filter((u): u is string => typeof u === 'string' && u.startsWith('data:image/')).slice(0, 6) : undefined;
       try {
         const reply = await this.handler!(
-          { channel: this.name, chatId, from: 'web', text, route: r, model: mdl },
+          { channel: this.name, chatId, from: 'web', text, route: r, model: mdl, images: imgs && imgs.length ? imgs : undefined },
           (chunk) => this.safeSend(ws, { type: 'chunk', text: chunk }),
         );
         this.safeSend(ws, { type: 'reply', text: reply });

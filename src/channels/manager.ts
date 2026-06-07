@@ -90,6 +90,7 @@ export class ChannelManager {
       displayName: msg.from,
       route: msg.route,
       model: msg.model,
+      images: msg.images,
       onProgress,
     });
     logger.info({ key, costUsd: result.costUsd, isError: result.isError }, 'replied');
