@@ -26,7 +26,13 @@
     calc: "<svg viewBox='0 0 24 24' fill='none' stroke='#555' stroke-width='1.6'><rect x='5' y='3' width='14' height='18' rx='2'/><rect x='7.5' y='5.5' width='9' height='3.5' rx='.6'/><path d='M8.5 13h0M12 13h0M15.5 13h0M8.5 16.5h0M12 16.5h0M15.5 16.5h0' stroke-linecap='round' stroke-width='2.2'/></svg>",
     term: "<svg viewBox='0 0 24 24' fill='none' stroke='#2c8f6f' stroke-width='1.6'><rect x='3' y='4' width='18' height='16' rx='2'/><path d='M7 9l3 3-3 3M12.5 15h4'/></svg>",
     net: "<svg viewBox='0 0 24 24' fill='none' stroke='#5566cc' stroke-width='1.6'><circle cx='12' cy='12' r='9'/><path d='M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18'/></svg>",
-    chat: "<svg viewBox='0 0 24 24' fill='none' stroke='#0a8acb' stroke-width='1.6'><path d='M4 5h16v11H9l-4 3.5V16H4z'/><path d='M8 9h8M8 12h5'/></svg>"
+    chat: "<svg viewBox='0 0 24 24' fill='none' stroke='#0a8acb' stroke-width='1.6'><path d='M4 5h16v11H9l-4 3.5V16H4z'/><path d='M8 9h8M8 12h5'/></svg>",
+    mail: "<svg viewBox='0 0 24 24' fill='none' stroke='#0a72c4' stroke-width='1.6'><rect x='3' y='5' width='18' height='14' rx='2'/><path d='M3.5 6.5l8.5 6 8.5-6'/></svg>",
+    cal: "<svg viewBox='0 0 24 24' fill='none' stroke='#c0392b' stroke-width='1.6'><rect x='3' y='4.5' width='18' height='16' rx='2'/><path d='M3 9h18M8 3v3M16 3v3'/><rect x='6.5' y='12' width='3' height='3' rx='.4' fill='#c0392b' stroke='none'/></svg>",
+    people: "<svg viewBox='0 0 24 24' fill='none' stroke='#7a5cd0' stroke-width='1.6'><circle cx='9' cy='8' r='3'/><path d='M3.5 19a5.5 5.5 0 0 1 11 0'/><path d='M16 6.5a3 3 0 0 1 0 5.8M17.5 19a5.5 5.5 0 0 0-3-4.9'/></svg>",
+    notebook: "<svg viewBox='0 0 24 24' fill='none' stroke='#8e44ad' stroke-width='1.6'><rect x='5' y='3' width='14' height='18' rx='2'/><path d='M9 3v18M12 8h4M12 12h4'/></svg>",
+    db: "<svg viewBox='0 0 24 24' fill='none' stroke='#2c7a4b' stroke-width='1.6'><ellipse cx='12' cy='5.5' rx='7' ry='2.5'/><path d='M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5'/></svg>",
+    hist: "<svg viewBox='0 0 24 24' fill='none' stroke='#d18b1f' stroke-width='1.6'><path d='M3.5 12a8.5 8.5 0 1 1 2.6 6.1'/><path d='M3.5 18v-4h4'/><path d='M12 8v4l3 2'/></svg>"
   };
 
   // Per-agent app icon: a colored rounded tile with the agent's initial (deterministic from the name).
@@ -112,6 +118,14 @@
     it: { 'Clear conversation': 'Cancella conversazione', 'Select a file to open': 'Seleziona un file da aprire' }
   };
   Object.keys(I18N_X).forEach(function (l) { if (I18N[l]) Object.keys(I18N_X[l]).forEach(function (k) { I18N[l][k] = I18N_X[l][k]; }); });
+  var I18N_DISP = {
+    es: { 'Notes': 'Notas', 'Database': 'Base de datos', 'History': 'Historial', 'Mail': 'Correo', 'Calendar': 'Calendario', 'Contacts': 'Contactos', 'Tasks': 'Tareas', 'Run': 'Ejecutar', 'Bookmarks': 'Marcadores', 'Search': 'Buscar', 'no rows': 'sin filas' },
+    fr: { 'Notes': 'Notes', 'Database': 'Base de données', 'History': 'Historique', 'Mail': 'Courrier', 'Calendar': 'Calendrier', 'Contacts': 'Contacts', 'Tasks': 'Tâches', 'Run': 'Exécuter', 'Bookmarks': 'Favoris', 'Search': 'Rechercher', 'no rows': 'aucune ligne' },
+    de: { 'Notes': 'Notizen', 'Database': 'Datenbank', 'History': 'Verlauf', 'Mail': 'E-Mail', 'Calendar': 'Kalender', 'Contacts': 'Kontakte', 'Tasks': 'Aufgaben', 'Run': 'Ausführen', 'Bookmarks': 'Lesezeichen', 'Search': 'Suchen', 'no rows': 'keine Zeilen' },
+    ro: { 'Notes': 'Note', 'Database': 'Bază de date', 'History': 'Istoric', 'Mail': 'Poștă', 'Calendar': 'Calendar', 'Contacts': 'Contacte', 'Tasks': 'Sarcini', 'Run': 'Rulează', 'Bookmarks': 'Marcaje', 'Search': 'Caută', 'no rows': 'niciun rând' },
+    it: { 'Notes': 'Note', 'Database': 'Database', 'History': 'Cronologia', 'Mail': 'Posta', 'Calendar': 'Calendario', 'Contacts': 'Contatti', 'Tasks': 'Attività', 'Run': 'Esegui', 'Bookmarks': 'Segnalibri', 'Search': 'Cerca', 'no rows': 'nessuna riga' }
+  };
+  Object.keys(I18N_DISP).forEach(function (l) { if (I18N[l]) Object.keys(I18N_DISP[l]).forEach(function (k) { I18N[l][k] = I18N_DISP[l][k]; }); });
   function langChoice() { return localStorage.getItem('zx_lang') || 'en'; }
   function T(s) { var L = langChoice(); if (L === 'en') return s; var d = I18N[L]; return (d && d[s]) || s; }
   function Tf(s, vars) { var out = T(s); if (vars) Object.keys(vars).forEach(function (k) { out = out.split('{' + k + '}').join(vars[k]); }); return out; }
@@ -384,6 +398,10 @@
     { id: 'pdf', name: 'PDF', iconSvg: ICON.pdf, cat: 'Office', skill: 'pdf-tools', kind: 'native' },
     { id: 'word', name: 'Word', iconSvg: ICON.doc, cat: 'Office', skill: 'document-viewer', kind: 'native' },
     { id: 'excel', name: 'Excel', iconSvg: ICON.sheet, cat: 'Office', skill: 'spreadsheet-viewer', kind: 'native' },
+    { id: 'outlook', name: 'Outlook', iconSvg: ICON.mail, cat: 'Office', skill: 'outlook-desktop', kind: 'native' },
+    { id: 'notes', name: 'Notes', iconSvg: ICON.notebook, cat: 'Office', skill: 'onenote-notes', kind: 'native' },
+    { id: 'database', name: 'Database', iconSvg: ICON.db, cat: 'Utilities', skill: 'sql-databases', kind: 'native' },
+    { id: 'history', name: 'History', iconSvg: ICON.hist, cat: 'Utilities', skill: 'browser-history', kind: 'native' },
     { id: 'sftp', name: 'SFTP Client', iconSvg: ICON.net, cat: 'Network', skill: 'sftp-client', kind: 'native' },
     { id: 'telnet', name: 'Telnet', iconSvg: ICON.term, cat: 'Network', skill: 'telnet-client', kind: 'native' },
     { id: 'messages', name: 'Messages', iconSvg: ICON.chat, cat: 'Communication', skill: 'chat-clients', kind: 'native' }
@@ -446,6 +464,10 @@
       else if (appId === 'sftp') spec = { appId: appId, title: T('SFTP Client'), iconSvg: ICON.net, w: 820, h: 600, onMount: mountSftp };
       else if (appId === 'telnet') spec = { appId: appId, title: T('Telnet'), iconSvg: ICON.term, w: 720, h: 520, onMount: mountTelnet };
       else if (appId === 'messages') spec = { appId: appId, title: T('Messages'), iconSvg: ICON.chat, w: 720, h: 560, onMount: mountMessages };
+      else if (appId === 'outlook') spec = { appId: appId, title: T('Outlook'), iconSvg: ICON.mail, w: 860, h: 620, onMount: mountOutlook };
+      else if (appId === 'notes') spec = { appId: appId, title: T('Notes'), iconSvg: ICON.notebook, w: 820, h: 600, onMount: mountNotes };
+      else if (appId === 'database') spec = { appId: appId, title: T('Database'), iconSvg: ICON.db, w: 880, h: 620, onMount: mountDatabase };
+      else if (appId === 'history') spec = { appId: appId, title: T('History'), iconSvg: ICON.hist, w: 760, h: 600, onMount: mountBrowserHistory };
       else spec = { appId: appId, title: T(ca.name), iconSvg: ca.iconSvg, w: 780, h: 620, onMount: function (b, w) { mountEmptyViewer(b, w, ca); } };
     }
     else if (app.kind === 'agent') spec = { appId: appId, title: app.name, iconSvg: app.iconSvg || agentIconSvg(app.name), w: 520, h: 560, onMount: function (b, w) { mountAgent(b, w, app.agent); } };
@@ -1714,6 +1736,228 @@
     loadChannels(); timer = setInterval(function () { if (!win.closed) refresh(); }, 5000);
     win.setMenus([{ label: T('View'), items: [ { label: T('Refresh'), accel: 'F5', action: function () { loadChannels(); refresh(); } } ] }]);
     win.cleanup.push(function () { if (timer) clearInterval(timer); });
+  }
+
+  // ============================================================
+  // Local-data apps: Outlook (mail/calendar/contacts/tasks), Notes, Database, History
+  // ============================================================
+  function localApi(fn, args) { return api('/api/local', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ fn: fn, args: args || {} }) }); }
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function tabBar(tabs, onPick) {
+    var bar = el('div', 'app-tabs');
+    var btns = {};
+    tabs.forEach(function (t) { var b = el('button', 'app-tab', t[1]); btns[t[0]] = b; b.addEventListener('click', function () { Object.keys(btns).forEach(function (k) { btns[k].classList.toggle('active', k === t[0]); }); onPick(t[0]); }); bar.appendChild(b); });
+    return { bar: bar, select: function (id) { if (btns[id]) btns[id].click(); } };
+  }
+
+  function mountOutlook(body, win) {
+    body.style.padding = '0';
+    var wrap = el('div'); wrap.style.cssText = 'height:100%;display:flex;flex-direction:column';
+    var content = el('div'); content.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden';
+    var tabs = tabBar([['mail', T('Mail')], ['calendar', T('Calendar')], ['contacts', T('Contacts')], ['tasks', T('Tasks')]], function (t) { render(t); });
+    wrap.appendChild(tabs.bar); wrap.appendChild(content); body.appendChild(wrap);
+    function busy() { content.innerHTML = ''; content.appendChild(el('div', 'hint', T('Loading...') + '')); content.firstChild.style.padding = '16px'; }
+    function err(m) { content.innerHTML = ''; var e = el('div', 'hint', esc(m)); e.style.padding = '16px'; content.appendChild(e); }
+    function render(tab) {
+      busy();
+      if (tab === 'mail') return renderMail();
+      if (tab === 'calendar') return localApi('outlook_pim', { action: 'calendar', days: 7 }).then(function (d) {
+        if (d.error) return err(d.error);
+        content.innerHTML = ''; var box = el('div'); box.style.cssText = 'overflow:auto;padding:10px';
+        var byDay = {};
+        (d.events || []).forEach(function (e2) { var day = (e2.start || '').slice(0, 10); (byDay[day] = byDay[day] || []).push(e2); });
+        var days = Object.keys(byDay).sort();
+        if (!days.length) box.appendChild(el('div', 'hint', 'No events in the next 7 days.'));
+        days.forEach(function (day) {
+          box.appendChild(el('div', 'ol-dayhead', day));
+          byDay[day].forEach(function (e2) {
+            var row = el('div', 'ol-event');
+            row.innerHTML = "<span class='ol-time'>" + (e2.allDay ? 'all day' : esc((e2.start || '').slice(11)) + '–' + esc((e2.end || '').slice(11))) + "</span> <b>" + esc(e2.subject) + "</b>" + (e2.location ? " <span class='hint'>@ " + esc(e2.location) + "</span>" : '');
+            box.appendChild(row);
+          });
+        });
+        content.appendChild(box);
+      }).catch(function () { err('error'); });
+      if (tab === 'contacts') {
+        content.innerHTML = '';
+        var sb = el('div'); sb.style.cssText = 'padding:8px;border-bottom:1px solid rgba(128,128,128,.2)';
+        var inp = el('input', 'inp'); inp.placeholder = T('Search') + '...'; inp.style.width = '100%'; sb.appendChild(inp);
+        var list = el('div'); list.style.cssText = 'flex:1;overflow:auto;padding:8px';
+        content.appendChild(sb); content.appendChild(list);
+        function go() { list.innerHTML = '<div class="hint">' + T('Loading...') + '</div>'; localApi('outlook_pim', { action: 'contacts', query: inp.value.trim(), count: 100 }).then(function (d) { list.innerHTML = ''; if (d.error) return list.appendChild(el('div', 'hint', esc(d.error))); (d.contacts || []).forEach(function (c) { var r = el('div', 'ol-contact'); r.innerHTML = '<b>' + esc(c.name) + '</b>' + (c.company ? ' <span class="hint">' + esc(c.company) + '</span>' : '') + '<br><span class="hint">' + esc(c.email) + (c.phone ? ' · ' + esc(c.phone) : '') + (c.mobile ? ' · ' + esc(c.mobile) : '') + '</span>'; list.appendChild(r); }); if (!list.children.length) list.appendChild(el('div', 'hint', 'No contacts.')); }); }
+        inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); }); go();
+        return;
+      }
+      if (tab === 'tasks') return localApi('outlook_pim', { action: 'tasks', count: 100 }).then(function (d) { content.innerHTML = ''; if (d.error) return err(d.error); var box = el('div'); box.style.cssText = 'overflow:auto;padding:10px'; (d.tasks || []).forEach(function (t) { var r = el('div', 'ol-event'); r.innerHTML = '☐ ' + esc(t.subject) + (t.due ? ' <span class="hint">due ' + esc(t.due) + '</span>' : ''); box.appendChild(r); }); if (!box.children.length) box.appendChild(el('div', 'hint', 'No open tasks.')); content.appendChild(box); });
+    }
+    function renderMail() {
+      var split = el('div'); split.style.cssText = 'flex:1;min-height:0;display:flex';
+      var listWrap = el('div'); listWrap.style.cssText = 'width:46%;min-width:240px;border-right:1px solid rgba(128,128,128,.2);display:flex;flex-direction:column';
+      var ctl = el('div'); ctl.style.cssText = 'display:flex;gap:6px;padding:6px;border-bottom:1px solid rgba(128,128,128,.2);align-items:center';
+      var unreadTog = el('button', 'btn ghost', 'Unread'); var refl = el('button', 'btn ghost', T('Refresh')); var srch = el('input', 'inp'); srch.placeholder = T('Search'); srch.style.cssText = 'flex:1;min-width:60px';
+      ctl.appendChild(unreadTog); ctl.appendChild(srch); ctl.appendChild(refl);
+      var list = el('div'); list.style.cssText = 'flex:1;overflow:auto';
+      listWrap.appendChild(ctl); listWrap.appendChild(list);
+      var pane = el('div'); pane.style.cssText = 'flex:1;overflow:auto;padding:14px';
+      pane.appendChild(el('div', 'hint', 'Select a message.'));
+      content.innerHTML = ''; split.appendChild(listWrap); split.appendChild(pane); content.appendChild(split);
+      var unread = false; unreadTog.addEventListener('click', function () { unread = !unread; unreadTog.classList.toggle('on', unread); load(); });
+      refl.addEventListener('click', load); srch.addEventListener('keydown', function (e) { if (e.key === 'Enter') load(); });
+      function load() {
+        list.innerHTML = '<div class="hint" style="padding:10px">' + T('Loading...') + '</div>';
+        var q = srch.value.trim();
+        localApi('outlook_mail', q ? { action: 'search', query: q, count: 40 } : { action: 'list', unreadOnly: unread, count: 40 }).then(function (d) {
+          list.innerHTML = ''; if (d.error) { list.appendChild(el('div', 'hint', esc(d.error))); return; }
+          (d.messages || []).forEach(function (m) {
+            var r = el('div', 'ol-msg' + (m.unread ? ' unread' : ''));
+            r.innerHTML = "<div class='ol-from'>" + esc(m.from) + "</div><div class='ol-subj'>" + esc(m.subject) + "</div><div class='hint'>" + esc(m.received) + "</div>";
+            r.addEventListener('click', function () { Array.prototype.forEach.call(list.children, function (c) { c.classList.remove('sel'); }); r.classList.add('sel'); open(m.id); });
+            list.appendChild(r);
+          });
+          if (!list.children.length) list.appendChild(el('div', 'hint', 'No messages.'));
+        }).catch(function () { list.innerHTML = '<div class="hint">error</div>'; });
+      }
+      function open(id) {
+        pane.innerHTML = '<div class="hint">' + T('Loading...') + '</div>';
+        localApi('outlook_mail', { action: 'read', id: id }).then(function (d) {
+          pane.innerHTML = ''; if (d.error || !d.message) { pane.appendChild(el('div', 'hint', esc(d.error || 'not found'))); return; }
+          var m = d.message;
+          var h = el('div'); h.innerHTML = "<div style='font-size:16px;font-weight:650;margin-bottom:6px'>" + esc(m.subject) + "</div><div class='hint'>From: " + esc(m.from) + " &lt;" + esc(m.fromAddr) + "&gt;</div><div class='hint'>To: " + esc(m.to) + "</div><div class='hint' style='margin-bottom:10px'>" + esc(m.received) + "</div>";
+          var b = el('div'); b.style.cssText = 'white-space:pre-wrap;font-size:13px;line-height:1.5'; b.textContent = m.body || '';
+          pane.appendChild(h); pane.appendChild(b);
+        });
+      }
+      load();
+    }
+    tabs.select('mail');
+    win.setMenus([{ label: T('View'), items: [{ label: T('Mail'), action: function () { tabs.select('mail'); } }, { label: T('Calendar'), action: function () { tabs.select('calendar'); } }, { label: T('Contacts'), action: function () { tabs.select('contacts'); } }, { label: T('Tasks'), action: function () { tabs.select('tasks'); } }] }]);
+  }
+
+  function mountNotes(body, win) {
+    body.style.padding = '0';
+    var wrap = el('div'); wrap.style.cssText = 'height:100%;display:flex';
+    var side = el('div'); side.style.cssText = 'width:280px;flex:0 0 auto;border-right:1px solid rgba(128,128,128,.2);display:flex;flex-direction:column';
+    var sb = el('div'); sb.style.cssText = 'padding:6px;border-bottom:1px solid rgba(128,128,128,.2)';
+    var srch = el('input', 'inp'); srch.placeholder = T('Search') + '...'; srch.style.width = '100%'; sb.appendChild(srch);
+    var list = el('div'); list.style.cssText = 'flex:1;overflow:auto;padding:4px';
+    side.appendChild(sb); side.appendChild(list);
+    var pane = el('div', 'docview-doc'); pane.style.cssText = 'flex:1;overflow:auto;padding:16px;background:#fff;color:#111';
+    pane.appendChild(el('div', 'hint', 'Select a page.'));
+    wrap.appendChild(side); wrap.appendChild(pane); body.appendChild(wrap);
+    function open(id) { pane.innerHTML = '<div class="hint">' + T('Loading...') + '</div>'; localApi('onenote', { action: 'read', id: id }).then(function (d) { pane.innerHTML = ''; if (d.error) return pane.appendChild(el('div', 'hint', esc(d.error))); pane.appendChild(el('h2', null, esc(d.title || ''))); var b = el('div'); b.style.cssText = 'white-space:pre-wrap'; b.textContent = d.text || '(empty page)'; pane.appendChild(b); }); }
+    function load(q) {
+      list.innerHTML = '<div class="hint">' + T('Loading...') + '</div>';
+      localApi('onenote', q ? { action: 'search', query: q } : { action: 'notebooks' }).then(function (d) {
+        list.innerHTML = ''; if (d.error) { list.appendChild(el('div', 'hint', esc(d.error))); return; }
+        (d.pages || []).forEach(function (p) { var r = el('div', 'fm-row'); r.innerHTML = "<div style='flex:1;overflow:hidden'><div>" + esc(p.page) + "</div><div class='hint' style='font-size:11px'>" + esc(p.notebook) + ' / ' + esc(p.section) + "</div></div>"; r.style.cursor = 'pointer'; r.addEventListener('click', function () { open(p.id); }); list.appendChild(r); });
+        if (!list.children.length) list.appendChild(el('div', 'hint', q ? 'No pages match.' : 'No pages found.'));
+      });
+    }
+    srch.addEventListener('keydown', function (e) { if (e.key === 'Enter') load(srch.value.trim()); });
+    load(''); win.setMenus([{ label: T('View'), items: [{ label: T('Refresh'), action: function () { load(srch.value.trim()); } }] }]);
+  }
+
+  function mountDatabase(body, win) {
+    body.style.padding = '0';
+    var wrap = el('div'); wrap.style.cssText = 'height:100%;display:flex;flex-direction:column';
+    var bar = el('div'); bar.style.cssText = 'display:flex;gap:6px;padding:8px;border-bottom:1px solid rgba(128,128,128,.2);flex-wrap:wrap;align-items:center';
+    var connSel = el('select', 'inp'); connSel.style.width = '170px'; connSel.title = 'Connection';
+    var server = el('input', 'inp'); server.value = '(localdb)\\MSSQLLocalDB'; server.style.cssText = 'width:190px'; server.title = 'Server / instance';
+    var dbsel = el('select', 'inp'); dbsel.style.width = '150px'; var optAll = el('option'); optAll.value = ''; optAll.textContent = '(database)'; dbsel.appendChild(optAll);
+    var addBtn = el('button', 'btn ghost', '+'); addBtn.title = 'Add connection';
+    var rmBtn = el('button', 'btn ghost', '🗑'); rmBtn.title = 'Remove connection'; rmBtn.style.display = 'none';
+    var runBtn = el('button', 'btn', '▶ ' + T('Run')); var status = el('span', 'hint');
+    [connSel, addBtn, rmBtn, server, dbsel, runBtn, status].forEach(function (e) { bar.appendChild(e); });
+    // Add-connection form (hidden until +)
+    var form = el('div'); form.style.cssText = 'display:none;gap:6px;padding:8px;border-bottom:1px solid rgba(128,128,128,.2);flex-wrap:wrap;align-items:center;background:rgba(0,103,192,.06)';
+    var fName = el('input', 'inp'); fName.placeholder = 'name'; fName.style.width = '120px';
+    var fServer = el('input', 'inp'); fServer.placeholder = 'server\\instance'; fServer.style.width = '190px';
+    var fDb = el('input', 'inp'); fDb.placeholder = 'database (optional)'; fDb.style.width = '150px';
+    var fUser = el('input', 'inp'); fUser.placeholder = 'user (blank = Windows auth)'; fUser.style.width = '150px';
+    var fPass = el('input', 'inp'); fPass.type = 'password'; fPass.placeholder = 'password'; fPass.style.width = '130px';
+    var fSave = el('button', 'btn', T('Save')); var fCancel = el('button', 'btn ghost', T('Close'));
+    [fName, fServer, fDb, fUser, fPass, fSave, fCancel].forEach(function (e) { form.appendChild(e); });
+    var qa = el('textarea'); qa.style.cssText = 'height:90px;border:0;border-bottom:1px solid rgba(128,128,128,.2);outline:0;resize:vertical;padding:10px;font:13px/1.4 ui-monospace,Consolas,monospace;background:transparent;color:inherit'; qa.spellcheck = false; qa.value = 'SELECT name FROM sys.databases';
+    var grid = el('div'); grid.style.cssText = 'flex:1;overflow:auto;padding:8px';
+    wrap.appendChild(bar); wrap.appendChild(form); wrap.appendChild(qa); wrap.appendChild(grid); body.appendChild(wrap);
+
+    function curConn() { return connSel.value || ''; }
+    function adhoc() { return !curConn(); }
+    function baseArgs() { return adhoc() ? { server: server.value.trim() } : { connection: curConn() }; }
+    function syncControls() { var ah = adhoc(); server.style.display = ah ? '' : 'none'; rmBtn.style.display = ah ? 'none' : ''; }
+    function loadConns(sel) {
+      localApi('sql_connections', {}).then(function (d) {
+        connSel.innerHTML = ''; var o0 = el('option'); o0.value = ''; o0.textContent = 'Ad-hoc'; connSel.appendChild(o0);
+        (d.connections || []).forEach(function (c) { var o = el('option'); o.value = c.name; o.textContent = c.name + (c.user ? ' (' + c.user + ')' : ''); connSel.appendChild(o); });
+        if (sel) connSel.value = sel;
+        syncControls(); loadDbs();
+      });
+    }
+    function loadDbs() {
+      dbsel.innerHTML = ''; dbsel.appendChild(optAll); optAll.value = ''; optAll.textContent = '(database)';
+      localApi('sql', Object.assign({ query: 'SELECT name FROM sys.databases ORDER BY name' }, baseArgs())).then(function (d) { (d.rows || []).forEach(function (r) { var o = el('option'); o.value = r[0]; o.textContent = r[0]; dbsel.appendChild(o); }); });
+    }
+    function run() {
+      runBtn.disabled = true; status.textContent = T('Loading...'); grid.innerHTML = '';
+      var args = Object.assign({ query: qa.value, database: dbsel.value || undefined }, baseArgs());
+      localApi('sql', args).then(function (d) {
+        runBtn.disabled = false; status.textContent = d.note || '';
+        if (d.error) { grid.appendChild(el('div', 'hint', esc(d.error))); return; }
+        var cols = d.columns || [], rows = d.rows || [];
+        if (!cols.length) { grid.appendChild(el('div', 'hint', T('no rows'))); return; }
+        var html = "<table class='sql-grid'><thead><tr>" + cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + "</tr></thead><tbody>";
+        html += rows.map(function (r) { return '<tr>' + r.map(function (v) { return '<td>' + esc(v) + '</td>'; }).join('') + '</tr>'; }).join('');
+        html += '</tbody></table>'; grid.innerHTML = html;
+      }).catch(function () { runBtn.disabled = false; status.textContent = 'error'; });
+    }
+    connSel.addEventListener('change', function () { syncControls(); loadDbs(); });
+    server.addEventListener('change', loadDbs);
+    runBtn.addEventListener('click', run);
+    addBtn.addEventListener('click', function () { form.style.display = form.style.display === 'none' ? 'flex' : 'none'; });
+    fCancel.addEventListener('click', function () { form.style.display = 'none'; });
+    fSave.addEventListener('click', function () {
+      if (!fName.value.trim() || !fServer.value.trim()) { status.textContent = 'name + server required'; return; }
+      localApi('sql_conn_add', { name: fName.value.trim(), server: fServer.value.trim(), database: fDb.value.trim() || undefined, user: fUser.value.trim() || undefined, password: fPass.value || undefined }).then(function (r) {
+        if (r && r.error) { status.textContent = r.error; return; }
+        var nm = fName.value.trim(); fName.value = fServer.value = fDb.value = fUser.value = fPass.value = ''; form.style.display = 'none'; loadConns(nm);
+      });
+    });
+    rmBtn.addEventListener('click', function () { var n = curConn(); if (n && confirm(T('Delete') + ' "' + n + '"?')) localApi('sql_conn_remove', { name: n }).then(function () { loadConns(''); }); });
+    qa.addEventListener('keydown', function (e) { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); } });
+    win.setMenus([
+      { label: T('Query'), items: [{ label: '▶ ' + T('Run'), accel: 'Ctrl+Enter', action: run }, { label: 'Databases', action: function () { qa.value = 'SELECT name FROM sys.databases'; run(); } }, { label: 'Tables', action: function () { qa.value = 'SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES ORDER BY 1,2'; run(); } }] },
+      { label: 'Connection', items: [{ label: '+ Add connection', action: function () { form.style.display = 'flex'; fName.focus(); } }, { label: 'Remove current', action: function () { rmBtn.click(); } }] }
+    ]);
+    loadConns(''); run();
+  }
+
+  function mountBrowserHistory(body, win) {
+    body.style.padding = '0';
+    var wrap = el('div'); wrap.style.cssText = 'height:100%;display:flex;flex-direction:column';
+    var bar = el('div'); bar.style.cssText = 'display:flex;gap:6px;padding:8px;border-bottom:1px solid rgba(128,128,128,.2);align-items:center;flex-wrap:wrap';
+    var srch = el('input', 'inp'); srch.placeholder = T('Search') + '...'; srch.style.cssText = 'flex:1;min-width:120px';
+    var seg = tabBar([['history', T('History')], ['bookmarks', T('Bookmarks')]], function (w) { mode = w; load(); });
+    var br = el('select', 'inp'); ['', 'chrome', 'edge', 'firefox'].forEach(function (b) { var o = el('option'); o.value = b; o.textContent = b || 'all'; br.appendChild(o); });
+    bar.appendChild(srch); bar.appendChild(seg.bar); bar.appendChild(br);
+    var list = el('div'); list.style.cssText = 'flex:1;overflow:auto;padding:6px';
+    wrap.appendChild(bar); wrap.appendChild(list); body.appendChild(wrap);
+    var mode = 'history';
+    function load() {
+      list.innerHTML = '<div class="hint" style="padding:8px">' + T('Loading...') + '</div>';
+      localApi('browser', { what: mode, query: srch.value.trim(), browser: br.value || undefined, limit: 50 }).then(function (d) {
+        list.innerHTML = ''; (d.rows || []).forEach(function (r) {
+          var row = el('div', 'fm-row'); row.style.cursor = 'pointer';
+          var when = r.ts > 0 ? new Date(r.ts).toISOString().slice(0, 16).replace('T', ' ') : '';
+          row.innerHTML = "<div style='flex:1;overflow:hidden'><div style='overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" + esc(r.title || r.url) + "</div><div class='hint' style='font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>[" + esc(r.browser) + "] " + esc(when) + " · " + esc(r.url) + "</div></div>";
+          row.addEventListener('click', function () { window.open(r.url, '_blank'); });
+          list.appendChild(row);
+        });
+        if (!list.children.length) list.appendChild(el('div', 'hint', srch.value.trim() ? 'No matches.' : 'Type to search your ' + mode + '.'));
+      }).catch(function () { list.innerHTML = '<div class="hint">error</div>'; });
+    }
+    srch.addEventListener('keydown', function (e) { if (e.key === 'Enter') load(); });
+    br.addEventListener('change', load); seg.select('history');
+    win.setMenus([{ label: T('View'), items: [{ label: T('History'), action: function () { seg.select('history'); } }, { label: T('Bookmarks'), action: function () { seg.select('bookmarks'); } }] }]);
   }
 
   // ---------- per-app chat-window setting (the "is chat needed?" toggle) ----------

@@ -1,4 +1,6 @@
 import { logger } from '../logger.js';
+import { outlookAvailable, outlookMail, outlookPim } from './outlookLocal.js';
+import { onenoteAvailable, onenoteRead, sqlQuery, browserHistory, archiveAvailable, archiveTool } from './localApps.js';
 
 /**
  * Real tools the on-device local model can call (executed by US, not the model):
@@ -273,6 +275,135 @@ export function buildLocalTools(): LocalToolset {
     names.push('web_search');
   }
 
+  if (outlookAvailable()) {
+    defs.push({
+      type: 'function',
+      function: {
+        name: 'outlook_mail',
+        description:
+          'Read the user\'s LOCAL Outlook desktop mailbox (classic Outlook via COM — no cloud login needed). READ-ONLY: never sends, deletes, or marks read. action="list" = recent/unread messages (default unread, set unread_only=false for recent); action="search" query="..." = find by subject/sender; action="read" id="<EntryID from a list/search>" = full message body; action="folders" = list mail folders. Optional folder name (default Inbox, e.g. "Sent"). Use for "any new mail?", "read my outlook", "find the email from X".',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: { type: 'string', enum: ['list', 'search', 'read', 'folders'], description: 'What to do' },
+            folder: { type: 'string', description: 'Folder name (default Inbox); e.g. Sent, Drafts, or any folder' },
+            count: { type: 'number', description: 'Max messages (default 15, max 50)' },
+            unread_only: { type: 'boolean', description: 'list: only unread (default true)' },
+            query: { type: 'string', description: 'search: text matched against subject and sender' },
+            id: { type: 'string', description: 'read: the message EntryID from a previous list/search' },
+          },
+          required: ['action'],
+        },
+      },
+    });
+    names.push('outlook_mail');
+
+    defs.push({
+      type: 'function',
+      function: {
+        name: 'outlook_pim',
+        description:
+          'Read the user\'s LOCAL Outlook calendar, contacts, or tasks (classic Outlook via COM; read-only). action="calendar" days=N = upcoming events (default next 7 days); action="contacts" query="name" = find a person\'s email/phone; action="tasks" = open to-dos. Use for "what\'s on my calendar today/this week?", "find John\'s phone number", "my open tasks".',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: { type: 'string', enum: ['calendar', 'contacts', 'tasks'], description: 'What to read' },
+            days: { type: 'number', description: 'calendar: days ahead (default 7, max 60)' },
+            query: { type: 'string', description: 'contacts: name/company/email to match' },
+            count: { type: 'number', description: 'max results (default 25)' },
+          },
+          required: ['action'],
+        },
+      },
+    });
+    names.push('outlook_pim');
+  }
+
+  if (onenoteAvailable()) {
+    defs.push({
+      type: 'function',
+      function: {
+        name: 'onenote_read',
+        description:
+          'Read the user\'s OneNote notebooks (local desktop OneNote via COM; read-only). action="notebooks" = list all pages (notebook/section/page + id); action="search" query="..." = find pages; action="read" id="..." = full text of a page. Use for "what\'s in my notes about X", "read my OneNote page Y".',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: { type: 'string', enum: ['notebooks', 'search', 'read'], description: 'What to do' },
+            query: { type: 'string', description: 'search: text to find' },
+            id: { type: 'string', description: 'read: page id from notebooks/search' },
+          },
+          required: ['action'],
+        },
+      },
+    });
+    names.push('onenote_read');
+  }
+
+  defs.push({
+    type: 'function',
+    function: {
+      name: 'sql_query',
+      description:
+        'Run a READ-ONLY SQL query (single SELECT/WITH statement) against Microsoft SQL Server / LocalDB via sqlcmd. EASIEST: pass connection="<name>" to use a saved connection profile (server/db/login the user configured in the Database app). Otherwise pass server (default (localdb)\\MSSQLLocalDB), optional database, and user+password for SQL auth (omit for Windows auth). Discover databases with SELECT name FROM sys.databases. Use for questions about the user\'s databases.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'A single SELECT (or WITH...SELECT) statement' },
+          connection: { type: 'string', description: 'Name of a saved connection profile (preferred — has server/db/login)' },
+          server: { type: 'string', description: 'Server/instance (default (localdb)\\MSSQLLocalDB)' },
+          database: { type: 'string', description: 'Database name (optional)' },
+          user: { type: 'string', description: 'SQL login username (omit for Windows auth)' },
+          password: { type: 'string', description: 'SQL login password' },
+        },
+        required: ['query'],
+      },
+    },
+  });
+  names.push('sql_query');
+
+  defs.push({
+    type: 'function',
+    function: {
+      name: 'browser_history',
+      description:
+        'Search the user\'s LOCAL browser history or bookmarks (Chrome, Edge, Firefox profile files on this machine; read-only). Use for "what was that site about X I visited last week?", "find my bookmark for Y". what="history" (default) or "bookmarks"; query filters by title/url.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Text matched against page title and URL' },
+          what: { type: 'string', enum: ['history', 'bookmarks'], description: 'Default history' },
+          browser: { type: 'string', enum: ['chrome', 'edge', 'firefox'], description: 'Limit to one browser (default: all)' },
+          limit: { type: 'number', description: 'Max results (default 20, max 50)' },
+        },
+        required: ['query'],
+      },
+    },
+  });
+  names.push('browser_history');
+
+  if (archiveAvailable()) {
+    defs.push({
+      type: 'function',
+      function: {
+        name: 'archive',
+        description:
+          'Work with archive files via 7-Zip: action="list" shows contents; action="extract" unpacks (dest optional, defaults next to the archive); action="create" makes an archive from paths=[...]. Supports zip, 7z, rar, tar, gz and more.',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: { type: 'string', enum: ['list', 'extract', 'create'], description: 'What to do' },
+            archive: { type: 'string', description: 'Path to the archive file' },
+            dest: { type: 'string', description: 'extract: destination folder' },
+            paths: { type: 'array', items: { type: 'string' }, description: 'create: files/folders to include' },
+          },
+          required: ['action', 'archive'],
+        },
+      },
+    });
+    names.push('archive');
+  }
+
   async function httpGet(args: Record<string, unknown>): Promise<string> {
     const url = String(args.url ?? '');
     if (!/^https?:\/\//i.test(url)) return 'Error: url must start with http:// or https://';
@@ -319,6 +450,31 @@ export function buildLocalTools(): LocalToolset {
         return t || '(no readable text extracted — the page may be JavaScript-heavy or blocking bots; try http_get, or another source/skill)';
       }
       if (name === 'ha_service') return runHaService(String(args.domain ?? ''), String(args.service ?? ''), String(args.entity_id ?? ''));
+      if (name === 'outlook_mail') {
+        return outlookMail({
+          action: String(args.action ?? 'list'),
+          folder: args.folder ? String(args.folder) : undefined,
+          count: args.count ? Number(args.count) : undefined,
+          unreadOnly: args.unread_only === undefined ? undefined : args.unread_only !== false && args.unread_only !== 'false',
+          query: args.query ? String(args.query) : undefined,
+          id: args.id ? String(args.id) : undefined,
+        });
+      }
+      if (name === 'outlook_pim') {
+        return outlookPim({ action: String(args.action ?? 'calendar'), days: args.days ? Number(args.days) : undefined, query: args.query ? String(args.query) : undefined, count: args.count ? Number(args.count) : undefined });
+      }
+      if (name === 'onenote_read') {
+        return onenoteRead({ action: String(args.action ?? 'notebooks'), query: args.query ? String(args.query) : undefined, id: args.id ? String(args.id) : undefined });
+      }
+      if (name === 'sql_query') {
+        return sqlQuery({ query: String(args.query ?? ''), connection: args.connection ? String(args.connection) : undefined, server: args.server ? String(args.server) : undefined, database: args.database ? String(args.database) : undefined, user: args.user ? String(args.user) : undefined, password: args.password ? String(args.password) : undefined });
+      }
+      if (name === 'browser_history') {
+        return browserHistory({ query: args.query ? String(args.query) : '', what: args.what ? String(args.what) : undefined, browser: args.browser ? String(args.browser) : undefined, limit: args.limit ? Number(args.limit) : undefined });
+      }
+      if (name === 'archive') {
+        return archiveTool({ action: String(args.action ?? 'list'), archive: String(args.archive ?? ''), dest: args.dest ? String(args.dest) : undefined, paths: Array.isArray(args.paths) ? (args.paths as string[]) : undefined });
+      }
       return `Unknown tool: ${name}`;
     },
   };
