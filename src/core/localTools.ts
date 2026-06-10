@@ -1,7 +1,7 @@
 import { logger } from '../logger.js';
 import { outlookAvailable, outlookMail, outlookPim } from './outlookLocal.js';
 import { onenoteAvailable, onenoteRead, sqlQuery, browserHistory, archiveAvailable, archiveTool } from './localApps.js';
-import { setCanvas } from './canvas.js';
+import { setCanvas, setCanvasTable } from './canvas.js';
 import { browserControl } from './browser.js';
 
 /**
@@ -385,6 +385,25 @@ export function buildLocalTools(): LocalToolset {
   defs.push({
     type: 'function',
     function: {
+      name: 'show_table',
+      description:
+        'Display TABULAR data on the user\'s desktop Canvas as a fast, sortable grid (click a header to sort). Pass columns + rows as compact JSON — MUCH cheaper and quicker than building an HTML table with show_canvas, and the user can sort/scroll it. Use for query results, lists, comparisons. Keep it to a few hundred rows; for huge result sets tell the user to use the Database app.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Table title (window caption)' },
+          columns: { type: 'array', items: { type: 'string' }, description: 'Column headers' },
+          rows: { type: 'array', items: { type: 'array', items: {} }, description: 'Array of rows; each row is an array of cell values aligned to columns' },
+        },
+        required: ['columns', 'rows'],
+      },
+    },
+  });
+  names.push('show_table');
+
+  defs.push({
+    type: 'function',
+    function: {
       name: 'browser',
       description:
         'Drive a real web browser (the user\'s Chrome) to navigate and interact — beyond read-only fetching. Actions: goto {url} (open a page, returns title/url/text); text (read current page); snapshot (list clickable/typeable elements by their text); click {text | selector}; type {value, text|selector, submit?} (fill a field, optional Enter); press {key}; scroll {dy}; back; screenshot (shows it on the Canvas); close. Typical flow: goto -> snapshot -> click/type -> text. Use for logins-you-drive, forms, search, multi-step web tasks.',
@@ -522,6 +541,12 @@ export function buildLocalTools(): LocalToolset {
       if (name === 'show_canvas') {
         const v = setCanvas(String(args.html ?? ''), args.title ? String(args.title) : undefined);
         return `Canvas updated (v${v}) and shown on the user's desktop.`;
+      }
+      if (name === 'show_table') {
+        const cols = Array.isArray(args.columns) ? (args.columns as string[]) : [];
+        const rows = Array.isArray(args.rows) ? (args.rows as string[][]) : [];
+        const v = setCanvasTable(cols, rows, args.title ? String(args.title) : undefined);
+        return `Table (${rows.length} rows × ${cols.length} cols) shown on the user's Canvas (v${v}) — sortable.`;
       }
       if (name === 'browser') {
         return browserControl({ action: String(args.action ?? ''), url: args.url ? String(args.url) : undefined, text: args.text ? String(args.text) : undefined, selector: args.selector ? String(args.selector) : undefined, value: args.value !== undefined ? String(args.value) : undefined, submit: args.submit === true || args.submit === 'true', key: args.key ? String(args.key) : undefined, dy: args.dy ? Number(args.dy) : undefined });

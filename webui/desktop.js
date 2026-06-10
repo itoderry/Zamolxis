@@ -628,11 +628,19 @@
 
     function addMsg(who, text, cls, via, persist) {
       var m = el('div', 'msg ' + cls);
-      m.appendChild(el('div', 'who', who + (via ? ' · via ' + via : '')));
-      var c = el('div'); c.textContent = text; m.appendChild(c);
+      var w = el('div', 'who', who + (via ? ' · via ' + via : '')); m.appendChild(w);
+      var c = el('div'); c.textContent = text; m.appendChild(c); c._who = w; c._whoBase = who;
       log.appendChild(m); log.scrollTop = log.scrollHeight;
       if (persist !== false) pushChatLog(logKey, { who: who, text: text, cls: cls, via: via });
       return c;
+    }
+    function pad2(n) { return (n < 10 ? '0' : '') + n; }
+    function setReplyMeta(node, secs) {
+      if (!node || !node._who) return;
+      var d = new Date(); var tm = pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+      function paint(model, tok) { node._who.textContent = (node._whoBase || AGENT_NAME) + ' · ' + tm + (secs != null ? ' · ' + secs + 's' : '') + (model ? ' · ' + model : '') + (tok ? ' · ' + tok + ' tok' : ''); }
+      paint('', 0);
+      api('/api/status').then(function (s) { var l = s && s.last; if (l && l.model) paint(String(l.model).split(':').pop(), l.total || 0); }).catch(function () {});
     }
     // restore the saved transcript for this conversation
     var _hist = loadChatLog(logKey);
@@ -641,7 +649,9 @@
 
     // WebSocket
     var proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    var sock, streamEl = null;
+    var sock, streamEl = null, sendStart = 0;
+    var inHist = [], histIdx = -1, histDraft = '';
+    try { inHist = JSON.parse(localStorage.getItem('zx_inhist_' + cid) || '[]') || []; } catch (e) {}
     function connect() {
       sock = new WebSocket(proto + '://' + location.host + '/?cid=' + encodeURIComponent(cid) + '&token=');
       sock.onopen = function () { stat.textContent = '● ' + T('connected'); stat.style.color = '#2e9e3f'; };
@@ -651,7 +661,7 @@
         var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
         if (m.type === 'status') return;
         if (m.type === 'chunk') { if (!streamEl) streamEl = addMsg(AGENT_NAME, '', 'bot', null, false); streamEl.textContent += m.text; log.scrollTop = log.scrollHeight; return; }
-        if (m.type === 'reply') { if (streamEl) { streamEl.textContent = m.text; streamEl = null; pushChatLog(logKey, { who: AGENT_NAME, text: m.text, cls: 'bot' }); } else { addMsg(AGENT_NAME, m.text, 'bot'); } stat.textContent = '● ' + T('connected'); speak(m.text); }
+        if (m.type === 'reply') { var node; if (streamEl) { streamEl.textContent = m.text; node = streamEl; streamEl = null; pushChatLog(logKey, { who: AGENT_NAME, text: m.text, cls: 'bot' }); } else { node = addMsg(AGENT_NAME, m.text, 'bot'); } stat.textContent = '● ' + T('connected'); setReplyMeta(node, sendStart ? ((Date.now() - sendStart) / 1000).toFixed(1) : null); speak(m.text); }
       };
     }
     connect();
@@ -661,7 +671,8 @@
       var t = ta.value.trim(); var files = pending.slice();
       if ((!t && !files.length) || !sock || sock.readyState !== WebSocket.OPEN) return;
       var shown = t + (files.length ? ((t ? '\n' : '') + files.map(function (f) { return '📎 ' + f.name; }).join('\n')) : '');
-      addMsg(T('You'), shown || '(file)', 'user'); ta.value = ''; streamEl = null; stat.textContent = T('thinking...');
+      if (t) { if (inHist[inHist.length - 1] !== t) { inHist.push(t); if (inHist.length > 50) inHist = inHist.slice(-50); try { localStorage.setItem('zx_inhist_' + cid, JSON.stringify(inHist)); } catch (e) {} } } histIdx = -1;
+      addMsg(T('You'), shown || '(file)', 'user'); ta.value = ''; streamEl = null; sendStart = Date.now(); stat.textContent = T('thinking...');
       if (!files.length) { sock.send(JSON.stringify({ text: t, route: sel.value })); return; }
       pending = []; renderChips();
       // Text-readable files: inject content inline (any model can read → route by your choice). Others (images/PDF/Office): upload + Claude tools.
@@ -688,7 +699,17 @@
       });
     }
     send.addEventListener('click', doSend);
-    ta.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } });
+    ta.addEventListener('input', function () { histIdx = -1; });
+    ta.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); return; }
+      if (e.key === 'ArrowUp' && inHist.length && (ta.value === '' || ta.selectionStart === 0)) {
+        if (histIdx === -1) { histDraft = ta.value; histIdx = inHist.length; }
+        histIdx = Math.max(0, histIdx - 1); ta.value = inHist[histIdx]; e.preventDefault();
+        setTimeout(function () { ta.selectionStart = ta.selectionEnd = ta.value.length; }, 0);
+      } else if (e.key === 'ArrowDown' && histIdx !== -1) {
+        histIdx++; if (histIdx >= inHist.length) { histIdx = -1; ta.value = histDraft || ''; } else ta.value = inHist[histIdx]; e.preventDefault();
+      }
+    });
     if (mic) {
       function startPTT() { stopWakeRec(); mic.classList.add('rec'); listenOnce(function (t) { ta.value = t; }, function (f) { mic.classList.remove('rec'); if (f) { ta.value = f; doSend(); } if (vGet('zx_voice_wake')) startWake(); }); }
       mic.addEventListener('click', startPTT);
@@ -1966,8 +1987,8 @@
   }
 
   function mountDatabase(body, win) {
-    body.style.padding = '0';
-    var wrap = el('div'); wrap.style.cssText = 'height:100%;display:flex;flex-direction:column';
+    body.style.padding = '0'; body.style.overflow = 'hidden';
+    var wrap = el('div'); wrap.style.cssText = 'height:100%;display:flex;flex-direction:column;min-height:0';
     var bar = el('div'); bar.style.cssText = 'display:flex;gap:6px;padding:8px;border-bottom:1px solid rgba(128,128,128,.2);flex-wrap:wrap;align-items:center';
     var connSel = el('select', 'inp'); connSel.style.width = '170px'; connSel.title = 'Connection';
     var server = el('input', 'inp'); server.value = '(localdb)\\MSSQLLocalDB'; server.style.cssText = 'width:190px'; server.title = 'Server / instance';
@@ -2011,12 +2032,33 @@
       localApi('sql', args).then(function (d) {
         runBtn.disabled = false; status.textContent = d.note || '';
         if (d.error) { grid.appendChild(el('div', 'hint', esc(d.error))); return; }
-        var cols = d.columns || [], rows = d.rows || [];
-        if (!cols.length) { grid.appendChild(el('div', 'hint', T('no rows'))); return; }
-        var html = "<table class='sql-grid'><thead><tr>" + cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + "</tr></thead><tbody>";
-        html += rows.map(function (r) { return '<tr>' + r.map(function (v) { return '<td>' + esc(v) + '</td>'; }).join('') + '</tr>'; }).join('');
-        html += '</tbody></table>'; grid.innerHTML = html;
+        gCols = d.columns || []; gRows = d.rows || []; gSort = -1; gDir = 1;
+        renderGrid();
       }).catch(function () { runBtn.disabled = false; status.textContent = 'error'; });
+    }
+    var gCols = [], gRows = [], gSort = -1, gDir = 1;
+    function renderGrid() {
+      grid.innerHTML = '';
+      if (!gCols.length) { grid.appendChild(el('div', 'hint', T('no rows'))); return; }
+      var rows = gRows;
+      if (gSort >= 0) {
+        rows = gRows.slice().sort(function (a, b) {
+          var x = a[gSort] == null ? '' : a[gSort], y = b[gSort] == null ? '' : b[gSort];
+          var numeric = /^\s*-?[\d.,]+\s*$/.test(x) && /^\s*-?[\d.,]+\s*$/.test(y);
+          var c = numeric ? (parseFloat(String(x).replace(/,/g, '')) - parseFloat(String(y).replace(/,/g, ''))) : String(x).localeCompare(String(y), undefined, { numeric: true });
+          return c * gDir;
+        });
+      }
+      var tbl = el('table', 'sql-grid'); var thead = el('thead'); var tr = el('tr');
+      gCols.forEach(function (c, i) {
+        var th = el('th'); th.textContent = c + (gSort === i ? (gDir > 0 ? ' ▲' : ' ▼') : ''); th.style.cursor = 'pointer'; th.title = 'Sort';
+        th.addEventListener('click', function () { if (gSort === i) gDir = -gDir; else { gSort = i; gDir = 1; } renderGrid(); });
+        tr.appendChild(th);
+      });
+      thead.appendChild(tr); tbl.appendChild(thead);
+      var tb = el('tbody');
+      rows.forEach(function (r) { var rr = el('tr'); r.forEach(function (v) { var td = el('td'); td.textContent = v; rr.appendChild(td); }); tb.appendChild(rr); });
+      tbl.appendChild(tb); grid.appendChild(tbl);
     }
     connSel.addEventListener('change', function () { syncControls(); loadDbs(); });
     server.addEventListener('change', loadDbs);
@@ -2068,12 +2110,37 @@
     win.setMenus([{ label: T('View'), items: [{ label: T('History'), action: function () { seg.select('history'); } }, { label: T('Bookmarks'), action: function () { seg.select('bookmarks'); } }] }]);
   }
 
-  // Agent Canvas: renders the latest agent-pushed HTML in a sandboxed iframe; polls for updates.
+  // Reusable sortable data grid (click a header to sort asc, again for desc; numeric-aware).
+  function sortableGrid(cols, rows) {
+    var host = el('div'); host.style.cssText = 'height:100%;overflow:auto;padding:8px';
+    var sort = -1, dir = 1;
+    function draw() {
+      host.innerHTML = '';
+      if (!cols || !cols.length) { host.appendChild(el('div', 'hint', '(no data)')); return; }
+      var rs = rows;
+      if (sort >= 0) {
+        rs = rows.slice().sort(function (a, b) {
+          var x = a[sort] == null ? '' : a[sort], y = b[sort] == null ? '' : b[sort];
+          var num = /^\s*-?[\d.,]+\s*$/.test(x) && /^\s*-?[\d.,]+\s*$/.test(y);
+          var c = num ? (parseFloat(String(x).replace(/,/g, '')) - parseFloat(String(y).replace(/,/g, ''))) : String(x).localeCompare(String(y), undefined, { numeric: true });
+          return c * dir;
+        });
+      }
+      var tbl = el('table', 'sql-grid'); var thead = el('thead'); var tr = el('tr');
+      cols.forEach(function (c, i) { var th = el('th'); th.textContent = c + (sort === i ? (dir > 0 ? ' ▲' : ' ▼') : ''); th.style.cursor = 'pointer'; th.addEventListener('click', function () { if (sort === i) dir = -dir; else { sort = i; dir = 1; } draw(); }); tr.appendChild(th); });
+      thead.appendChild(tr); tbl.appendChild(thead);
+      var tb = el('tbody'); rs.forEach(function (r) { var rr = el('tr'); r.forEach(function (v) { var td = el('td'); td.textContent = v; rr.appendChild(td); }); tb.appendChild(rr); }); tbl.appendChild(tb);
+      host.appendChild(tbl);
+    }
+    draw(); return host;
+  }
+
+  // Agent Canvas: renders the latest agent push — a sortable grid (show_table) or sandboxed HTML
+  // (show_canvas). Polls for updates; auto-opens when content arrives.
   function mountCanvas(body, win) {
-    body.style.padding = '0';
+    body.style.padding = '0'; body.style.overflow = 'hidden';
     var EMPTY = '<body style="font:14px system-ui,sans-serif;color:#888;display:grid;place-items:center;height:100vh;margin:0;text-align:center;padding:20px">Nothing here yet — ask ' + esc(AGENT_NAME) + ' to show a chart, table, dashboard or diagram.</body>';
-    var frame = el('iframe'); frame.setAttribute('sandbox', 'allow-scripts allow-popups allow-forms'); frame.style.cssText = 'width:100%;height:100%;border:0;background:#fff';
-    body.appendChild(frame);
+    var holder = el('div'); holder.style.cssText = 'width:100%;height:100%'; body.appendChild(holder);
     var lastV = -1;
     function tick() {
       if (win.closed) return;
@@ -2081,11 +2148,17 @@
         if (!d || d.version === lastV) return;
         lastV = d.version;
         win._appTitle = d.title || 'Canvas'; win.titleEl.textContent = win._appTitle;
-        frame.srcdoc = (d.version > 0 && d.html) ? d.html : EMPTY;
+        holder.innerHTML = '';
+        if (d.version > 0 && d.kind === 'table') {
+          holder.appendChild(sortableGrid(d.columns || [], d.rows || []));
+        } else {
+          var frame = el('iframe'); frame.setAttribute('sandbox', 'allow-scripts allow-popups allow-forms'); frame.style.cssText = 'width:100%;height:100%;border:0;background:#fff';
+          frame.srcdoc = (d.version > 0 && d.html) ? d.html : EMPTY; holder.appendChild(frame);
+        }
         syncTaskbar();
       }).catch(function () {});
     }
-    tick(); win._canvasIv = setInterval(tick, 2500);
+    tick(); win._canvasIv = setInterval(tick, 1200);
     win.cleanup.push(function () { clearInterval(win._canvasIv); });
   }
 
