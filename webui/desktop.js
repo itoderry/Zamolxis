@@ -1861,16 +1861,46 @@
     body.style.padding = '0';
     var wrap = el('div'); wrap.style.cssText = 'height:100%;display:flex;flex-direction:column';
     var bar = el('div'); bar.style.cssText = 'display:flex;gap:6px;padding:8px;border-bottom:1px solid rgba(128,128,128,.2);flex-wrap:wrap;align-items:center';
-    var server = el('input', 'inp'); server.value = '(localdb)\\MSSQLLocalDB'; server.style.cssText = 'width:200px'; server.title = 'Server / instance';
-    var dbsel = el('select', 'inp'); dbsel.style.width = '160px'; var optAll = el('option'); optAll.value = ''; optAll.textContent = '(database)'; dbsel.appendChild(optAll);
+    var connSel = el('select', 'inp'); connSel.style.width = '170px'; connSel.title = 'Connection';
+    var server = el('input', 'inp'); server.value = '(localdb)\\MSSQLLocalDB'; server.style.cssText = 'width:190px'; server.title = 'Server / instance';
+    var dbsel = el('select', 'inp'); dbsel.style.width = '150px'; var optAll = el('option'); optAll.value = ''; optAll.textContent = '(database)'; dbsel.appendChild(optAll);
+    var addBtn = el('button', 'btn ghost', '+'); addBtn.title = 'Add connection';
+    var rmBtn = el('button', 'btn ghost', '🗑'); rmBtn.title = 'Remove connection'; rmBtn.style.display = 'none';
     var runBtn = el('button', 'btn', '▶ ' + T('Run')); var status = el('span', 'hint');
-    bar.appendChild(server); bar.appendChild(dbsel); bar.appendChild(runBtn); bar.appendChild(status);
+    [connSel, addBtn, rmBtn, server, dbsel, runBtn, status].forEach(function (e) { bar.appendChild(e); });
+    // Add-connection form (hidden until +)
+    var form = el('div'); form.style.cssText = 'display:none;gap:6px;padding:8px;border-bottom:1px solid rgba(128,128,128,.2);flex-wrap:wrap;align-items:center;background:rgba(0,103,192,.06)';
+    var fName = el('input', 'inp'); fName.placeholder = 'name'; fName.style.width = '120px';
+    var fServer = el('input', 'inp'); fServer.placeholder = 'server\\instance'; fServer.style.width = '190px';
+    var fDb = el('input', 'inp'); fDb.placeholder = 'database (optional)'; fDb.style.width = '150px';
+    var fUser = el('input', 'inp'); fUser.placeholder = 'user (blank = Windows auth)'; fUser.style.width = '150px';
+    var fPass = el('input', 'inp'); fPass.type = 'password'; fPass.placeholder = 'password'; fPass.style.width = '130px';
+    var fSave = el('button', 'btn', T('Save')); var fCancel = el('button', 'btn ghost', T('Close'));
+    [fName, fServer, fDb, fUser, fPass, fSave, fCancel].forEach(function (e) { form.appendChild(e); });
     var qa = el('textarea'); qa.style.cssText = 'height:90px;border:0;border-bottom:1px solid rgba(128,128,128,.2);outline:0;resize:vertical;padding:10px;font:13px/1.4 ui-monospace,Consolas,monospace;background:transparent;color:inherit'; qa.spellcheck = false; qa.value = 'SELECT name FROM sys.databases';
     var grid = el('div'); grid.style.cssText = 'flex:1;overflow:auto;padding:8px';
-    wrap.appendChild(bar); wrap.appendChild(qa); wrap.appendChild(grid); body.appendChild(wrap);
+    wrap.appendChild(bar); wrap.appendChild(form); wrap.appendChild(qa); wrap.appendChild(grid); body.appendChild(wrap);
+
+    function curConn() { return connSel.value || ''; }
+    function adhoc() { return !curConn(); }
+    function baseArgs() { return adhoc() ? { server: server.value.trim() } : { connection: curConn() }; }
+    function syncControls() { var ah = adhoc(); server.style.display = ah ? '' : 'none'; rmBtn.style.display = ah ? 'none' : ''; }
+    function loadConns(sel) {
+      localApi('sql_connections', {}).then(function (d) {
+        connSel.innerHTML = ''; var o0 = el('option'); o0.value = ''; o0.textContent = 'Ad-hoc'; connSel.appendChild(o0);
+        (d.connections || []).forEach(function (c) { var o = el('option'); o.value = c.name; o.textContent = c.name + (c.user ? ' (' + c.user + ')' : ''); connSel.appendChild(o); });
+        if (sel) connSel.value = sel;
+        syncControls(); loadDbs();
+      });
+    }
+    function loadDbs() {
+      dbsel.innerHTML = ''; dbsel.appendChild(optAll); optAll.value = ''; optAll.textContent = '(database)';
+      localApi('sql', Object.assign({ query: 'SELECT name FROM sys.databases ORDER BY name' }, baseArgs())).then(function (d) { (d.rows || []).forEach(function (r) { var o = el('option'); o.value = r[0]; o.textContent = r[0]; dbsel.appendChild(o); }); });
+    }
     function run() {
       runBtn.disabled = true; status.textContent = T('Loading...'); grid.innerHTML = '';
-      localApi('sql', { query: qa.value, server: server.value.trim(), database: dbsel.value || undefined }).then(function (d) {
+      var args = Object.assign({ query: qa.value, database: dbsel.value || undefined }, baseArgs());
+      localApi('sql', args).then(function (d) {
         runBtn.disabled = false; status.textContent = d.note || '';
         if (d.error) { grid.appendChild(el('div', 'hint', esc(d.error))); return; }
         var cols = d.columns || [], rows = d.rows || [];
@@ -1880,14 +1910,25 @@
         html += '</tbody></table>'; grid.innerHTML = html;
       }).catch(function () { runBtn.disabled = false; status.textContent = 'error'; });
     }
+    connSel.addEventListener('change', function () { syncControls(); loadDbs(); });
+    server.addEventListener('change', loadDbs);
     runBtn.addEventListener('click', run);
+    addBtn.addEventListener('click', function () { form.style.display = form.style.display === 'none' ? 'flex' : 'none'; });
+    fCancel.addEventListener('click', function () { form.style.display = 'none'; });
+    fSave.addEventListener('click', function () {
+      if (!fName.value.trim() || !fServer.value.trim()) { status.textContent = 'name + server required'; return; }
+      localApi('sql_conn_add', { name: fName.value.trim(), server: fServer.value.trim(), database: fDb.value.trim() || undefined, user: fUser.value.trim() || undefined, password: fPass.value || undefined }).then(function (r) {
+        if (r && r.error) { status.textContent = r.error; return; }
+        var nm = fName.value.trim(); fName.value = fServer.value = fDb.value = fUser.value = fPass.value = ''; form.style.display = 'none'; loadConns(nm);
+      });
+    });
+    rmBtn.addEventListener('click', function () { var n = curConn(); if (n && confirm(T('Delete') + ' "' + n + '"?')) localApi('sql_conn_remove', { name: n }).then(function () { loadConns(''); }); });
     qa.addEventListener('keydown', function (e) { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); } });
-    // populate database list
-    localApi('sql', { query: 'SELECT name FROM sys.databases ORDER BY name', server: server.value.trim() }).then(function (d) { (d.rows || []).forEach(function (r) { var o = el('option'); o.value = r[0]; o.textContent = r[0]; dbsel.appendChild(o); }); });
     win.setMenus([
-      { label: T('Query'), items: [{ label: '▶ ' + T('Run'), accel: 'Ctrl+Enter', action: run }, { label: 'Databases', action: function () { qa.value = 'SELECT name FROM sys.databases'; run(); } }, { label: 'Tables', action: function () { qa.value = 'SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES ORDER BY 1,2'; run(); } }] }
+      { label: T('Query'), items: [{ label: '▶ ' + T('Run'), accel: 'Ctrl+Enter', action: run }, { label: 'Databases', action: function () { qa.value = 'SELECT name FROM sys.databases'; run(); } }, { label: 'Tables', action: function () { qa.value = 'SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES ORDER BY 1,2'; run(); } }] },
+      { label: 'Connection', items: [{ label: '+ Add connection', action: function () { form.style.display = 'flex'; fName.focus(); } }, { label: 'Remove current', action: function () { rmBtn.click(); } }] }
     ]);
-    run();
+    loadConns(''); run();
   }
 
   function mountBrowserHistory(body, win) {

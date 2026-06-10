@@ -139,24 +139,53 @@ function sqlcmdPath(): string {
   return 'sqlcmd';
 }
 
-export async function sqlQuery(args: { query: string; server?: string; database?: string }): Promise<string> {
+// ── Saved connection profiles (server/db/user/password), stored in <dataDir>/db-connections.json. ──
+interface DbConn { name: string; server: string; database?: string; user?: string; password?: string }
+let connFile = '';
+export function initLocalApps(dataDir: string): void { connFile = path.join(dataDir, 'db-connections.json'); }
+function readConns(): DbConn[] {
+  try { const a = JSON.parse(fs.readFileSync(connFile, 'utf8')); return Array.isArray(a) ? a : []; } catch { return []; }
+}
+function writeConns(list: DbConn[]): void { try { fs.writeFileSync(connFile, JSON.stringify(list, null, 2)); } catch (e) { logger.warn({ err: String(e) }, 'db-connections write failed'); } }
+/** Connection names + servers (NO passwords) for the UI. */
+export function sqlConnections(): Array<{ name: string; server: string; database?: string; user?: string; hasPassword: boolean }> {
+  return readConns().map((c) => ({ name: c.name, server: c.server, database: c.database, user: c.user, hasPassword: Boolean(c.password) }));
+}
+export function sqlAddConnection(c: DbConn): { ok: boolean; error?: string } {
+  if (!c.name || !c.server) return { ok: false, error: 'name and server are required' };
+  const list = readConns().filter((x) => x.name !== c.name);
+  list.push({ name: c.name, server: c.server, database: c.database || undefined, user: c.user || undefined, password: c.password || undefined });
+  writeConns(list);
+  return { ok: true };
+}
+export function sqlRemoveConnection(name: string): { ok: boolean } { writeConns(readConns().filter((x) => x.name !== name)); return { ok: true }; }
+
+export async function sqlQuery(args: { query: string; server?: string; database?: string; user?: string; password?: string; connection?: string }): Promise<string> {
   const q = String(args.query || '').trim();
   // READ-ONLY guard: a single SELECT/WITH statement, no INTO, no second statement.
   const stripped = q.replace(/--[^\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ').trim();
   if (!/^(SELECT|WITH)\b/i.test(stripped)) return 'Read-only: only a SELECT (or WITH ... SELECT) query is allowed.';
   if (/;\s*\S/.test(stripped)) return 'Read-only: a single statement only (no ";" followed by more SQL).';
   if (/\bINTO\b/i.test(stripped)) return 'Read-only: SELECT ... INTO is not allowed.';
-  const server = args.server || '(localdb)\\MSSQLLocalDB';
-  const a = ['-S', server, '-E', '-W', '-s', '|', '-l', '10', '-Q', q.slice(0, 4000)];
-  if (args.database) a.push('-d', args.database);
-  const r = await run(sqlcmdPath(), a);
+  let server = args.server, database = args.database, user = args.user, password = args.password;
+  if (args.connection) {
+    const c = readConns().find((x) => x.name.toLowerCase() === String(args.connection).toLowerCase());
+    if (!c) return `No saved connection named "${args.connection}". Configured: ${readConns().map((x) => x.name).join(', ') || '(none)'}.`;
+    server = server || c.server; database = database || c.database; user = user || c.user; password = password || c.password;
+  }
+  server = server || '(localdb)\\MSSQLLocalDB';
+  // -C trusts the server certificate (corporate SQL servers often use a self-signed cert); -l connect timeout.
+  const a = ['-S', server, '-W', '-s', '|', '-C', '-l', '15', '-Q', q.slice(0, 4000)];
+  if (user) { a.push('-U', user, '-P', password || ''); } else { a.push('-E'); }
+  if (database) a.push('-d', database);
+  const r = await run(sqlcmdPath(), a, undefined, 60_000);
   if (r.code !== 0 && !r.out.trim()) return 'sqlcmd failed: ' + clip(r.err || 'unknown error', 600);
   const body = clip((r.out || '').trim(), 7000);
   return body || '(no rows)';
 }
 
 /** Structured SQL result for the Database app: { columns, rows } or { error }. */
-export async function sqlQueryData(args: { query: string; server?: string; database?: string }): Promise<{ columns?: string[]; rows?: string[][]; note?: string; error?: string }> {
+export async function sqlQueryData(args: { query: string; server?: string; database?: string; user?: string; password?: string; connection?: string }): Promise<{ columns?: string[]; rows?: string[][]; note?: string; error?: string }> {
   const txt = await sqlQuery(args);
   if (/^(Read-only|sqlcmd failed)/.test(txt)) return { error: txt };
   const lines = txt.split(/\r?\n/);

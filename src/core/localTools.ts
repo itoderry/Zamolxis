@@ -345,13 +345,16 @@ export function buildLocalTools(): LocalToolset {
     function: {
       name: 'sql_query',
       description:
-        'Run a READ-ONLY SQL query (single SELECT/WITH statement) against a local Microsoft SQL Server / LocalDB via sqlcmd with Windows auth. Default server is (localdb)\\MSSQLLocalDB — pass server for another instance (e.g. "localhost"). Discover databases with: SELECT name FROM sys.databases. Use for questions about the user\'s local databases.',
+        'Run a READ-ONLY SQL query (single SELECT/WITH statement) against Microsoft SQL Server / LocalDB via sqlcmd. EASIEST: pass connection="<name>" to use a saved connection profile (server/db/login the user configured in the Database app). Otherwise pass server (default (localdb)\\MSSQLLocalDB), optional database, and user+password for SQL auth (omit for Windows auth). Discover databases with SELECT name FROM sys.databases. Use for questions about the user\'s databases.',
       parameters: {
         type: 'object',
         properties: {
           query: { type: 'string', description: 'A single SELECT (or WITH...SELECT) statement' },
+          connection: { type: 'string', description: 'Name of a saved connection profile (preferred — has server/db/login)' },
           server: { type: 'string', description: 'Server/instance (default (localdb)\\MSSQLLocalDB)' },
           database: { type: 'string', description: 'Database name (optional)' },
+          user: { type: 'string', description: 'SQL login username (omit for Windows auth)' },
+          password: { type: 'string', description: 'SQL login password' },
         },
         required: ['query'],
       },
@@ -464,7 +467,7 @@ export function buildLocalTools(): LocalToolset {
         return onenoteRead({ action: String(args.action ?? 'notebooks'), query: args.query ? String(args.query) : undefined, id: args.id ? String(args.id) : undefined });
       }
       if (name === 'sql_query') {
-        return sqlQuery({ query: String(args.query ?? ''), server: args.server ? String(args.server) : undefined, database: args.database ? String(args.database) : undefined });
+        return sqlQuery({ query: String(args.query ?? ''), connection: args.connection ? String(args.connection) : undefined, server: args.server ? String(args.server) : undefined, database: args.database ? String(args.database) : undefined, user: args.user ? String(args.user) : undefined, password: args.password ? String(args.password) : undefined });
       }
       if (name === 'browser_history') {
         return browserHistory({ query: args.query ? String(args.query) : '', what: args.what ? String(args.what) : undefined, browser: args.browser ? String(args.browser) : undefined, limit: args.limit ? Number(args.limit) : undefined });

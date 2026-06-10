@@ -19,7 +19,7 @@ import type { AgentStore } from '../core/agents.js';
 import { packSetup, type PackParts } from '../core/pack.js';
 import { extractDocText } from '../core/extract.js';
 import { outlookMailData, outlookPimData } from '../core/outlookLocal.js';
-import { onenoteData, sqlQueryData, browserHistoryData } from '../core/localApps.js';
+import { onenoteData, sqlQueryData, browserHistoryData, sqlConnections, sqlAddConnection, sqlRemoveConnection } from '../core/localApps.js';
 import { autostartStatus, setAutostart } from '../core/autostart.js';
 import { oauthExpiry } from '../core/auth.js';
 import { effectiveName, tempName } from '../core/displayName.js';
@@ -739,12 +739,15 @@ export class WebChannel implements Channel {
         try {
           const o = JSON.parse(body || '{}');
           const fn = String(o.fn || '');
-          const a = (o.args && typeof o.args === 'object' ? o.args : {}) as { action: string; query?: string; id?: string; folder?: string; count?: number; unreadOnly?: boolean; days?: number; server?: string; database?: string; what?: string; limit?: number; browser?: string };
+          const a = (o.args && typeof o.args === 'object' ? o.args : {}) as { action?: string; query?: string; id?: string; folder?: string; count?: number; unreadOnly?: boolean; days?: number; server?: string; database?: string; user?: string; password?: string; connection?: string; name?: string; what?: string; limit?: number; browser?: string };
           let d: unknown;
           if (fn === 'outlook_mail') d = await outlookMailData({ action: a.action || 'list', folder: a.folder, count: a.count, unreadOnly: a.unreadOnly, query: a.query, id: a.id });
           else if (fn === 'outlook_pim') d = await outlookPimData({ action: a.action || 'calendar', days: a.days, query: a.query, count: a.count });
           else if (fn === 'onenote') d = await onenoteData({ action: a.action || 'notebooks', query: a.query, id: a.id });
-          else if (fn === 'sql') d = await sqlQueryData({ query: a.query || '', server: a.server, database: a.database });
+          else if (fn === 'sql') d = await sqlQueryData({ query: a.query || '', server: a.server, database: a.database, user: a.user, password: a.password, connection: a.connection });
+          else if (fn === 'sql_connections') d = { connections: sqlConnections() };
+          else if (fn === 'sql_conn_add') d = sqlAddConnection({ name: String(a.name || ''), server: String(a.server || ''), database: a.database, user: a.user, password: a.password });
+          else if (fn === 'sql_conn_remove') d = sqlRemoveConnection(String(a.name || ''));
           else if (fn === 'browser') d = await browserHistoryData({ what: a.what, query: a.query, limit: a.limit, browser: a.browser });
           else return this.json(res, 400, { error: 'unknown fn' });
           return this.json(res, 200, d);

@@ -519,11 +519,14 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
 
   const sqlTool = tool(
     'sql_query',
-    'Run a READ-ONLY SQL query (single SELECT/WITH) against local Microsoft SQL Server / LocalDB via sqlcmd (Windows auth). Default server (localdb)\\MSSQLLocalDB; pass server for another instance. Discover databases with SELECT name FROM sys.databases.',
+    'Run a READ-ONLY SQL query (single SELECT/WITH) against Microsoft SQL Server / LocalDB via sqlcmd. Preferred: connection="<name>" to use a saved profile (server/db/login set in the Database app). Otherwise server (default (localdb)\\MSSQLLocalDB) + optional database + user/password for SQL auth (omit for Windows auth). Discover databases with SELECT name FROM sys.databases.',
     {
       query: z.string().describe('A single SELECT (or WITH...SELECT) statement'),
+      connection: z.string().optional().describe('Name of a saved connection profile (preferred)'),
       server: z.string().optional().describe('Server/instance (default (localdb)\\MSSQLLocalDB)'),
       database: z.string().optional().describe('Database name'),
+      user: z.string().optional().describe('SQL login username (omit for Windows auth)'),
+      password: z.string().optional().describe('SQL login password'),
     },
     async (args) => text(await sqlQuery(args)),
   );
