@@ -15,7 +15,7 @@ import { buildPaidTools } from './paid.js';
 import { readInbox, resolveAccount, listAccountNames, addAccount } from './email.js';
 import { outlookMail, outlookPim } from '../core/outlookLocal.js';
 import { onenoteRead, sqlQuery, browserHistory, archiveTool } from '../core/localApps.js';
-import { setCanvas } from '../core/canvas.js';
+import { setCanvas, setCanvasTable } from '../core/canvas.js';
 import { browserControl } from '../core/browser.js';
 import type { AgentStore } from '../core/agents.js';
 
@@ -567,6 +567,17 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
     async (args) => { const v = setCanvas(args.html, args.title); return text(`Canvas updated (v${v}) and shown on the user's desktop.`); },
   );
 
+  const showTable = tool(
+    'show_table',
+    'Display TABULAR data on the user\'s Canvas as a fast, SORTABLE grid (click a header to sort). Pass columns + rows as compact JSON — far cheaper/quicker than emitting an HTML table via show_canvas, and sortable/scrollable. Use for query results, lists, comparisons. Keep to a few hundred rows; for huge sets point the user to the Database app.',
+    {
+      title: z.string().optional().describe('Table title'),
+      columns: z.array(z.string()).describe('Column headers'),
+      rows: z.array(z.array(z.any())).describe('Rows; each row is an array of cell values aligned to columns'),
+    },
+    async (args) => { const v = setCanvasTable(args.columns, args.rows as unknown as string[][], args.title); return text(`Table (${(args.rows || []).length} rows) shown on the Canvas (v${v}) — sortable.`); },
+  );
+
   const browserTool = tool(
     'browser',
     'Drive a real web browser (the user\'s Chrome) to navigate and interact — beyond read-only fetch. Actions: goto {url}; text (read page); snapshot (list clickable/typeable elements); click {text|selector}; type {value, text|selector, submit?}; press {key}; scroll {dy}; back; screenshot (shows on Canvas); close. Flow: goto → snapshot → click/type → text. Use for forms, search, logins you drive, multi-step web tasks.',
@@ -605,6 +616,7 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
       tools: [
         haBuildMap,
         showCanvas,
+        showTable,
         browserTool,
         readEmail,
         outlookMailTool,

@@ -650,6 +650,8 @@
     // WebSocket
     var proto = location.protocol === 'https:' ? 'wss' : 'ws';
     var sock, streamEl = null, sendStart = 0;
+    var inHist = [], histIdx = -1, histDraft = '';
+    try { inHist = JSON.parse(localStorage.getItem('zx_inhist_' + cid) || '[]') || []; } catch (e) {}
     function connect() {
       sock = new WebSocket(proto + '://' + location.host + '/?cid=' + encodeURIComponent(cid) + '&token=');
       sock.onopen = function () { stat.textContent = '● ' + T('connected'); stat.style.color = '#2e9e3f'; };
@@ -669,6 +671,7 @@
       var t = ta.value.trim(); var files = pending.slice();
       if ((!t && !files.length) || !sock || sock.readyState !== WebSocket.OPEN) return;
       var shown = t + (files.length ? ((t ? '\n' : '') + files.map(function (f) { return '📎 ' + f.name; }).join('\n')) : '');
+      if (t) { if (inHist[inHist.length - 1] !== t) { inHist.push(t); if (inHist.length > 50) inHist = inHist.slice(-50); try { localStorage.setItem('zx_inhist_' + cid, JSON.stringify(inHist)); } catch (e) {} } } histIdx = -1;
       addMsg(T('You'), shown || '(file)', 'user'); ta.value = ''; streamEl = null; sendStart = Date.now(); stat.textContent = T('thinking...');
       if (!files.length) { sock.send(JSON.stringify({ text: t, route: sel.value })); return; }
       pending = []; renderChips();
@@ -696,7 +699,17 @@
       });
     }
     send.addEventListener('click', doSend);
-    ta.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } });
+    ta.addEventListener('input', function () { histIdx = -1; });
+    ta.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); return; }
+      if (e.key === 'ArrowUp' && inHist.length && (ta.value === '' || ta.selectionStart === 0)) {
+        if (histIdx === -1) { histDraft = ta.value; histIdx = inHist.length; }
+        histIdx = Math.max(0, histIdx - 1); ta.value = inHist[histIdx]; e.preventDefault();
+        setTimeout(function () { ta.selectionStart = ta.selectionEnd = ta.value.length; }, 0);
+      } else if (e.key === 'ArrowDown' && histIdx !== -1) {
+        histIdx++; if (histIdx >= inHist.length) { histIdx = -1; ta.value = histDraft || ''; } else ta.value = inHist[histIdx]; e.preventDefault();
+      }
+    });
     if (mic) {
       function startPTT() { stopWakeRec(); mic.classList.add('rec'); listenOnce(function (t) { ta.value = t; }, function (f) { mic.classList.remove('rec'); if (f) { ta.value = f; doSend(); } if (vGet('zx_voice_wake')) startWake(); }); }
       mic.addEventListener('click', startPTT);
@@ -1974,8 +1987,8 @@
   }
 
   function mountDatabase(body, win) {
-    body.style.padding = '0';
-    var wrap = el('div'); wrap.style.cssText = 'height:100%;display:flex;flex-direction:column';
+    body.style.padding = '0'; body.style.overflow = 'hidden';
+    var wrap = el('div'); wrap.style.cssText = 'height:100%;display:flex;flex-direction:column;min-height:0';
     var bar = el('div'); bar.style.cssText = 'display:flex;gap:6px;padding:8px;border-bottom:1px solid rgba(128,128,128,.2);flex-wrap:wrap;align-items:center';
     var connSel = el('select', 'inp'); connSel.style.width = '170px'; connSel.title = 'Connection';
     var server = el('input', 'inp'); server.value = '(localdb)\\MSSQLLocalDB'; server.style.cssText = 'width:190px'; server.title = 'Server / instance';
@@ -2097,12 +2110,37 @@
     win.setMenus([{ label: T('View'), items: [{ label: T('History'), action: function () { seg.select('history'); } }, { label: T('Bookmarks'), action: function () { seg.select('bookmarks'); } }] }]);
   }
 
-  // Agent Canvas: renders the latest agent-pushed HTML in a sandboxed iframe; polls for updates.
+  // Reusable sortable data grid (click a header to sort asc, again for desc; numeric-aware).
+  function sortableGrid(cols, rows) {
+    var host = el('div'); host.style.cssText = 'height:100%;overflow:auto;padding:8px';
+    var sort = -1, dir = 1;
+    function draw() {
+      host.innerHTML = '';
+      if (!cols || !cols.length) { host.appendChild(el('div', 'hint', '(no data)')); return; }
+      var rs = rows;
+      if (sort >= 0) {
+        rs = rows.slice().sort(function (a, b) {
+          var x = a[sort] == null ? '' : a[sort], y = b[sort] == null ? '' : b[sort];
+          var num = /^\s*-?[\d.,]+\s*$/.test(x) && /^\s*-?[\d.,]+\s*$/.test(y);
+          var c = num ? (parseFloat(String(x).replace(/,/g, '')) - parseFloat(String(y).replace(/,/g, ''))) : String(x).localeCompare(String(y), undefined, { numeric: true });
+          return c * dir;
+        });
+      }
+      var tbl = el('table', 'sql-grid'); var thead = el('thead'); var tr = el('tr');
+      cols.forEach(function (c, i) { var th = el('th'); th.textContent = c + (sort === i ? (dir > 0 ? ' ▲' : ' ▼') : ''); th.style.cursor = 'pointer'; th.addEventListener('click', function () { if (sort === i) dir = -dir; else { sort = i; dir = 1; } draw(); }); tr.appendChild(th); });
+      thead.appendChild(tr); tbl.appendChild(thead);
+      var tb = el('tbody'); rs.forEach(function (r) { var rr = el('tr'); r.forEach(function (v) { var td = el('td'); td.textContent = v; rr.appendChild(td); }); tb.appendChild(rr); }); tbl.appendChild(tb);
+      host.appendChild(tbl);
+    }
+    draw(); return host;
+  }
+
+  // Agent Canvas: renders the latest agent push — a sortable grid (show_table) or sandboxed HTML
+  // (show_canvas). Polls for updates; auto-opens when content arrives.
   function mountCanvas(body, win) {
-    body.style.padding = '0';
+    body.style.padding = '0'; body.style.overflow = 'hidden';
     var EMPTY = '<body style="font:14px system-ui,sans-serif;color:#888;display:grid;place-items:center;height:100vh;margin:0;text-align:center;padding:20px">Nothing here yet — ask ' + esc(AGENT_NAME) + ' to show a chart, table, dashboard or diagram.</body>';
-    var frame = el('iframe'); frame.setAttribute('sandbox', 'allow-scripts allow-popups allow-forms'); frame.style.cssText = 'width:100%;height:100%;border:0;background:#fff';
-    body.appendChild(frame);
+    var holder = el('div'); holder.style.cssText = 'width:100%;height:100%'; body.appendChild(holder);
     var lastV = -1;
     function tick() {
       if (win.closed) return;
@@ -2110,11 +2148,17 @@
         if (!d || d.version === lastV) return;
         lastV = d.version;
         win._appTitle = d.title || 'Canvas'; win.titleEl.textContent = win._appTitle;
-        frame.srcdoc = (d.version > 0 && d.html) ? d.html : EMPTY;
+        holder.innerHTML = '';
+        if (d.version > 0 && d.kind === 'table') {
+          holder.appendChild(sortableGrid(d.columns || [], d.rows || []));
+        } else {
+          var frame = el('iframe'); frame.setAttribute('sandbox', 'allow-scripts allow-popups allow-forms'); frame.style.cssText = 'width:100%;height:100%;border:0;background:#fff';
+          frame.srcdoc = (d.version > 0 && d.html) ? d.html : EMPTY; holder.appendChild(frame);
+        }
         syncTaskbar();
       }).catch(function () {});
     }
-    tick(); win._canvasIv = setInterval(tick, 2500);
+    tick(); win._canvasIv = setInterval(tick, 1200);
     win.cleanup.push(function () { clearInterval(win._canvasIv); });
   }
 

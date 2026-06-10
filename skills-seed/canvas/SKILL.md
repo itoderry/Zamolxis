@@ -15,3 +15,6 @@ Tips:
 - Keep it readable on white; the iframe has no app styling.
 - The iframe is sandboxed (scripts run, but no access to the page, cookies, or same-origin) - don't rely on network calls that need credentials.
 - After showing, briefly say in chat what you displayed.
+
+## Tabular data: use show_table (not HTML)
+For query results / lists / comparisons, call `show_table` with `columns` + `rows` (compact JSON) instead of building an HTML table with show_canvas. It is much faster and cheaper (no big HTML to emit), and the user gets a sortable, scrollable grid (click a header to sort). Keep it to a few hundred rows; for very large result sets, tell the user to open the Database app instead.
