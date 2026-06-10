@@ -16,6 +16,7 @@ import { readInbox, resolveAccount, listAccountNames, addAccount } from './email
 import { outlookMail, outlookPim } from '../core/outlookLocal.js';
 import { onenoteRead, sqlQuery, browserHistory, archiveTool } from '../core/localApps.js';
 import { setCanvas } from '../core/canvas.js';
+import { browserControl } from '../core/browser.js';
 import type { AgentStore } from '../core/agents.js';
 
 /** Live conversation context, captured per agent turn so tools deliver to the right place. */
@@ -566,6 +567,22 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
     async (args) => { const v = setCanvas(args.html, args.title); return text(`Canvas updated (v${v}) and shown on the user's desktop.`); },
   );
 
+  const browserTool = tool(
+    'browser',
+    'Drive a real web browser (the user\'s Chrome) to navigate and interact — beyond read-only fetch. Actions: goto {url}; text (read page); snapshot (list clickable/typeable elements); click {text|selector}; type {value, text|selector, submit?}; press {key}; scroll {dy}; back; screenshot (shows on Canvas); close. Flow: goto → snapshot → click/type → text. Use for forms, search, logins you drive, multi-step web tasks.',
+    {
+      action: z.enum(['goto', 'text', 'snapshot', 'click', 'type', 'press', 'scroll', 'back', 'screenshot', 'close']).describe('What to do'),
+      url: z.string().optional().describe('goto: the URL'),
+      text: z.string().optional().describe('click/type: visible text of the target element'),
+      selector: z.string().optional().describe('click/type: a CSS selector'),
+      value: z.string().optional().describe('type: text to enter'),
+      submit: z.boolean().optional().describe('type: press Enter after'),
+      key: z.string().optional().describe('press: key name'),
+      dy: z.number().optional().describe('scroll: pixels'),
+    },
+    async (args) => text(await browserControl(args)),
+  );
+
   const haBuildMap = tool(
     'ha_build_map',
     'Scan Home Assistant and (re)build the "home-assistant-devices" skill: a clean map of devices by area and type with simple aliases and exact entity_ids, organized by the smart model so the local model can control the house via ha_service. Call this when devices/areas changed or the map is missing.',
@@ -588,6 +605,7 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
       tools: [
         haBuildMap,
         showCanvas,
+        browserTool,
         readEmail,
         outlookMailTool,
         outlookPimTool,

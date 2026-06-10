@@ -2,6 +2,7 @@ import { logger } from '../logger.js';
 import { outlookAvailable, outlookMail, outlookPim } from './outlookLocal.js';
 import { onenoteAvailable, onenoteRead, sqlQuery, browserHistory, archiveAvailable, archiveTool } from './localApps.js';
 import { setCanvas } from './canvas.js';
+import { browserControl } from './browser.js';
 
 /**
  * Real tools the on-device local model can call (executed by US, not the model):
@@ -384,6 +385,30 @@ export function buildLocalTools(): LocalToolset {
   defs.push({
     type: 'function',
     function: {
+      name: 'browser',
+      description:
+        'Drive a real web browser (the user\'s Chrome) to navigate and interact — beyond read-only fetching. Actions: goto {url} (open a page, returns title/url/text); text (read current page); snapshot (list clickable/typeable elements by their text); click {text | selector}; type {value, text|selector, submit?} (fill a field, optional Enter); press {key}; scroll {dy}; back; screenshot (shows it on the Canvas); close. Typical flow: goto -> snapshot -> click/type -> text. Use for logins-you-drive, forms, search, multi-step web tasks.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['goto', 'text', 'snapshot', 'click', 'type', 'press', 'scroll', 'back', 'screenshot', 'close'], description: 'What to do' },
+          url: { type: 'string', description: 'goto: the URL' },
+          text: { type: 'string', description: 'click/type: visible text of the element to target' },
+          selector: { type: 'string', description: 'click/type: a CSS selector (alternative to text)' },
+          value: { type: 'string', description: 'type: the text to enter' },
+          submit: { type: 'boolean', description: 'type: press Enter after filling' },
+          key: { type: 'string', description: 'press: key name (e.g. Enter)' },
+          dy: { type: 'number', description: 'scroll: pixels (default 700)' },
+        },
+        required: ['action'],
+      },
+    },
+  });
+  names.push('browser');
+
+  defs.push({
+    type: 'function',
+    function: {
       name: 'browser_history',
       description:
         'Search the user\'s LOCAL browser history or bookmarks (Chrome, Edge, Firefox profile files on this machine; read-only). Use for "what was that site about X I visited last week?", "find my bookmark for Y". what="history" (default) or "bookmarks"; query filters by title/url.',
@@ -497,6 +522,9 @@ export function buildLocalTools(): LocalToolset {
       if (name === 'show_canvas') {
         const v = setCanvas(String(args.html ?? ''), args.title ? String(args.title) : undefined);
         return `Canvas updated (v${v}) and shown on the user's desktop.`;
+      }
+      if (name === 'browser') {
+        return browserControl({ action: String(args.action ?? ''), url: args.url ? String(args.url) : undefined, text: args.text ? String(args.text) : undefined, selector: args.selector ? String(args.selector) : undefined, value: args.value !== undefined ? String(args.value) : undefined, submit: args.submit === true || args.submit === 'true', key: args.key ? String(args.key) : undefined, dy: args.dy ? Number(args.dy) : undefined });
       }
       return `Unknown tool: ${name}`;
     },
