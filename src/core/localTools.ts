@@ -1,6 +1,7 @@
 import { logger } from '../logger.js';
 import { outlookAvailable, outlookMail, outlookPim } from './outlookLocal.js';
 import { onenoteAvailable, onenoteRead, sqlQuery, browserHistory, archiveAvailable, archiveTool } from './localApps.js';
+import { setCanvas } from './canvas.js';
 
 /**
  * Real tools the on-device local model can call (executed by US, not the model):
@@ -365,6 +366,24 @@ export function buildLocalTools(): LocalToolset {
   defs.push({
     type: 'function',
     function: {
+      name: 'show_canvas',
+      description:
+        'Display a rich visual on the user\'s desktop Canvas window (it opens automatically). Pass a complete self-contained HTML document (you may include <style> and <script>; it renders in a sandboxed iframe). Use to SHOW things words can\'t: charts/graphs, tables, dashboards, diagrams, image galleries, forms, calculators, rendered results. Prefer this over describing a visualization in text.',
+      parameters: {
+        type: 'object',
+        properties: {
+          html: { type: 'string', description: 'A complete HTML document (or fragment) to render' },
+          title: { type: 'string', description: 'Window title (optional)' },
+        },
+        required: ['html'],
+      },
+    },
+  });
+  names.push('show_canvas');
+
+  defs.push({
+    type: 'function',
+    function: {
       name: 'browser_history',
       description:
         'Search the user\'s LOCAL browser history or bookmarks (Chrome, Edge, Firefox profile files on this machine; read-only). Use for "what was that site about X I visited last week?", "find my bookmark for Y". what="history" (default) or "bookmarks"; query filters by title/url.',
@@ -474,6 +493,10 @@ export function buildLocalTools(): LocalToolset {
       }
       if (name === 'archive') {
         return archiveTool({ action: String(args.action ?? 'list'), archive: String(args.archive ?? ''), dest: args.dest ? String(args.dest) : undefined, paths: Array.isArray(args.paths) ? (args.paths as string[]) : undefined });
+      }
+      if (name === 'show_canvas') {
+        const v = setCanvas(String(args.html ?? ''), args.title ? String(args.title) : undefined);
+        return `Canvas updated (v${v}) and shown on the user's desktop.`;
       }
       return `Unknown tool: ${name}`;
     },

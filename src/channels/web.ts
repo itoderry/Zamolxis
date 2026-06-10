@@ -20,6 +20,7 @@ import { packSetup, type PackParts } from '../core/pack.js';
 import { extractDocText } from '../core/extract.js';
 import { outlookMailData, outlookPimData } from '../core/outlookLocal.js';
 import { onenoteData, sqlQueryData, browserHistoryData, sqlConnections, sqlAddConnection, sqlRemoveConnection } from '../core/localApps.js';
+import { getCanvas } from '../core/canvas.js';
 import { autostartStatus, setAutostart } from '../core/autostart.js';
 import { oauthExpiry } from '../core/auth.js';
 import { effectiveName, tempName } from '../core/displayName.js';
@@ -729,6 +730,11 @@ export class WebChannel implements Channel {
         }
       })();
       return;
+    }
+    // Agent canvas — latest agent-pushed HTML for the Canvas desktop app to render/poll.
+    if (url.pathname === '/api/canvas' && req.method === 'GET') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      return this.json(res, 200, getCanvas());
     }
     // Structured data for the local-app desktop apps (Outlook/Notes/Database/History).
     if (url.pathname === '/api/local' && req.method === 'POST') {

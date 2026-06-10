@@ -15,6 +15,7 @@ import { buildPaidTools } from './paid.js';
 import { readInbox, resolveAccount, listAccountNames, addAccount } from './email.js';
 import { outlookMail, outlookPim } from '../core/outlookLocal.js';
 import { onenoteRead, sqlQuery, browserHistory, archiveTool } from '../core/localApps.js';
+import { setCanvas } from '../core/canvas.js';
 import type { AgentStore } from '../core/agents.js';
 
 /** Live conversation context, captured per agent turn so tools deliver to the right place. */
@@ -555,6 +556,16 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
     async (args) => text(await archiveTool(args)),
   );
 
+  const showCanvas = tool(
+    'show_canvas',
+    'Display a rich visual on the user\'s desktop Canvas window (opens automatically). Pass a complete self-contained HTML document (may include <style>/<script>; renders in a sandboxed iframe). Use to SHOW charts, tables, dashboards, diagrams, galleries, forms, calculators, or any rendered result — prefer this over describing a visualization in text.',
+    {
+      html: z.string().describe('A complete HTML document (or fragment) to render'),
+      title: z.string().optional().describe('Window title'),
+    },
+    async (args) => { const v = setCanvas(args.html, args.title); return text(`Canvas updated (v${v}) and shown on the user's desktop.`); },
+  );
+
   const haBuildMap = tool(
     'ha_build_map',
     'Scan Home Assistant and (re)build the "home-assistant-devices" skill: a clean map of devices by area and type with simple aliases and exact entity_ids, organized by the smart model so the local model can control the house via ha_service. Call this when devices/areas changed or the map is missing.',
@@ -576,6 +587,7 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
       version: '0.1.0',
       tools: [
         haBuildMap,
+        showCanvas,
         readEmail,
         outlookMailTool,
         outlookPimTool,

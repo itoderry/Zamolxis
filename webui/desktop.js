@@ -32,7 +32,8 @@
     people: "<svg viewBox='0 0 24 24' fill='none' stroke='#7a5cd0' stroke-width='1.6'><circle cx='9' cy='8' r='3'/><path d='M3.5 19a5.5 5.5 0 0 1 11 0'/><path d='M16 6.5a3 3 0 0 1 0 5.8M17.5 19a5.5 5.5 0 0 0-3-4.9'/></svg>",
     notebook: "<svg viewBox='0 0 24 24' fill='none' stroke='#8e44ad' stroke-width='1.6'><rect x='5' y='3' width='14' height='18' rx='2'/><path d='M9 3v18M12 8h4M12 12h4'/></svg>",
     db: "<svg viewBox='0 0 24 24' fill='none' stroke='#2c7a4b' stroke-width='1.6'><ellipse cx='12' cy='5.5' rx='7' ry='2.5'/><path d='M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5'/></svg>",
-    hist: "<svg viewBox='0 0 24 24' fill='none' stroke='#d18b1f' stroke-width='1.6'><path d='M3.5 12a8.5 8.5 0 1 1 2.6 6.1'/><path d='M3.5 18v-4h4'/><path d='M12 8v4l3 2'/></svg>"
+    hist: "<svg viewBox='0 0 24 24' fill='none' stroke='#d18b1f' stroke-width='1.6'><path d='M3.5 12a8.5 8.5 0 1 1 2.6 6.1'/><path d='M3.5 18v-4h4'/><path d='M12 8v4l3 2'/></svg>",
+    canvas: "<svg viewBox='0 0 24 24' fill='none' stroke='#0a8a7a' stroke-width='1.6'><rect x='3' y='4' width='18' height='14' rx='2'/><path d='M3 14l5-4 4 3 4-4 5 4M12 20v1.5M9 21.5h6'/></svg>"
   };
 
   // Per-agent app icon: a colored rounded tile with the agent's initial (deterministic from the name).
@@ -451,6 +452,7 @@
     { id: 'notes', name: 'Notes', iconSvg: ICON.notebook, cat: 'Office', skill: 'onenote-notes', kind: 'native' },
     { id: 'database', name: 'Database', iconSvg: ICON.db, cat: 'Utilities', skill: 'sql-databases', kind: 'native' },
     { id: 'history', name: 'History', iconSvg: ICON.hist, cat: 'Utilities', skill: 'browser-history', kind: 'native' },
+    { id: 'canvas', name: 'Canvas', iconSvg: ICON.canvas, cat: 'Utilities', skill: 'canvas', kind: 'native' },
     { id: 'sftp', name: 'SFTP Client', iconSvg: ICON.net, cat: 'Network', skill: 'sftp-client', kind: 'native' },
     { id: 'telnet', name: 'Telnet', iconSvg: ICON.term, cat: 'Network', skill: 'telnet-client', kind: 'native' },
     { id: 'messages', name: 'Messages', iconSvg: ICON.chat, cat: 'Communication', skill: 'chat-clients', kind: 'native' }
@@ -517,6 +519,7 @@
       else if (appId === 'notes') spec = { appId: appId, title: T('Notes'), iconSvg: ICON.notebook, w: 820, h: 600, onMount: mountNotes };
       else if (appId === 'database') spec = { appId: appId, title: T('Database'), iconSvg: ICON.db, w: 880, h: 620, onMount: mountDatabase };
       else if (appId === 'history') spec = { appId: appId, title: T('History'), iconSvg: ICON.hist, w: 760, h: 600, onMount: mountBrowserHistory };
+      else if (appId === 'canvas') spec = { appId: appId, title: T('Canvas'), iconSvg: ICON.canvas, w: 800, h: 600, onMount: mountCanvas };
       else spec = { appId: appId, title: T(ca.name), iconSvg: ca.iconSvg, w: 780, h: 620, onMount: function (b, w) { mountEmptyViewer(b, w, ca); } };
     }
     else if (app.kind === 'agent') spec = { appId: appId, title: app.name, iconSvg: app.iconSvg || agentIconSvg(app.name), w: 520, h: 560, onMount: function (b, w) { mountAgent(b, w, app.agent); } };
@@ -2031,6 +2034,27 @@
     win.setMenus([{ label: T('View'), items: [{ label: T('History'), action: function () { seg.select('history'); } }, { label: T('Bookmarks'), action: function () { seg.select('bookmarks'); } }] }]);
   }
 
+  // Agent Canvas: renders the latest agent-pushed HTML in a sandboxed iframe; polls for updates.
+  function mountCanvas(body, win) {
+    body.style.padding = '0';
+    var EMPTY = '<body style="font:14px system-ui,sans-serif;color:#888;display:grid;place-items:center;height:100vh;margin:0;text-align:center;padding:20px">Nothing here yet — ask ' + esc(AGENT_NAME) + ' to show a chart, table, dashboard or diagram.</body>';
+    var frame = el('iframe'); frame.setAttribute('sandbox', 'allow-scripts allow-popups allow-forms'); frame.style.cssText = 'width:100%;height:100%;border:0;background:#fff';
+    body.appendChild(frame);
+    var lastV = -1;
+    function tick() {
+      if (win.closed) return;
+      api('/api/canvas').then(function (d) {
+        if (!d || d.version === lastV) return;
+        lastV = d.version;
+        win._appTitle = d.title || 'Canvas'; win.titleEl.textContent = win._appTitle;
+        frame.srcdoc = (d.version > 0 && d.html) ? d.html : EMPTY;
+        syncTaskbar();
+      }).catch(function () {});
+    }
+    tick(); win._canvasIv = setInterval(tick, 2500);
+    win.cleanup.push(function () { clearInterval(win._canvasIv); });
+  }
+
   // ---------- per-app chat-window setting (the "is chat needed?" toggle) ----------
   function appChatEnabled(appId, def) { var v = localStorage.getItem('zx_chat_' + appId); return v === null ? !!def : v === '1'; }
   function setAppChat(appId, on) { localStorage.setItem('zx_chat_' + appId, on ? '1' : '0'); }
@@ -2247,6 +2271,10 @@
   if (window.matchMedia) { try { window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () { if (modeChoice() === 'auto') applyMode(); }); } catch (e) {} }
   tickClock(); setInterval(tickClock, 10000);
   if (vGet('zx_voice_wake')) setTimeout(startWake, 1200);
+  // Auto-open/raise the Canvas when the agent pushes new content (baseline the first poll so a
+  // pre-existing canvas doesn't pop on every reload).
+  var _canvasSeen = null;
+  setInterval(function () { api('/api/canvas').then(function (d) { if (!d) return; if (_canvasSeen === null) { _canvasSeen = d.version; return; } if (d.version > _canvasSeen) { _canvasSeen = d.version; launchApp('canvas'); } }).catch(function () {}); }, 3000);
   pollStatus(); setInterval(pollStatus, 15000);
   renderDesktop();
   // Restore the previous window session once agents are known (agent windows need the list);
