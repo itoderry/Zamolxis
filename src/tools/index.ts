@@ -14,7 +14,7 @@ import { setTempName } from '../core/displayName.js';
 import { buildPaidTools } from './paid.js';
 import { readInbox, resolveAccount, listAccountNames, addAccount } from './email.js';
 import { outlookMail, outlookPim } from '../core/outlookLocal.js';
-import { onenoteRead, sqlQuery, browserHistory, archiveTool } from '../core/localApps.js';
+import { onenoteRead, sqlQuery, browserHistory, archiveTool, openInExcel } from '../core/localApps.js';
 import { setCanvas, setCanvasTable } from '../core/canvas.js';
 import { browserControl } from '../core/browser.js';
 import type { AgentStore } from '../core/agents.js';
@@ -578,6 +578,18 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
     async (args) => { const v = setCanvasTable(args.columns, args.rows as unknown as string[][], args.title); return text(`Table (${(args.rows || []).length} rows) shown on the Canvas (v${v}) — sortable.`); },
   );
 
+  const openInExcelTool = tool(
+    'open_in_excel',
+    'Put tabular data into a REAL .xlsx and open it in the user\'s Excel. Pass columns + rows (+ optional title); the file is saved under the data dir and Excel opens it — full sorting/filtering/formulas. Or pass file to open an existing spreadsheet. PREFER this for query results and any table the user will work with.',
+    {
+      title: z.string().optional().describe('Sheet/file name'),
+      columns: z.array(z.string()).optional().describe('Column headers'),
+      rows: z.array(z.array(z.any())).optional().describe('Rows aligned to columns'),
+      file: z.string().optional().describe('Open this existing spreadsheet instead of creating one'),
+    },
+    async (args) => text(await openInExcel({ columns: args.columns, rows: args.rows as unknown as string[][], title: args.title, file: args.file })),
+  );
+
   const browserTool = tool(
     'browser',
     'Drive a real web browser (the user\'s Chrome) to navigate and interact — beyond read-only fetch. Actions: goto {url}; text (read page); snapshot (list clickable/typeable elements); click {text|selector}; type {value, text|selector, submit?}; press {key}; scroll {dy}; back; screenshot (shows on Canvas); close. Flow: goto → snapshot → click/type → text. Use for forms, search, logins you drive, multi-step web tasks.',
@@ -617,6 +629,7 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
         haBuildMap,
         showCanvas,
         showTable,
+        openInExcelTool,
         browserTool,
         readEmail,
         outlookMailTool,

@@ -142,7 +142,8 @@ function sqlcmdPath(): string {
 // ── Saved connection profiles (server/db/user/password), stored in <dataDir>/db-connections.json. ──
 interface DbConn { name: string; server: string; database?: string; user?: string; password?: string }
 let connFile = '';
-export function initLocalApps(dataDir: string): void { connFile = path.join(dataDir, 'db-connections.json'); }
+let appDataDir = '';
+export function initLocalApps(dataDir: string): void { connFile = path.join(dataDir, 'db-connections.json'); appDataDir = dataDir; }
 function readConns(): DbConn[] {
   try { const a = JSON.parse(fs.readFileSync(connFile, 'utf8')); return Array.isArray(a) ? a : []; } catch { return []; }
 }
@@ -311,6 +312,43 @@ export async function browserHistory(args: { what?: string; query?: string; limi
 
 export async function browserHistoryData(args: { what?: string; query?: string; limit?: number; browser?: string }): Promise<{ what: string; rows: HistRow[] }> {
   return { what: args.what === 'bookmarks' ? 'bookmarks' : 'history', rows: await gatherHistory(args) };
+}
+
+// ───────────────────────── Open in Excel (real spreadsheet, real app) ─────────────────────────
+
+function openWithOs(file: string): void {
+  if (process.platform === 'win32') spawn('cmd', ['/c', 'start', '', file], { detached: true, windowsHide: true }).unref();
+  else if (process.platform === 'darwin') spawn('open', [file], { detached: true }).unref();
+  else spawn('xdg-open', [file], { detached: true }).unref();
+}
+
+/** Write tabular data to a real .xlsx and open it in the user's spreadsheet app (Excel).
+ *  Alternatively pass just `file` to open an existing spreadsheet. */
+export async function openInExcel(args: { columns?: string[]; rows?: string[][]; title?: string; file?: string }): Promise<string> {
+  if (args.file) {
+    try { fs.accessSync(args.file); } catch { return `File not found: ${args.file}`; }
+    openWithOs(args.file);
+    return `Opened ${args.file} in the spreadsheet app.`;
+  }
+  const cols = (args.columns || []).map(String);
+  const rows = (args.rows || []).map((r) => (r || []).map((v) => (v == null ? '' : v)));
+  if (!cols.length && !rows.length) return 'Pass columns + rows (the data), or file (an existing spreadsheet path).';
+  try {
+    const mod = (await import('xlsx')) as unknown as { default?: unknown };
+    const XLSX = (mod.default || mod) as { utils: { aoa_to_sheet: (a: unknown[][]) => unknown; book_new: () => unknown; book_append_sheet: (wb: unknown, ws: unknown, n: string) => void }; write: (wb: unknown, o: { type: string; bookType: string }) => Buffer };
+    const ws = XLSX.utils.aoa_to_sheet([cols, ...rows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, (args.title || 'Data').slice(0, 31));
+    const dir = path.join(appDataDir || os.tmpdir(), 'exports');
+    fs.mkdirSync(dir, { recursive: true });
+    const safe = (args.title || 'table').replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 50);
+    const file = path.join(dir, `${safe}-${Date.now()}.xlsx`);
+    fs.writeFileSync(file, XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+    openWithOs(file);
+    return `Saved ${rows.length} rows × ${cols.length} columns to ${file} and opened it in Excel.`;
+  } catch (err) {
+    return 'Could not create the spreadsheet: ' + String((err as Error)?.message || err);
+  }
 }
 
 // ───────────────────────── Archives (7-Zip) ─────────────────────────

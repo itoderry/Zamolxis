@@ -1,6 +1,6 @@
 import { logger } from '../logger.js';
 import { outlookAvailable, outlookMail, outlookPim } from './outlookLocal.js';
-import { onenoteAvailable, onenoteRead, sqlQuery, browserHistory, archiveAvailable, archiveTool } from './localApps.js';
+import { onenoteAvailable, onenoteRead, sqlQuery, browserHistory, archiveAvailable, archiveTool, openInExcel } from './localApps.js';
 import { setCanvas, setCanvasTable } from './canvas.js';
 import { browserControl } from './browser.js';
 
@@ -404,6 +404,25 @@ export function buildLocalTools(): LocalToolset {
   defs.push({
     type: 'function',
     function: {
+      name: 'open_in_excel',
+      description:
+        'Put tabular data into a REAL .xlsx file and open it in the user\'s Excel. Pass columns + rows (compact JSON) and optional title; the file is saved under the data dir and Excel opens it — the user gets full sorting/filtering/formulas. Or pass file="C:\\\\path\\\\to.xlsx" to open an existing spreadsheet. PREFER this for query results and any table the user will want to work with.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Sheet/file name' },
+          columns: { type: 'array', items: { type: 'string' }, description: 'Column headers' },
+          rows: { type: 'array', items: { type: 'array', items: {} }, description: 'Rows; each row is an array of cell values aligned to columns' },
+          file: { type: 'string', description: 'Open this existing spreadsheet instead of creating one' },
+        },
+      },
+    },
+  });
+  names.push('open_in_excel');
+
+  defs.push({
+    type: 'function',
+    function: {
       name: 'browser',
       description:
         'Drive a real web browser (the user\'s Chrome) to navigate and interact — beyond read-only fetching. Actions: goto {url} (open a page, returns title/url/text); text (read current page); snapshot (list clickable/typeable elements by their text); click {text | selector}; type {value, text|selector, submit?} (fill a field, optional Enter); press {key}; scroll {dy}; back; screenshot (shows it on the Canvas); close. Typical flow: goto -> snapshot -> click/type -> text. Use for logins-you-drive, forms, search, multi-step web tasks.',
@@ -547,6 +566,9 @@ export function buildLocalTools(): LocalToolset {
         const rows = Array.isArray(args.rows) ? (args.rows as string[][]) : [];
         const v = setCanvasTable(cols, rows, args.title ? String(args.title) : undefined);
         return `Table (${rows.length} rows × ${cols.length} cols) shown on the user's Canvas (v${v}) — sortable.`;
+      }
+      if (name === 'open_in_excel') {
+        return openInExcel({ columns: Array.isArray(args.columns) ? (args.columns as string[]) : undefined, rows: Array.isArray(args.rows) ? (args.rows as string[][]) : undefined, title: args.title ? String(args.title) : undefined, file: args.file ? String(args.file) : undefined });
       }
       if (name === 'browser') {
         return browserControl({ action: String(args.action ?? ''), url: args.url ? String(args.url) : undefined, text: args.text ? String(args.text) : undefined, selector: args.selector ? String(args.selector) : undefined, value: args.value !== undefined ? String(args.value) : undefined, submit: args.submit === true || args.submit === 'true', key: args.key ? String(args.key) : undefined, dy: args.dy ? Number(args.dy) : undefined });
