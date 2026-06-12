@@ -640,7 +640,16 @@
       var d = new Date(); var tm = pad2(d.getHours()) + ':' + pad2(d.getMinutes());
       function paint(model, tok) { node._who.textContent = (node._whoBase || AGENT_NAME) + ' · ' + tm + (secs != null ? ' · ' + secs + 's' : '') + (model ? ' · ' + model : '') + (tok ? ' · ' + tok + ' tok' : ''); }
       paint('', 0);
-      api('/api/status').then(function (s) { var l = s && s.last; if (l && l.model) paint(String(l.model).split(':').pop(), l.total || 0); }).catch(function () {});
+      // Model ids are tier-prefixed: "local:hermes3:8b", "free:cerebras:gpt-oss-120b", "claude-...".
+      // Strip only the tier (and provider for free/paid) — keep the full model name.
+      function modelLabel(m) {
+        m = String(m || '');
+        if (m.indexOf('local:') === 0) return m.slice(6) + ' (local)';
+        var fp = /^(free|paid):[^:]+:(.+)$/.exec(m);
+        if (fp) return fp[2];
+        return m;
+      }
+      api('/api/status').then(function (s) { var l = s && s.last; if (l && l.model) paint(modelLabel(l.model), l.total || 0); }).catch(function () {});
     }
     // restore the saved transcript for this conversation
     var _hist = loadChatLog(logKey);
