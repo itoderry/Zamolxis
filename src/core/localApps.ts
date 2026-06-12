@@ -15,7 +15,7 @@ import { logger } from '../logger.js';
 
 const TIMEOUT_MS = 40_000;
 
-function run(cmd: string, args: string[], env?: Record<string, string>, timeout = TIMEOUT_MS): Promise<{ out: string; err: string; code: number | null }> {
+export function run(cmd: string, args: string[], env?: Record<string, string>, timeout = TIMEOUT_MS): Promise<{ out: string; err: string; code: number | null }> {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { env: env ? { ...process.env, ...env } : process.env, windowsHide: true });
     let out = '';
@@ -31,7 +31,7 @@ function run(cmd: string, args: string[], env?: Record<string, string>, timeout 
   });
 }
 
-function clip(s: string, n = 8000): string {
+export function clip(s: string, n = 8000): string {
   return s.length > n ? s.slice(0, n) + '\n...[truncated]' : s;
 }
 
@@ -316,7 +316,8 @@ export async function browserHistoryData(args: { what?: string; query?: string; 
 
 // ───────────────────────── Open in Excel (real spreadsheet, real app) ─────────────────────────
 
-function openWithOs(file: string): void {
+export function dataDir(): string { return appDataDir; }
+export function openWithOs(file: string): void {
   if (process.platform === 'win32') spawn('cmd', ['/c', 'start', '', file], { detached: true, windowsHide: true }).unref();
   else if (process.platform === 'darwin') spawn('open', [file], { detached: true }).unref();
   else spawn('xdg-open', [file], { detached: true }).unref();

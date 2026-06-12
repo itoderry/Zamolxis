@@ -3,6 +3,7 @@ import { outlookAvailable, outlookMail, outlookPim } from './outlookLocal.js';
 import { onenoteAvailable, onenoteRead, sqlQuery, browserHistory, archiveAvailable, archiveTool, openInExcel } from './localApps.js';
 import { setCanvas, setCanvasTable } from './canvas.js';
 import { browserControl } from './browser.js';
+import { openInWord, openInPowerpoint, openApp, scanDocument, itunes, systemStatus, steamGames, steamAvailable, stickyNotes, stickyAvailable, autohotkey, ahkAvailable } from './nativeApps.js';
 
 /**
  * Real tools the on-device local model can call (executed by US, not the model):
@@ -420,6 +421,24 @@ export function buildLocalTools(): LocalToolset {
   });
   names.push('open_in_excel');
 
+  defs.push({ type: 'function', function: { name: 'open_in_word', description: 'Create a Word document from text/HTML and open it in Word (or open an existing .docx via file). Use for letters, reports, memos, formatted notes the user wants as a document.', parameters: { type: 'object', properties: { title: { type: 'string' }, text: { type: 'string', description: 'Plain-text body (newlines = paragraphs)' }, html: { type: 'string', description: 'HTML body (overrides text)' }, file: { type: 'string', description: 'Open an existing .docx instead of creating one' } } } } });
+  names.push('open_in_word');
+  defs.push({ type: 'function', function: { name: 'open_in_powerpoint', description: 'Create a PowerPoint deck and open it (or open an existing .pptx via file). Pass slides: each {title, bullets:[...] or text}.', parameters: { type: 'object', properties: { title: { type: 'string' }, slides: { type: 'array', items: { type: 'object', properties: { title: { type: 'string' }, bullets: { type: 'array', items: { type: 'string' } }, text: { type: 'string' } } } }, file: { type: 'string', description: 'Open an existing .pptx instead' } } } } });
+  names.push('open_in_powerpoint');
+  defs.push({ type: 'function', function: { name: 'open_app', description: 'Open a file (or app) in a specific desktop application. app = vscode | notepad++ | winmerge | acrobat | vlc | default. For winmerge pass file + file2 to diff two files.', parameters: { type: 'object', properties: { app: { type: 'string', description: 'vscode, notepad++, winmerge, acrobat, vlc, or default' }, file: { type: 'string' }, file2: { type: 'string', description: 'winmerge: the second file to diff' } }, required: ['app'] } } });
+  names.push('open_app');
+  defs.push({ type: 'function', function: { name: 'system_status', description: 'Report this machine\'s live status: GPU (utilization/memory/temp via nvidia-smi), Netbird VPN connection, RAM and CPU load. Use for "is my GPU busy?", "am I on the VPN?", "how much RAM is free?".', parameters: { type: 'object', properties: {} } } });
+  names.push('system_status');
+  if (process.platform === 'win32') {
+    defs.push({ type: 'function', function: { name: 'scan_document', description: 'Acquire a page from a connected scanner (Windows WIA) and save+open it. The scanner UI may prompt the user to choose a device.', parameters: { type: 'object', properties: { dest: { type: 'string', description: 'Output file path (default: a .jpg in exports)' } } } } });
+    names.push('scan_document');
+    defs.push({ type: 'function', function: { name: 'itunes', description: 'Control or search the iTunes music library (COM). action = status | play | pause | next | previous | search (with query).', parameters: { type: 'object', properties: { action: { type: 'string', enum: ['status', 'play', 'pause', 'next', 'previous', 'search'] }, query: { type: 'string', description: 'search: text matched against track/artist' } }, required: ['action'] } } });
+    names.push('itunes');
+    if (stickyAvailable()) { defs.push({ type: 'function', function: { name: 'sticky_notes', description: 'Read the user\'s Windows Sticky Notes (recent first).', parameters: { type: 'object', properties: {} } } }); names.push('sticky_notes'); }
+  }
+  if (steamAvailable()) { defs.push({ type: 'function', function: { name: 'steam_games', description: 'List the Steam games installed on this machine.', parameters: { type: 'object', properties: {} } } }); names.push('steam_games'); }
+  if (ahkAvailable()) { defs.push({ type: 'function', function: { name: 'autohotkey', description: 'Run an AutoHotkey script for desktop automation (send keystrokes, move/click, launch, window actions). Pass script (AHK v2 code) or file (.ahk path). Powerful — only do what the user asked.', parameters: { type: 'object', properties: { script: { type: 'string', description: 'AutoHotkey script source' }, file: { type: 'string', description: 'Path to an existing .ahk file' } } } } }); names.push('autohotkey'); }
+
   defs.push({
     type: 'function',
     function: {
@@ -570,6 +589,15 @@ export function buildLocalTools(): LocalToolset {
       if (name === 'open_in_excel') {
         return openInExcel({ columns: Array.isArray(args.columns) ? (args.columns as string[]) : undefined, rows: Array.isArray(args.rows) ? (args.rows as string[][]) : undefined, title: args.title ? String(args.title) : undefined, file: args.file ? String(args.file) : undefined });
       }
+      if (name === 'open_in_word') return openInWord({ html: args.html ? String(args.html) : undefined, text: args.text ? String(args.text) : undefined, title: args.title ? String(args.title) : undefined, file: args.file ? String(args.file) : undefined });
+      if (name === 'open_in_powerpoint') return openInPowerpoint({ title: args.title ? String(args.title) : undefined, slides: Array.isArray(args.slides) ? (args.slides as Array<{ title?: string; bullets?: string[]; text?: string }>) : undefined, file: args.file ? String(args.file) : undefined });
+      if (name === 'open_app') return openApp({ app: args.app ? String(args.app) : 'default', file: args.file ? String(args.file) : undefined, file2: args.file2 ? String(args.file2) : undefined });
+      if (name === 'scan_document') return scanDocument({ dest: args.dest ? String(args.dest) : undefined });
+      if (name === 'itunes') return itunes({ action: args.action ? String(args.action) : 'status', query: args.query ? String(args.query) : undefined });
+      if (name === 'system_status') return systemStatus();
+      if (name === 'steam_games') return steamGames();
+      if (name === 'sticky_notes') return stickyNotes();
+      if (name === 'autohotkey') return autohotkey({ script: args.script ? String(args.script) : undefined, file: args.file ? String(args.file) : undefined });
       if (name === 'browser') {
         return browserControl({ action: String(args.action ?? ''), url: args.url ? String(args.url) : undefined, text: args.text ? String(args.text) : undefined, selector: args.selector ? String(args.selector) : undefined, value: args.value !== undefined ? String(args.value) : undefined, submit: args.submit === true || args.submit === 'true', key: args.key ? String(args.key) : undefined, dy: args.dy ? Number(args.dy) : undefined });
       }
