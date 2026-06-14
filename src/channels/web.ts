@@ -832,6 +832,131 @@ export class WebChannel implements Channel {
       }).catch((e) => { res.writeHead(500); res.end(String(e)); });
       return;
     }
+    // System Toolkit — a Swiss-army manager for the host machine. Read ops (info, cleanup-scan,
+    // startup-list, proc-list, reg-scan) just gather state; action ops (cleanup-run, proc-kill,
+    // reg-clean) change it and demand o.confirm===true. Windows-specific work shells out to
+    // PowerShell / reg.exe; the Overview (info, proc-list) also works on macOS/Linux.
+    if (url.pathname === '/api/system' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      let sysBody = ''; let sysTooBig = false;
+      req.on('data', (c) => { sysBody += c; if (sysBody.length > 2_000_000) { sysTooBig = true; req.destroy(); } });
+      req.on('end', () => {
+        if (sysTooBig) return this.json(res, 413, { error: 'too large' });
+        let o: any = {};
+        try { o = JSON.parse(sysBody || '{}'); } catch { return this.json(res, 400, { error: 'bad json' }); }
+        const op = String(o.op || '');
+        const win = process.platform === 'win32';
+        // Run a PowerShell snippet and hand back the result; pj() parses its JSON stdout.
+        const pwsh = (script: string, t = 30000) => spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], { encoding: 'utf8', windowsHide: true, timeout: t, maxBuffer: 24 * 1024 * 1024 });
+        const pj = (r: any) => { try { return JSON.parse(((r && r.stdout) || '').trim() || 'null'); } catch { return null; } };
+        const arr = (v: any) => Array.isArray(v) ? v : (v ? [v] : []);
+        try {
+          if (op === 'info') {
+            const cpus = os.cpus() || []; const total = os.totalmem(); const free = os.freemem();
+            let disks: Array<{ drive: string; total: number; free: number }> = [];
+            if (win) {
+              const d = pj(pwsh("Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | Select-Object DeviceID,Size,FreeSpace | ConvertTo-Json -Compress", 10000));
+              disks = arr(d).map((x: any) => ({ drive: x.DeviceID, total: Number(x.Size) || 0, free: Number(x.FreeSpace) || 0 }));
+            } else {
+              const r = spawnSync('df', ['-kP'], { encoding: 'utf8', timeout: 8000 });
+              disks = ((r.stdout) || '').trim().split('\n').slice(1).map((ln) => { const p = ln.split(/\s+/); const t = (Number(p[1]) || 0) * 1024; const used = (Number(p[2]) || 0) * 1024; return { drive: p[5] || p[0] || '?', total: t, free: t - used }; }).filter((x) => x.total > 0);
+            }
+            return this.json(res, 200, { ok: true, platform: process.platform, hostname: os.hostname(), arch: os.arch(), release: os.release(), cpu: ((cpus[0] && cpus[0].model) || '').trim(), cores: cpus.length, memTotal: total, memFree: free, memUsed: total - free, uptime: os.uptime(), disks });
+          }
+          if (op === 'proc-list') {
+            if (!win) {
+              const r = spawnSync('ps', ['-axo', 'comm=,pid=,rss='], { encoding: 'utf8', timeout: 8000 });
+              const items = ((r.stdout) || '').trim().split('\n').map((ln) => { const p = ln.trim().split(/\s+/); return { name: p.slice(0, -2).join(' ') || p[0], pid: Number(p[p.length - 2]) || 0, memMB: Math.round((Number(p[p.length - 1]) || 0) / 1024 * 10) / 10, cpuSec: 0 }; }).filter((x) => x.pid).sort((a, b) => b.memMB - a.memMB).slice(0, 40);
+              return this.json(res, 200, { ok: true, items });
+            }
+            const out = pj(pwsh("Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 40 Name,Id,@{n='memMB';e={[math]::Round($_.WorkingSet64/1MB,1)}},@{n='cpuSec';e={[math]::Round(($_.CPU),1)}} | ConvertTo-Json -Compress", 12000));
+            return this.json(res, 200, { ok: true, items: arr(out).map((x: any) => ({ name: x.Name, pid: x.Id, memMB: Number(x.memMB) || 0, cpuSec: Number(x.cpuSec) || 0 })) });
+          }
+          // Everything below is Windows-only.
+          if (!win) return this.json(res, 200, { ok: false, error: 'This function is available on Windows only.' });
+
+          if (op === 'cleanup-scan') {
+            const out = pj(pwsh(String.raw`$cats=@(
+@{name='User temp';path=$env:TEMP},
+@{name='Windows temp';path=(Join-Path $env:WINDIR 'Temp')},
+@{name='Windows Update cache';path=(Join-Path $env:WINDIR 'SoftwareDistribution\Download')},
+@{name='Thumbnail cache';path=(Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Explorer')},
+@{name='Recycle Bin';path='C:\$Recycle.Bin'}
+)
+$res=foreach($c in $cats){ $b=[int64]0;$n=0; if(Test-Path -LiteralPath $c.path){ Get-ChildItem -LiteralPath $c.path -Recurse -Force -File -ErrorAction SilentlyContinue | ForEach-Object { $b+=$_.Length; $n++ } }; [pscustomobject]@{name=$c.name;path=$c.path;bytes=$b;files=$n} }
+$res | ConvertTo-Json -Compress`, 60000));
+            return this.json(res, 200, { ok: true, items: arr(out).map((x: any) => ({ name: x.name, path: x.path, bytes: Number(x.bytes) || 0, files: Number(x.files) || 0 })) });
+          }
+          if (op === 'cleanup-run') {
+            if (o.confirm !== true) return this.json(res, 400, { error: 'confirm required' });
+            const out = pj(pwsh(String.raw`$paths=@($env:TEMP,(Join-Path $env:WINDIR 'Temp'))
+$freed=[int64]0
+foreach($p in $paths){ if(Test-Path -LiteralPath $p){ Get-ChildItem -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object { try{ if(-not $_.PSIsContainer){ $freed+=$_.Length }; Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop }catch{} } } }
+try{ Clear-RecycleBin -Force -ErrorAction SilentlyContinue }catch{}
+[pscustomobject]@{freedBytes=$freed} | ConvertTo-Json -Compress`, 180000));
+            return this.json(res, 200, { ok: true, freedBytes: (out && Number(out.freedBytes)) || 0 });
+          }
+          if (op === 'startup-list') {
+            const out = pj(pwsh(String.raw`$out=@()
+$runKeys=@('HKCU:\Software\Microsoft\Windows\CurrentVersion\Run','HKLM:\Software\Microsoft\Windows\CurrentVersion\Run','HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run')
+foreach($k in $runKeys){ if(Test-Path $k){ $p=Get-ItemProperty -Path $k -ErrorAction SilentlyContinue; if($p){ $p.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { $out+=[pscustomobject]@{name=$_.Name;command=[string]$_.Value;location=$k} } } } }
+$folders=@([Environment]::GetFolderPath('Startup'),[Environment]::GetFolderPath('CommonStartup'))
+foreach($f in $folders){ if($f -and (Test-Path -LiteralPath $f)){ Get-ChildItem -LiteralPath $f -File -ErrorAction SilentlyContinue | ForEach-Object { $out+=[pscustomobject]@{name=$_.Name;command=$_.FullName;location='Startup folder'} } } }
+$out | ConvertTo-Json -Compress`, 20000));
+            return this.json(res, 200, { ok: true, items: arr(out).map((x: any) => ({ name: x.name, command: x.command, location: x.location })) });
+          }
+          if (op === 'reg-scan') {
+            // Heuristic registry scan: uninstall entries whose install folder is gone, and Run
+            // entries whose target .exe is missing. Reported for review — never auto-removed.
+            const out = pj(pwsh(String.raw`$out=@()
+$un=@('HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall','HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall')
+foreach($base in $un){ if(Test-Path $base){ Get-ChildItem -Path $base -ErrorAction SilentlyContinue | ForEach-Object { $pp=Get-ItemProperty -Path $_.PSPath -ErrorAction SilentlyContinue; if($pp){ $loc=[string]$pp.InstallLocation; if($loc -and $loc.Trim().Length -gt 3 -and -not (Test-Path -LiteralPath $loc)){ $out+=[pscustomobject]@{name=[string]$pp.DisplayName;reason='Install folder missing';target=$loc;regpath=$_.Name;valueName=''} } } } } }
+$runKeys=@('HKCU:\Software\Microsoft\Windows\CurrentVersion\Run','HKLM:\Software\Microsoft\Windows\CurrentVersion\Run')
+foreach($k in $runKeys){ if(Test-Path $k){ $hive= if($k -like 'HKCU:*'){'HKEY_CURRENT_USER'}else{'HKEY_LOCAL_MACHINE'}; $sub=$k -replace '^HK(CU|LM):\\',''; $full=$hive+'\'+$sub; $p=Get-ItemProperty -Path $k -ErrorAction SilentlyContinue; if($p){ $p.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { $cmd=[string]$_.Value; $exe=''; if($cmd -match '^\"([^\"]+)\"'){$exe=$matches[1]} elseif($cmd -match '^([^\s]+\.exe)'){$exe=$matches[1]}; if($exe -ne '' -and $exe -like '*\*' -and -not (Test-Path -LiteralPath $exe)){ $out+=[pscustomobject]@{name=$_.Name;reason='Startup file missing';target=$cmd;regpath=$full;valueName=$_.Name} } } } } }
+$out | ConvertTo-Json -Compress`, 40000));
+            return this.json(res, 200, { ok: true, items: arr(out).map((x: any) => ({ name: x.name || '(unnamed)', reason: x.reason, target: x.target, regpath: x.regpath, valueName: x.valueName || '' })) });
+          }
+          if (op === 'reg-backup') {
+            // Export the affected hives to .reg files before any cleaning, so it's reversible.
+            const dir = path.join(os.homedir(), '.zamolxis', 'reg-backups', String(Date.now()));
+            fs.mkdirSync(dir, { recursive: true });
+            const keys: Array<[string, string]> = [
+              ['HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall', 'uninstall.reg'],
+              ['HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall', 'uninstall-wow64.reg'],
+              ['HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', 'run-user.reg'],
+              ['HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', 'run-machine.reg'],
+            ];
+            const done: string[] = [];
+            for (const [k, f] of keys) { const r = spawnSync('reg', ['export', k, path.join(dir, f), '/y'], { encoding: 'utf8', windowsHide: true, timeout: 15000 }); if (r.status === 0) done.push(f); }
+            return this.json(res, 200, { ok: true, dir, files: done });
+          }
+          if (op === 'reg-clean') {
+            if (o.confirm !== true) return this.json(res, 400, { error: 'confirm required' });
+            let removed = 0; const errors: string[] = [];
+            for (const it of arr(o.items)) {
+              const rp = String((it && it.regpath) || '');
+              // Safety gate: only ever delete under the known Uninstall / Run roots.
+              if (!/^HKEY_(LOCAL_MACHINE|CURRENT_USER)\\.*CurrentVersion\\(Uninstall|Run)/i.test(rp)) { errors.push('skipped (outside allowed roots): ' + rp); continue; }
+              const vn = it && it.valueName ? String(it.valueName) : '';
+              const r = spawnSync('reg', vn ? ['delete', rp, '/v', vn, '/f'] : ['delete', rp, '/f'], { encoding: 'utf8', windowsHide: true, timeout: 8000 });
+              if (r.status === 0) removed++; else errors.push((((r.stderr || r.stdout) || '').trim()) || ('failed: ' + rp));
+            }
+            return this.json(res, 200, { ok: true, removed, errors });
+          }
+          if (op === 'proc-kill') {
+            if (o.confirm !== true) return this.json(res, 400, { error: 'confirm required' });
+            const pid = parseInt(o.pid, 10);
+            if (!pid || pid < 10) return this.json(res, 400, { error: 'refused (invalid or protected pid)' });
+            const r = pwsh('Stop-Process -Id ' + pid + ' -Force -ErrorAction Stop; "ok"', 8000);
+            return this.json(res, 200, r.status === 0 ? { ok: true } : { ok: false, error: ((r.stderr || '').trim()) || 'could not end process' });
+          }
+          return this.json(res, 400, { error: 'unknown op: ' + op });
+        } catch (err) {
+          return this.json(res, 500, { error: String((err as Error)?.message || err) });
+        }
+      });
+      return;
+    }
     // Agent canvas — latest agent-pushed HTML for the Canvas desktop app to render/poll.
     if (url.pathname === '/api/canvas' && req.method === 'GET') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });

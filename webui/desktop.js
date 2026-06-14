@@ -27,6 +27,7 @@
     term: "<svg viewBox='0 0 24 24' fill='none' stroke='#2c8f6f' stroke-width='1.6'><rect x='3' y='4' width='18' height='16' rx='2'/><path d='M7 9l3 3-3 3M12.5 15h4'/></svg>",
     net: "<svg viewBox='0 0 24 24' fill='none' stroke='#5566cc' stroke-width='1.6'><circle cx='12' cy='12' r='9'/><path d='M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18'/></svg>",
     api: "<svg viewBox='0 0 24 24' fill='none' stroke='#e0772b' stroke-width='1.6'><rect x='3' y='4' width='18' height='16' rx='2'/><path d='M8.5 9.5L6 12l2.5 2.5M15.5 9.5L18 12l-2.5 2.5M13 8l-2 8' stroke-linecap='round' stroke-linejoin='round'/></svg>",
+    sys: "<svg viewBox='0 0 24 24' fill='none' stroke='#9b8cff' stroke-width='1.6'><circle cx='12' cy='12' r='3.2'/><path d='M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5 5l2.1 2.1M16.9 16.9 19 19M19 5l-2.1 2.1M7.1 16.9 5 19'/></svg>",
     chat: "<svg viewBox='0 0 24 24' fill='none' stroke='#0a8acb' stroke-width='1.6'><path d='M4 5h16v11H9l-4 3.5V16H4z'/><path d='M8 9h8M8 12h5'/></svg>",
     mail: "<svg viewBox='0 0 24 24' fill='none' stroke='#0a72c4' stroke-width='1.6'><rect x='3' y='5' width='18' height='14' rx='2'/><path d='M3.5 6.5l8.5 6 8.5-6'/></svg>",
     cal: "<svg viewBox='0 0 24 24' fill='none' stroke='#c0392b' stroke-width='1.6'><rect x='3' y='4.5' width='18' height='16' rx='2'/><path d='M3 9h18M8 3v3M16 3v3'/><rect x='6.5' y='12' width='3' height='3' rx='.4' fill='#c0392b' stroke='none'/></svg>",
@@ -477,6 +478,7 @@
     { id: 'sftp', name: 'SFTP Client', iconSvg: ICON.net, cat: 'Network', skill: 'sftp-client', kind: 'native' },
     { id: 'telnet', name: 'Telnet', iconSvg: ICON.term, cat: 'Network', skill: 'telnet-client', kind: 'native' },
     { id: 'apiclient', name: 'API Client', iconSvg: ICON.api, cat: 'Network', skill: 'api-client', kind: 'native' },
+    { id: 'systemtoolkit', name: 'System Toolkit', iconSvg: ICON.sys, cat: 'Utilities', skill: 'system-toolkit', kind: 'native' },
     { id: 'messages', name: 'Messages', iconSvg: ICON.chat, cat: 'Communication', skill: 'chat-clients', kind: 'native' }
   ];
   var CAT_ORDER = ['System', 'Apps', 'Agents', 'Office', 'Media', 'Network', 'Communication', 'Utilities'];
@@ -490,7 +492,7 @@
   }
   // Of the built-in web apps, only the ones with NO real installed equivalent stay on the desktop
   // (the rest are replaced by launchers to the host's real apps). Canvas = agent output; Messages = channels.
-  var KEEP_NATIVE = { canvas: 1, messages: 1, apiclient: 1 };
+  var KEEP_NATIVE = { canvas: 1, messages: 1, apiclient: 1, systemtoolkit: 1 };
   var hostApps = []; // the machine's real installed apps (from /api/apps), shown as launchers
   function hostIcon(id, name) {
     var hue = hashHue(name || 'a'); var letter = ((name || '?').trim().charAt(0) || '?').toUpperCase();
@@ -557,6 +559,7 @@
       else if (appId === 'sftp') spec = { appId: appId, title: T('SFTP Client'), iconSvg: ICON.net, w: 820, h: 600, onMount: mountSftp };
       else if (appId === 'telnet') spec = { appId: appId, title: T('Telnet'), iconSvg: ICON.term, w: 720, h: 520, onMount: mountTelnet };
       else if (appId === 'apiclient') spec = { appId: appId, title: T('API Client'), iconSvg: ICON.api, w: 940, h: 660, onMount: mountApiClient };
+      else if (appId === 'systemtoolkit') spec = { appId: appId, title: T('System Toolkit'), iconSvg: ICON.sys, w: 720, h: 600, onMount: mountSystemToolkit };
       else if (appId === 'messages') spec = { appId: appId, title: T('Messages'), iconSvg: ICON.chat, w: 720, h: 560, onMount: mountMessages };
       else if (appId === 'outlook') spec = { appId: appId, title: T('Outlook'), iconSvg: ICON.mail, w: 860, h: 620, onMount: mountOutlook };
       else if (appId === 'notes') spec = { appId: appId, title: T('Notes'), iconSvg: ICON.notebook, w: 820, h: 600, onMount: mountNotes };
@@ -1750,6 +1753,103 @@
       { label: T('File'), items: [ { label: T('Download'), action: function () { dl.click(); } }, { label: T('Save'), action: function () { saveBtn.click(); } } ] },
       { label: T('Edit'), items: [ { label: T('Edit'), action: function () { editBtn.click(); } } ] }
     ]);
+  }
+
+  // ---------- App: System Toolkit ----------
+  // A Swiss-army manager for the host machine: a health Overview, disk Cleanup, Startup
+  // programs, running Processes (with End task), and a Windows Registry cruft scanner that
+  // backs up before it removes anything. All actions confirm first; reads are harmless.
+  function mountSystemToolkit(body, win) {
+    body.style.padding = '0';
+    function escapeHtml(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    var root = el('div'); root.style.cssText = 'height:100%;display:flex;flex-direction:column';
+    var tabsBar = el('div'); tabsBar.style.cssText = 'display:flex;gap:2px;padding:8px 8px 0;border-bottom:1px solid rgba(128,128,128,.2);flex-wrap:wrap';
+    var pane = el('div'); pane.style.cssText = 'flex:1;overflow:auto;padding:14px';
+    root.appendChild(tabsBar); root.appendChild(pane); body.appendChild(root);
+    function syscall(op, extra) { return api('/api/system', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ op: op }, extra || {})) }); }
+    function busy(msg) { pane.innerHTML = ''; pane.appendChild(el('div', 'hint', msg || T('Loading...'))); }
+    function mkBar(frac, color) { var o = el('div'); o.style.cssText = 'height:8px;border-radius:4px;background:rgba(128,128,128,.2);overflow:hidden;margin-top:3px'; var i = el('div'); i.style.cssText = 'height:100%;width:' + Math.min(100, Math.max(0, frac * 100)) + '%;background:' + (color || 'var(--accent,#d97a2b)'); o.appendChild(i); return o; }
+    function row(label, value) { var r = el('div'); r.style.cssText = 'display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid rgba(128,128,128,.12)'; var a = el('span', 'hint'); a.textContent = label; var b = el('span'); b.textContent = value; b.style.cssText = 'text-align:right;overflow:hidden;text-overflow:ellipsis'; r.appendChild(a); r.appendChild(b); return r; }
+    function fmtDur(sec) { sec = Math.floor(sec || 0); var d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60); return (d ? d + 'd ' : '') + (h ? h + 'h ' : '') + m + 'm'; }
+
+    function renderOverview() {
+      busy(); syscall('info').then(function (d) {
+        pane.innerHTML = '';
+        var h = el('h3'); h.textContent = T('System overview'); h.style.margin = '0 0 10px'; pane.appendChild(h);
+        pane.appendChild(row(T('Host'), d.hostname + ' · ' + d.platform + ' ' + d.release + ' (' + d.arch + ')'));
+        pane.appendChild(row('CPU', (d.cpu || '?') + ' · ' + d.cores + ' cores'));
+        var memFrac = d.memTotal ? d.memUsed / d.memTotal : 0;
+        var mw = el('div'); mw.style.padding = '6px 0';
+        mw.appendChild(row(T('Memory'), humanSize(d.memUsed) + ' / ' + humanSize(d.memTotal) + ' (' + Math.round(memFrac * 100) + '%)'));
+        mw.appendChild(mkBar(memFrac, memFrac > 0.85 ? '#e07a5f' : '#3aa66b')); pane.appendChild(mw);
+        pane.appendChild(row(T('Uptime'), fmtDur(d.uptime)));
+        var dh = el('div', 'hint'); dh.textContent = T('Disks'); dh.style.cssText = 'margin:12px 0 4px;font-weight:600'; pane.appendChild(dh);
+        (d.disks || []).forEach(function (dk) { var used = dk.total - dk.free; var frac = dk.total ? used / dk.total : 0; var w = el('div'); w.style.padding = '4px 0'; w.appendChild(row(dk.drive, humanSize(used) + ' / ' + humanSize(dk.total) + ' (' + Math.round(frac * 100) + '%)')); w.appendChild(mkBar(frac, frac > 0.9 ? '#e07a5f' : 'var(--accent,#d97a2b)')); pane.appendChild(w); });
+        var rf = el('button', 'btn ghost', T('Refresh')); rf.style.marginTop = '12px'; rf.onclick = renderOverview; pane.appendChild(rf);
+      }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'hint', 'Could not read system info.')); });
+    }
+
+    function renderCleanup() {
+      pane.innerHTML = '';
+      var h = el('h3'); h.textContent = T('Disk cleanup'); h.style.margin = '0 0 6px'; pane.appendChild(h);
+      pane.appendChild(el('div', 'hint', 'Scan temporary files and the Recycle Bin, then free the space. Windows only.'));
+      var listWrap = el('div'); listWrap.style.margin = '10px 0'; pane.appendChild(listWrap);
+      var note = el('div', 'hint'); note.style.margin = '6px 0'; pane.appendChild(note);
+      var actions = el('div'); actions.style.cssText = 'display:flex;gap:8px';
+      var scanB = el('button', 'btn', T('Scan')); var cleanB = el('button', 'btn'); cleanB.textContent = T('Clean now'); cleanB.disabled = true;
+      actions.appendChild(scanB); actions.appendChild(cleanB); pane.appendChild(actions);
+      function doScan() { listWrap.innerHTML = '<div class="hint">' + T('Scanning...') + '</div>'; syscall('cleanup-scan').then(function (d) { if (!d.ok) { listWrap.innerHTML = '<div class="hint">' + escapeHtml(d.error || 'error') + '</div>'; return; } listWrap.innerHTML = ''; var total = 0; (d.items || []).forEach(function (it) { total += it.bytes; listWrap.appendChild(row(it.name + ' (' + it.files + ' files)', humanSize(it.bytes))); }); listWrap.appendChild(row(T('Total'), humanSize(total))); cleanB.disabled = total === 0; cleanB.textContent = T('Clean now') + ' · ' + humanSize(total); }); }
+      scanB.onclick = doScan;
+      cleanB.onclick = function () { if (!confirm('Permanently delete temporary files and empty the Recycle Bin?')) return; cleanB.disabled = true; cleanB.textContent = T('Cleaning...'); note.textContent = ''; syscall('cleanup-run', { confirm: true }).then(function (d) { if (d.ok) note.textContent = '✓ Freed ' + humanSize(d.freedBytes); else note.textContent = d.error || 'cleanup failed'; doScan(); }); };
+    }
+
+    function renderStartup() {
+      busy(); syscall('startup-list').then(function (d) {
+        pane.innerHTML = '';
+        var h = el('h3'); h.textContent = T('Startup programs'); h.style.margin = '0 0 6px'; pane.appendChild(h);
+        if (!d.ok) { pane.appendChild(el('div', 'hint', d.error || 'error')); return; }
+        pane.appendChild(el('div', 'hint', 'Programs that launch with Windows. Shown read-only — disable them in Task Manager → Startup.'));
+        var tbl = el('div'); tbl.style.marginTop = '10px';
+        (d.items || []).forEach(function (it) { var r = el('div'); r.style.cssText = 'padding:6px 0;border-bottom:1px solid rgba(128,128,128,.12)'; var nm = el('div'); nm.innerHTML = '<b>' + escapeHtml(it.name) + '</b> <span class="hint">· ' + escapeHtml(String(it.location).split(/[\\/]/).pop()) + '</span>'; var cmd = el('div', 'hint'); cmd.textContent = it.command; cmd.style.cssText = 'font-size:11px;word-break:break-all'; r.appendChild(nm); r.appendChild(cmd); tbl.appendChild(r); });
+        if (!(d.items || []).length) tbl.appendChild(el('div', 'hint', 'No startup entries found.'));
+        pane.appendChild(tbl);
+      });
+    }
+
+    function renderProcs() {
+      busy(); syscall('proc-list').then(function (d) {
+        pane.innerHTML = '';
+        var h = el('h3'); h.textContent = T('Processes'); h.style.cssText = 'margin:0 0 6px;display:inline-block'; pane.appendChild(h);
+        var rf = el('button', 'btn ghost mini', T('Refresh')); rf.style.marginLeft = '8px'; rf.onclick = renderProcs; pane.appendChild(rf);
+        if (!d.ok) { pane.appendChild(el('div', 'hint', d.error || 'error')); return; }
+        pane.appendChild(el('div', 'hint', 'Top processes by memory. End a runaway process if needed (unsaved work will be lost).'));
+        var tbl = el('div'); tbl.style.marginTop = '8px';
+        (d.items || []).forEach(function (p) { var r = el('div'); r.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(128,128,128,.12);font-size:12px'; var nm = el('span'); nm.textContent = p.name; nm.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'; var pid = el('span', 'hint'); pid.textContent = '#' + p.pid; pid.style.width = '64px'; var mem = el('span'); mem.textContent = p.memMB + ' MB'; mem.style.cssText = 'width:80px;text-align:right'; var k = el('button', 'btn ghost mini', T('End task')); k.onclick = function () { if (!confirm('End "' + p.name + '" (PID ' + p.pid + ')? Unsaved work in that program will be lost.')) return; syscall('proc-kill', { pid: p.pid, confirm: true }).then(function (r) { if (!r.ok) alert(r.error || 'could not end process'); renderProcs(); }); }; r.appendChild(nm); r.appendChild(pid); r.appendChild(mem); r.appendChild(k); tbl.appendChild(r); });
+        pane.appendChild(tbl);
+      });
+    }
+
+    var regItems = [], regBackedUp = false;
+    function renderRegistry() {
+      pane.innerHTML = '';
+      var h = el('h3'); h.textContent = T('Registry cleaner'); h.style.margin = '0 0 6px'; pane.appendChild(h);
+      pane.appendChild(el('div', 'hint', 'Finds leftover uninstall and startup entries pointing to files/folders that no longer exist. Heuristic — review each, back up first, then remove. Windows only.'));
+      var actions = el('div'); actions.style.cssText = 'display:flex;gap:8px;margin:10px 0;flex-wrap:wrap';
+      var scanB = el('button', 'btn', T('Scan for issues')); var backupB = el('button', 'btn ghost', T('Back up registry')); var cleanB = el('button', 'btn'); cleanB.textContent = T('Remove selected'); cleanB.disabled = true;
+      actions.appendChild(scanB); actions.appendChild(backupB); actions.appendChild(cleanB); pane.appendChild(actions);
+      var note = el('div', 'hint'); note.style.cssText = 'margin:4px 0;word-break:break-all'; pane.appendChild(note);
+      var listWrap = el('div'); pane.appendChild(listWrap);
+      function refresh() { listWrap.innerHTML = '<div class="hint">' + T('Scanning...') + '</div>'; syscall('reg-scan').then(function (d) { if (!d.ok) { listWrap.innerHTML = '<div class="hint">' + escapeHtml(d.error || 'error') + '</div>'; return; } regItems = d.items || []; listWrap.innerHTML = ''; if (!regItems.length) { listWrap.appendChild(el('div', 'hint', 'No leftover entries found — your registry looks clean.')); cleanB.disabled = true; return; } regItems.forEach(function (it, idx) { var r = el('label'); r.style.cssText = 'display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.12);cursor:pointer'; var cb = el('input'); cb.type = 'checkbox'; cb.checked = true; cb.dataset.idx = idx; cb.style.marginTop = '3px'; var info = el('div'); info.style.flex = '1'; info.innerHTML = '<b>' + escapeHtml(it.name) + '</b> <span class="hint">· ' + escapeHtml(it.reason) + '</span><div class="hint" style="font-size:11px;word-break:break-all">' + escapeHtml(it.target || '') + '</div>'; r.appendChild(cb); r.appendChild(info); listWrap.appendChild(r); }); cleanB.disabled = false; }); }
+      scanB.onclick = refresh;
+      backupB.onclick = function () { note.textContent = T('Backing up...'); syscall('reg-backup').then(function (d) { if (d.ok) { regBackedUp = true; note.textContent = '✓ Backed up to ' + d.dir + ' (' + (d.files || []).length + ' files). Restore by double-clicking a .reg file.'; } else note.textContent = d.error || 'backup failed'; }); };
+      cleanB.onclick = function () { var picks = [].slice.call(listWrap.querySelectorAll('input:checked')).map(function (cb) { return regItems[+cb.dataset.idx]; }).filter(Boolean); if (!picks.length) { note.textContent = 'Nothing selected.'; return; } if (!regBackedUp && !confirm('You have not backed up the registry. Remove ' + picks.length + ' entr' + (picks.length > 1 ? 'ies' : 'y') + ' anyway?')) return; if (!confirm('Remove ' + picks.length + ' selected registry entr' + (picks.length > 1 ? 'ies' : 'y') + '? Hard to undo without the backup.')) return; note.textContent = T('Removing...'); syscall('reg-clean', { confirm: true, items: picks }).then(function (d) { if (d.ok) note.textContent = '✓ Removed ' + d.removed + (d.errors && d.errors.length ? (' · ' + d.errors.length + ' skipped') : ''); else note.textContent = d.error || 'failed'; refresh(); }); };
+    }
+
+    var TABS = [['overview', T('Overview'), renderOverview], ['cleanup', T('Cleanup'), renderCleanup], ['startup', T('Startup'), renderStartup], ['procs', T('Processes'), renderProcs], ['registry', T('Registry'), renderRegistry]];
+    var cur = 'overview';
+    function renderTabs() { tabsBar.innerHTML = ''; TABS.forEach(function (t) { var b = el('button', cur === t[0] ? 'app-tab active' : 'app-tab', t[1]); b.onclick = function () { cur = t[0]; renderTabs(); t[2](); }; tabsBar.appendChild(b); }); }
+    renderTabs(); renderOverview();
+    if (win.setMenus) win.setMenus([{ label: T('View'), items: TABS.map(function (t) { return { label: t[1], action: function () { cur = t[0]; renderTabs(); t[2](); } }; }) }]);
   }
 
   // ---------- App: API Client (a Postman-style HTTP client) ----------
