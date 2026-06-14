@@ -13,6 +13,15 @@ import { logger } from '../logger.js';
 
 const ALIASES = ['', 'opus', 'sonnet', 'haiku']; // '' = CLI default; aliases always resolve to the current generation
 const FALLBACK = ['claude-fable-5', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
+/** Models always offered in the dropdown even if the live /v1/models list omits them.
+ *  Claude 3.5 Sonnet runs through the SAME subscription OAuth path as the other Claude
+ *  models, so it's free to the user (covered by the subscription, not metered API). */
+const PINNED = ['claude-3-5-sonnet-latest'];
+
+function dedupe(list: string[]): string[] {
+  const seen = new Set<string>();
+  return list.filter((x) => (seen.has(x) ? false : (seen.add(x), true)));
+}
 const REFRESH_MS = 12 * 60 * 60 * 1000; // re-check twice a day
 
 let ids: string[] = [...FALLBACK];
@@ -34,14 +43,14 @@ function oauthTokens(): string[] {
   return out;
 }
 
-/** Model ids only (newest first, as the API returns them). */
+/** Model ids only (newest first, as the API returns them), plus always-pinned extras. */
 export function claudeModelIds(): string[] {
-  return ids;
+  return dedupe([...ids, ...PINNED]);
 }
 
-/** Full dropdown list: aliases + live ids. */
+/** Full dropdown list: aliases + live ids + pinned extras. */
 export function claudeModels(): string[] {
-  return [...ALIASES, ...ids];
+  return dedupe([...ALIASES, ...ids, ...PINNED]);
 }
 
 /** Fetch the live list from the API; keep the previous/fallback list on any failure. */

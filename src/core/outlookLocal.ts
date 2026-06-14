@@ -118,6 +118,14 @@ try {
     exit 0
   }
 
+  if ($action -eq 'open') {
+    $m = $ns.GetItemFromID($env:ZXOL_ID)
+    $m.Display($true)
+    try { $ol.ActiveWindow().Activate() } catch {}
+    Out-Json @{ ok = $true; subject = [string]$m.Subject }
+    exit 0
+  }
+
   if ($action -eq 'read') {
     $m = $ns.GetItemFromID($env:ZXOL_ID)
     $body = [string]$m.Body
@@ -252,6 +260,20 @@ export async function outlookPim(args: { action: string; days?: number; query?: 
   return 'No data.';
 }
 
+/** Open (Display) a message in the Outlook desktop client by its EntryID. Powers the
+ *  clickable "open in Outlook" link the Mail Sentinel attaches to each email. */
+export async function outlookOpen(id: string): Promise<{ ok: boolean; subject?: string; error?: string }> {
+  if (!outlookAvailable()) return { ok: false, error: 'Outlook is only available on this Windows machine.' };
+  if (!id) return { ok: false, error: 'missing message id' };
+  const raw = await runPs({ ZXOL_ACTION: 'open', ZXOL_ID: id, ZXOL_FOLDER: '', ZXOL_COUNT: '0', ZXOL_UNREAD: '0', ZXOL_QUERY: '' });
+  try {
+    const d = JSON.parse(raw) as { ok?: boolean; subject?: string; error?: string };
+    return d.error ? { ok: false, error: d.error } : { ok: true, subject: d.subject };
+  } catch {
+    return { ok: false, error: raw.slice(0, 200) };
+  }
+}
+
 /** Run an Outlook mail action and return model-friendly TEXT. */
 export async function outlookMail(args: OutlookArgs): Promise<string> {
   if (!outlookAvailable()) return 'outlook_mail only works on the Windows machine where classic Outlook desktop is installed.';
@@ -286,6 +308,6 @@ export async function outlookMail(args: OutlookArgs): Promise<string> {
   if (!msgs.length) return action === 'search' ? `No messages matching "${args.query}" in ${d.folder || 'Inbox'}.` : `No ${args.unreadOnly === false ? '' : 'unread '}messages in ${d.folder || 'Inbox'}.`;
   return (
     `${d.folder || 'Inbox'} — ${msgs.length} message(s):\n` +
-    msgs.map((m, i) => `${i + 1}. ${m.unread ? '[unread] ' : ''}${m.received} — ${m.from} <${m.fromAddr}>\n   ${m.subject}\n   id: ${m.id}`).join('\n')
+    msgs.map((m, i) => `${i + 1}. ${m.unread ? '[unread] ' : ''}${m.received} — ${m.from} <${m.fromAddr}>\n   ${m.subject}\n   Open in Outlook: /api/outlook/open?id=${encodeURIComponent(m.id)}`).join('\n')
   );
 }

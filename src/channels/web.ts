@@ -18,7 +18,7 @@ import type { MemoryManager } from '../core/memory.js';
 import type { AgentStore } from '../core/agents.js';
 import { packSetup, type PackParts } from '../core/pack.js';
 import { extractDocText } from '../core/extract.js';
-import { outlookMailData, outlookPimData } from '../core/outlookLocal.js';
+import { outlookMailData, outlookPimData, outlookOpen } from '../core/outlookLocal.js';
 import { onenoteData, sqlQueryData, browserHistoryData, sqlConnections, sqlAddConnection, sqlRemoveConnection } from '../core/localApps.js';
 import { getCanvas } from '../core/canvas.js';
 import { listApps, rescanApps, launchHostApp, appIconPng } from '../core/appscan.js';
@@ -778,6 +778,58 @@ export class WebChannel implements Channel {
         res.writeHead(200, { 'content-type': ct, 'cache-control': 'max-age=86400' });
         res.end(data);
       } catch { res.writeHead(404); res.end(); }
+      return;
+    }
+    // API Client app — the browser can't call arbitrary hosts (CORS) or set some headers,
+    // so the server makes the request and returns status, headers, body, timing and size.
+    if (url.pathname === '/api/http' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      let body = '';
+      req.on('data', (c) => { body += c; if (body.length > 10_000_000) req.destroy(); });
+      req.on('end', () => {
+        void (async () => {
+          try {
+            const o = JSON.parse(body || '{}') as { method?: string; url?: string; headers?: Record<string, string>; body?: string };
+            const method = String(o.method || 'GET').toUpperCase();
+            let target = String(o.url || '').trim();
+            if (!target) return this.json(res, 200, { ok: false, error: 'No URL.' });
+            if (!/^https?:\/\//i.test(target)) target = 'http://' + target;
+            const u = new URL(target); // throws on a malformed URL
+            const headers: Record<string, string> = {};
+            if (o.headers && typeof o.headers === 'object') for (const [k, v] of Object.entries(o.headers)) if (k) headers[k] = String(v);
+            const init: RequestInit = { method, headers, redirect: 'follow', signal: AbortSignal.timeout(30_000) };
+            if (o.body != null && o.body !== '' && method !== 'GET' && method !== 'HEAD') init.body = String(o.body);
+            const t0 = Date.now();
+            const r = await fetch(u.toString(), init);
+            const ab = await r.arrayBuffer();
+            const ms = Date.now() - t0;
+            const buf = Buffer.from(ab);
+            const respHeaders: Record<string, string> = {};
+            r.headers.forEach((v, k) => { respHeaders[k] = v; });
+            const MAX = 2_000_000;
+            this.json(res, 200, {
+              ok: true, status: r.status, statusText: r.statusText, headers: respHeaders,
+              body: buf.subarray(0, MAX).toString('utf8'), truncated: buf.length > MAX,
+              ms, size: buf.length, contentType: r.headers.get('content-type') || '',
+            });
+          } catch (err) {
+            this.json(res, 200, { ok: false, error: String((err as Error)?.message || err) });
+          }
+        })();
+      });
+      return;
+    }
+    // Open an email in the classic Outlook desktop client by its EntryID — the target of the
+    // "Open in Outlook" link the Mail Sentinel attaches to each message (same-origin click).
+    if (url.pathname === '/api/outlook/open' && req.method === 'GET') {
+      if (!this.authOk(req)) { res.writeHead(401); res.end('unauthorized'); return; }
+      const id = url.searchParams.get('id') || '';
+      const escHtml = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      void outlookOpen(id).then((r) => {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        const msg = r.ok ? `Opening "${escHtml(r.subject || 'message')}" in Outlook…` : `Could not open it: ${escHtml(r.error || 'unknown error')}`;
+        res.end(`<!doctype html><meta charset="utf-8"><title>Zamolxis</title><body style="font:15px system-ui;background:#0e1320;color:#e6e9ef;display:grid;place-items:center;height:100vh;margin:0"><div style="text-align:center"><p>${msg}</p>${r.ok ? '<p style="color:#8fa3bd;font-size:13px">You can close this tab.</p><script>setTimeout(function(){window.close()},1200)</script>' : ''}</div></body>`);
+      }).catch((e) => { res.writeHead(500); res.end(String(e)); });
       return;
     }
     // Agent canvas — latest agent-pushed HTML for the Canvas desktop app to render/poll.

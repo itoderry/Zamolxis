@@ -26,6 +26,7 @@
     calc: "<svg viewBox='0 0 24 24' fill='none' stroke='#555' stroke-width='1.6'><rect x='5' y='3' width='14' height='18' rx='2'/><rect x='7.5' y='5.5' width='9' height='3.5' rx='.6'/><path d='M8.5 13h0M12 13h0M15.5 13h0M8.5 16.5h0M12 16.5h0M15.5 16.5h0' stroke-linecap='round' stroke-width='2.2'/></svg>",
     term: "<svg viewBox='0 0 24 24' fill='none' stroke='#2c8f6f' stroke-width='1.6'><rect x='3' y='4' width='18' height='16' rx='2'/><path d='M7 9l3 3-3 3M12.5 15h4'/></svg>",
     net: "<svg viewBox='0 0 24 24' fill='none' stroke='#5566cc' stroke-width='1.6'><circle cx='12' cy='12' r='9'/><path d='M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18'/></svg>",
+    api: "<svg viewBox='0 0 24 24' fill='none' stroke='#e0772b' stroke-width='1.6'><rect x='3' y='4' width='18' height='16' rx='2'/><path d='M8.5 9.5L6 12l2.5 2.5M15.5 9.5L18 12l-2.5 2.5M13 8l-2 8' stroke-linecap='round' stroke-linejoin='round'/></svg>",
     chat: "<svg viewBox='0 0 24 24' fill='none' stroke='#0a8acb' stroke-width='1.6'><path d='M4 5h16v11H9l-4 3.5V16H4z'/><path d='M8 9h8M8 12h5'/></svg>",
     mail: "<svg viewBox='0 0 24 24' fill='none' stroke='#0a72c4' stroke-width='1.6'><rect x='3' y='5' width='18' height='14' rx='2'/><path d='M3.5 6.5l8.5 6 8.5-6'/></svg>",
     cal: "<svg viewBox='0 0 24 24' fill='none' stroke='#c0392b' stroke-width='1.6'><rect x='3' y='4.5' width='18' height='16' rx='2'/><path d='M3 9h18M8 3v3M16 3v3'/><rect x='6.5' y='12' width='3' height='3' rx='.4' fill='#c0392b' stroke='none'/></svg>",
@@ -475,6 +476,7 @@
     { id: 'canvas', name: 'Canvas', iconSvg: ICON.canvas, cat: 'Utilities', skill: 'canvas', kind: 'native' },
     { id: 'sftp', name: 'SFTP Client', iconSvg: ICON.net, cat: 'Network', skill: 'sftp-client', kind: 'native' },
     { id: 'telnet', name: 'Telnet', iconSvg: ICON.term, cat: 'Network', skill: 'telnet-client', kind: 'native' },
+    { id: 'apiclient', name: 'API Client', iconSvg: ICON.api, cat: 'Network', skill: 'api-client', kind: 'native' },
     { id: 'messages', name: 'Messages', iconSvg: ICON.chat, cat: 'Communication', skill: 'chat-clients', kind: 'native' }
   ];
   var CAT_ORDER = ['System', 'Apps', 'Agents', 'Office', 'Media', 'Network', 'Communication', 'Utilities'];
@@ -488,7 +490,7 @@
   }
   // Of the built-in web apps, only the ones with NO real installed equivalent stay on the desktop
   // (the rest are replaced by launchers to the host's real apps). Canvas = agent output; Messages = channels.
-  var KEEP_NATIVE = { canvas: 1, messages: 1 };
+  var KEEP_NATIVE = { canvas: 1, messages: 1, apiclient: 1 };
   var hostApps = []; // the machine's real installed apps (from /api/apps), shown as launchers
   function hostIcon(id, name) {
     var hue = hashHue(name || 'a'); var letter = ((name || '?').trim().charAt(0) || '?').toUpperCase();
@@ -554,6 +556,7 @@
       else if (appId === 'calculator') spec = { appId: appId, title: T('Calculator'), iconSvg: ICON.calc, w: 300, h: 430, onMount: mountCalculator };
       else if (appId === 'sftp') spec = { appId: appId, title: T('SFTP Client'), iconSvg: ICON.net, w: 820, h: 600, onMount: mountSftp };
       else if (appId === 'telnet') spec = { appId: appId, title: T('Telnet'), iconSvg: ICON.term, w: 720, h: 520, onMount: mountTelnet };
+      else if (appId === 'apiclient') spec = { appId: appId, title: T('API Client'), iconSvg: ICON.api, w: 940, h: 660, onMount: mountApiClient };
       else if (appId === 'messages') spec = { appId: appId, title: T('Messages'), iconSvg: ICON.chat, w: 720, h: 560, onMount: mountMessages };
       else if (appId === 'outlook') spec = { appId: appId, title: T('Outlook'), iconSvg: ICON.mail, w: 860, h: 620, onMount: mountOutlook };
       else if (appId === 'notes') spec = { appId: appId, title: T('Notes'), iconSvg: ICON.notebook, w: 820, h: 600, onMount: mountNotes };
@@ -1747,6 +1750,219 @@
       { label: T('File'), items: [ { label: T('Download'), action: function () { dl.click(); } }, { label: T('Save'), action: function () { saveBtn.click(); } } ] },
       { label: T('Edit'), items: [ { label: T('Edit'), action: function () { editBtn.click(); } } ] }
     ]);
+  }
+
+  // ---------- App: API Client (a Postman-style HTTP client) ----------
+  // Build a request (method, URL, params, headers, auth, body), send it through the server-side
+  // /api/http proxy, and inspect the response (status, time, size, headers, pretty JSON body).
+  // Collections, history and environments ({{var}} substitution) persist in localStorage.
+  function mountApiClient(body, win) {
+    body.style.padding = '0';
+    function escapeHtml(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    var LS = { col: 'zx_api_collections', hist: 'zx_api_history', envs: 'zx_api_envs', actEnv: 'zx_api_activeenv' };
+    function ld(k, def) { try { return JSON.parse(localStorage.getItem(k)) || def; } catch (e) { return def; } }
+    function sv(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+    var collections = ld(LS.col, []), history = ld(LS.hist, []), envs = ld(LS.envs, {}), activeEnv = localStorage.getItem(LS.actEnv) || '';
+
+    // Reusable key/value editor (for params, headers, form body).
+    function kvEditor() {
+      var box = el('div'); box.style.cssText = 'display:flex;flex-direction:column;gap:4px';
+      function addRow(k, v) {
+        var row = el('div', 'kvrow'); row.style.cssText = 'display:flex;gap:6px';
+        var ki = el('input', 'inp'); ki.placeholder = 'key'; ki.value = k || ''; ki.style.flex = '1';
+        var vi = el('input', 'inp'); vi.placeholder = 'value'; vi.value = v || ''; vi.style.flex = '2';
+        var rm = el('button', 'btn ghost', '✕'); rm.style.cssText = 'padding:2px 8px';
+        rm.onclick = function () { box.removeChild(row); if (!box.querySelector('.kvrow')) addRow('', ''); };
+        row.appendChild(ki); row.appendChild(vi); row.appendChild(rm); box.appendChild(row);
+      }
+      addRow('', '');
+      var add = el('button', 'btn ghost', '+ add'); add.style.cssText = 'align-self:flex-start;padding:2px 8px;font-size:12px;margin-top:4px'; add.onclick = function () { addRow('', ''); };
+      var wrap = el('div'); wrap.appendChild(box); wrap.appendChild(add);
+      wrap.getRows = function () { return [].slice.call(box.querySelectorAll('.kvrow')).map(function (r) { var i = r.querySelectorAll('input'); return [i[0].value.trim(), i[1].value]; }).filter(function (p) { return p[0]; }); };
+      wrap.setRows = function (rows) { box.innerHTML = ''; (rows && rows.length ? rows : [['', '']]).forEach(function (p) { addRow(p[0], p[1]); }); };
+      return wrap;
+    }
+    function fmtBytes(n) { return n < 1024 ? n + ' B' : (n < 1048576 ? (Math.round(n / 102.4) / 10) + ' KB' : (Math.round(n / 104857.6) / 10) + ' MB'); }
+
+    var root = el('div'); root.style.cssText = 'height:100%;display:flex';
+    var side = el('div'); side.style.cssText = 'width:200px;flex:0 0 200px;border-right:1px solid rgba(128,128,128,.2);display:flex;flex-direction:column;min-height:0';
+    var main = el('div'); main.style.cssText = 'flex:1;min-width:0;display:flex;flex-direction:column';
+    root.appendChild(side); root.appendChild(main); body.appendChild(root);
+
+    // URL row
+    var urlRow = el('div'); urlRow.style.cssText = 'display:flex;gap:6px;padding:8px;border-bottom:1px solid rgba(128,128,128,.2)';
+    var method = el('select', 'inp'); method.style.cssText = 'width:auto;font-weight:600';
+    ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].forEach(function (m) { var o = el('option'); o.value = m; o.textContent = m; method.appendChild(o); });
+    var urlIn = el('input', 'inp'); urlIn.placeholder = 'https://api.example.com/path   ({{base_url}} uses env vars)'; urlIn.style.flex = '1';
+    var sendBtn = el('button', 'btn', T('Send')); var saveBtn = el('button', 'btn ghost', T('Save'));
+    urlRow.appendChild(method); urlRow.appendChild(urlIn); urlRow.appendChild(sendBtn); urlRow.appendChild(saveBtn); main.appendChild(urlRow);
+
+    // request tabs
+    var reqTabsBar = el('div'); reqTabsBar.style.cssText = 'display:flex;gap:2px;padding:6px 8px 0;border-bottom:1px solid rgba(128,128,128,.2)';
+    var reqPanel = el('div'); reqPanel.style.cssText = 'padding:8px;border-bottom:1px solid rgba(128,128,128,.2);max-height:240px;overflow:auto'; main.appendChild(reqTabsBar); main.appendChild(reqPanel);
+
+    var paramsEd = kvEditor(), headersEd = kvEditor();
+    var authWrap = el('div'); var authType = el('select', 'inp'); authType.style.width = 'auto';
+    [['none', 'No Auth'], ['bearer', 'Bearer Token'], ['basic', 'Basic Auth']].forEach(function (o) { var op = el('option'); op.value = o[0]; op.textContent = o[1]; authType.appendChild(op); });
+    var authFields = el('div'); authFields.style.cssText = 'margin-top:6px;display:flex;flex-direction:column;gap:6px';
+    function lwrap(lbl, node) { var w = el('div'); w.style.cssText = 'display:flex;gap:6px;align-items:center'; var s = el('span', 'hint', lbl); s.style.width = '70px'; node.style.flex = '1'; w.appendChild(s); w.appendChild(node); return w; }
+    function renderAuth() {
+      authFields.innerHTML = '';
+      if (authType.value === 'bearer') { var t = el('input', 'inp'); t.placeholder = 'token'; t.dataset.role = 'token'; authFields.appendChild(lwrap('Token', t)); }
+      else if (authType.value === 'basic') { var u = el('input', 'inp'); u.dataset.role = 'user'; var p = el('input', 'inp'); p.type = 'password'; p.dataset.role = 'pass'; authFields.appendChild(lwrap('Username', u)); authFields.appendChild(lwrap('Password', p)); }
+    }
+    authType.onchange = renderAuth; authWrap.appendChild(authType); authWrap.appendChild(authFields); renderAuth();
+
+    var bodyWrap = el('div'); var bodyType = el('select', 'inp'); bodyType.style.width = 'auto';
+    [['none', 'None'], ['json', 'JSON'], ['raw', 'Raw text'], ['form', 'x-www-form-urlencoded']].forEach(function (o) { var op = el('option'); op.value = o[0]; op.textContent = o[1]; bodyType.appendChild(op); });
+    var bodyArea = el('textarea', 'inp'); bodyArea.style.cssText = 'width:100%;height:150px;font-family:monospace;font-size:12px;margin-top:6px';
+    var bodyForm = kvEditor(); bodyForm.style.marginTop = '6px';
+    function renderBody() { var raw = bodyType.value === 'json' || bodyType.value === 'raw'; bodyArea.style.display = raw ? '' : 'none'; bodyForm.style.display = bodyType.value === 'form' ? '' : 'none'; if (bodyType.value === 'json' && !bodyArea.value) bodyArea.placeholder = '{\n  "key": "value"\n}'; }
+    bodyType.onchange = renderBody; bodyWrap.appendChild(bodyType); bodyWrap.appendChild(bodyArea); bodyWrap.appendChild(bodyForm); renderBody();
+
+    var reqTabs = { Params: paramsEd, Headers: headersEd, Authorization: authWrap, Body: bodyWrap }; var curReqTab = 'Params';
+    function renderReqTabs() { reqTabsBar.innerHTML = ''; Object.keys(reqTabs).forEach(function (n) { var b = el('button', curReqTab === n ? 'app-tab active' : 'app-tab', n); b.onclick = function () { curReqTab = n; renderReqTabs(); }; reqTabsBar.appendChild(b); }); reqPanel.innerHTML = ''; reqPanel.appendChild(reqTabs[curReqTab]); }
+    renderReqTabs();
+
+    // response
+    var respBar = el('div'); respBar.style.cssText = 'padding:6px 8px;font-size:12px;color:#888;border-bottom:1px solid rgba(128,128,128,.2)'; respBar.textContent = 'Send a request to see the response.';
+    var respTabsBar = el('div'); respTabsBar.style.cssText = 'display:flex;gap:2px;padding:4px 8px 0';
+    var respPre = el('pre'); respPre.style.cssText = 'flex:1;min-height:80px;overflow:auto;margin:0;padding:10px;font-family:monospace;font-size:12px;white-space:pre-wrap;word-break:break-word';
+    main.appendChild(respBar); main.appendChild(respTabsBar); main.appendChild(respPre);
+    var lastResp = null, curRespTab = 'Body';
+    function showResp() { if (!lastResp) { respPre.textContent = ''; return; } if (curRespTab === 'Headers') { respPre.textContent = Object.keys(lastResp.headers || {}).map(function (k) { return k + ': ' + lastResp.headers[k]; }).join('\n'); return; } var t = lastResp.body || ''; if (/json/i.test(lastResp.contentType || '')) { try { t = JSON.stringify(JSON.parse(t), null, 2); } catch (e) {} } respPre.textContent = t + (lastResp.truncated ? '\n\n…[truncated]' : ''); }
+    function renderRespTabs() { respTabsBar.innerHTML = ''; ['Body', 'Headers'].forEach(function (n) { var b = el('button', curRespTab === n ? 'app-tab active' : 'app-tab', n); b.onclick = function () { curRespTab = n; renderRespTabs(); }; respTabsBar.appendChild(b); }); showResp(); }
+    renderRespTabs();
+
+    function vars() { return envs[activeEnv] || {}; }
+    function subst(s) { var v = vars(); return String(s == null ? '' : s).replace(/\{\{(\w+)\}\}/g, function (_m, k) { return v[k] != null ? v[k] : ('{{' + k + '}}'); }); }
+    function fieldVal(role) { var n = authFields.querySelector('[data-role="' + role + '"]'); return n ? n.value : ''; }
+    function curRequest() { return { method: method.value, url: urlIn.value, params: paramsEd.getRows(), headers: headersEd.getRows(), authType: authType.value, auth: { token: fieldVal('token'), user: fieldVal('user'), pass: fieldVal('pass') }, bodyType: bodyType.value, body: bodyArea.value, form: bodyForm.getRows() }; }
+
+    function send() {
+      var req = curRequest();
+      var u = subst(req.url);
+      var qs = req.params.map(function (p) { return encodeURIComponent(subst(p[0])) + '=' + encodeURIComponent(subst(p[1])); }).join('&');
+      if (qs) u += (u.indexOf('?') >= 0 ? '&' : '?') + qs;
+      var headers = {}; req.headers.forEach(function (p) { headers[subst(p[0])] = subst(p[1]); });
+      if (req.authType === 'bearer' && req.auth.token) headers['Authorization'] = 'Bearer ' + subst(req.auth.token);
+      else if (req.authType === 'basic' && req.auth.user) headers['Authorization'] = 'Basic ' + btoa(subst(req.auth.user) + ':' + subst(req.auth.pass));
+      var bodyStr;
+      if (req.bodyType === 'json') { headers['Content-Type'] = headers['Content-Type'] || 'application/json'; bodyStr = subst(req.body); }
+      else if (req.bodyType === 'raw') bodyStr = subst(req.body);
+      else if (req.bodyType === 'form') { headers['Content-Type'] = headers['Content-Type'] || 'application/x-www-form-urlencoded'; bodyStr = req.form.map(function (p) { return encodeURIComponent(subst(p[0])) + '=' + encodeURIComponent(subst(p[1])); }).join('&'); }
+      respBar.textContent = 'Sending…'; respBar.style.color = '#888'; sendBtn.disabled = true;
+      api('/api/http', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ method: req.method, url: u, headers: headers, body: bodyStr }) })
+        .then(function (d) {
+          sendBtn.disabled = false;
+          if (!d || !d.ok) { respBar.textContent = '✗ ' + ((d && d.error) || 'request failed'); respBar.style.color = '#e07a5f'; lastResp = null; respPre.textContent = ''; return; }
+          lastResp = d; var col = d.status < 300 ? '#2e9e3f' : (d.status < 400 ? '#e0a55f' : '#e07a5f');
+          respBar.innerHTML = '<b style="color:' + col + '">' + d.status + ' ' + escapeHtml(d.statusText || '') + '</b> · ' + d.ms + ' ms · ' + fmtBytes(d.size); respBar.style.color = '';
+          curRespTab = 'Body'; renderRespTabs();
+          history.unshift({ method: req.method, url: u, status: d.status, ts: Date.now() }); if (history.length > 50) history = history.slice(0, 50); sv(LS.hist, history); renderSide();
+        }).catch(function () { sendBtn.disabled = false; respBar.textContent = '✗ request failed'; respBar.style.color = '#e07a5f'; });
+    }
+    sendBtn.onclick = send;
+    urlIn.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); send(); } });
+
+    function loadReq(r) {
+      method.value = r.method || 'GET'; urlIn.value = r.url || ''; paramsEd.setRows(r.params || []); headersEd.setRows(r.headers || []);
+      authType.value = r.authType || 'none'; renderAuth();
+      if (r.auth) { if (r.authType === 'bearer') { var t = authFields.querySelector('[data-role=token]'); if (t) t.value = r.auth.token || ''; } else if (r.authType === 'basic') { var u = authFields.querySelector('[data-role=user]'); if (u) u.value = r.auth.user || ''; var p = authFields.querySelector('[data-role=pass]'); if (p) p.value = r.auth.pass || ''; } }
+      bodyType.value = r.bodyType || 'none'; bodyArea.value = r.body || ''; bodyForm.setRows(r.form || []); renderBody(); curReqTab = 'Params'; renderReqTabs();
+    }
+    saveBtn.onclick = function () { var name = prompt(T('Save request as:'), subst(urlIn.value).slice(0, 40)); if (!name) return; collections = collections.filter(function (c) { return c.name !== name; }); collections.unshift({ name: name, req: curRequest() }); sv(LS.col, collections); renderSide(); };
+
+    var sideTab = 'Collections';
+    function renderSide() {
+      side.innerHTML = '';
+      var tabs = el('div'); tabs.style.cssText = 'display:flex;gap:2px;padding:6px 6px 0';
+      ['Collections', 'History'].forEach(function (n) { var b = el('button', sideTab === n ? 'app-tab active' : 'app-tab', n); b.onclick = function () { sideTab = n; renderSide(); }; tabs.appendChild(b); });
+      side.appendChild(tabs);
+      var list = el('div'); list.style.cssText = 'flex:1;overflow:auto;padding:6px';
+      if (sideTab === 'Collections') {
+        if (!collections.length) list.appendChild(el('div', 'hint', 'No saved requests yet. Build one and press Save.'));
+        collections.forEach(function (c, i) {
+          var row = el('div'); row.style.cssText = 'display:flex;align-items:center;gap:4px;padding:4px 2px;border-bottom:1px solid rgba(128,128,128,.12)';
+          var lab = el('div'); lab.style.cssText = 'flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer'; lab.innerHTML = '<b style="color:var(--accent,#d97a2b)">' + escapeHtml(c.req.method) + '</b> ' + escapeHtml(c.name); lab.title = c.req.url; lab.onclick = function () { loadReq(c.req); };
+          var del = el('button', 'btn ghost', '✕'); del.style.cssText = 'padding:0 6px;font-size:11px'; del.onclick = function () { collections.splice(i, 1); sv(LS.col, collections); renderSide(); };
+          row.appendChild(lab); row.appendChild(del); list.appendChild(row);
+        });
+      } else {
+        if (!history.length) list.appendChild(el('div', 'hint', 'No history yet.'));
+        history.forEach(function (h) { var row = el('div'); row.style.cssText = 'padding:4px 2px;border-bottom:1px solid rgba(128,128,128,.12);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer'; row.title = h.url; row.innerHTML = '<b style="color:var(--accent,#d97a2b)">' + escapeHtml(h.method) + '</b> <span style="color:' + (h.status < 400 ? '#2e9e3f' : '#e07a5f') + '">' + h.status + '</span> ' + escapeHtml(h.url); row.onclick = function () { method.value = h.method; urlIn.value = h.url; }; list.appendChild(row); });
+      }
+      side.appendChild(list);
+      var foot = el('div'); foot.style.cssText = 'border-top:1px solid rgba(128,128,128,.2);padding:6px;display:flex;gap:4px;align-items:center';
+      var envSel = el('select', 'inp'); envSel.style.cssText = 'flex:1;font-size:12px';
+      var none = el('option'); none.value = ''; none.textContent = 'No environment'; envSel.appendChild(none);
+      Object.keys(envs).forEach(function (n) { var o = el('option'); o.value = n; o.textContent = n; if (n === activeEnv) o.selected = true; envSel.appendChild(o); });
+      envSel.onchange = function () { activeEnv = envSel.value; localStorage.setItem(LS.actEnv, activeEnv); };
+      var ev = el('button', 'btn ghost', '⚙'); ev.title = 'Manage environments'; ev.style.cssText = 'padding:2px 8px'; ev.onclick = manageEnvs;
+      foot.appendChild(el('span', 'hint', 'Env')); foot.appendChild(envSel); foot.appendChild(ev); side.appendChild(foot);
+    }
+    // Postman-style environment editor: pick an environment on the left, edit its
+    // variables in a key/value table on the right. Opens as an overlay over the app.
+    function manageEnvs() {
+      var sel = activeEnv && envs[activeEnv] ? activeEnv : (Object.keys(envs)[0] || '');
+      var overlay = el('div'); overlay.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:50';
+      var card = el('div'); card.style.cssText = 'width:88%;max-width:680px;height:80%;max-height:480px;background:var(--bg,#11161f);border:1px solid rgba(128,128,128,.3);border-radius:8px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.5)';
+      var head = el('div'); head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid rgba(128,128,128,.2)';
+      head.appendChild(el('b', null, 'Environments'));
+      var closeX = el('button', 'btn ghost', '✕'); closeX.style.cssText = 'padding:2px 8px'; head.appendChild(closeX);
+      var split = el('div'); split.style.cssText = 'flex:1;display:flex;min-height:0';
+      var envList = el('div'); envList.style.cssText = 'width:180px;flex:0 0 180px;border-right:1px solid rgba(128,128,128,.2);display:flex;flex-direction:column;min-height:0';
+      var listBox = el('div'); listBox.style.cssText = 'flex:1;overflow:auto;padding:6px';
+      var addBtn = el('button', 'btn ghost', '+ New environment'); addBtn.style.cssText = 'margin:6px;padding:4px';
+      envList.appendChild(listBox); envList.appendChild(addBtn);
+      var editor = el('div'); editor.style.cssText = 'flex:1;display:flex;flex-direction:column;min-width:0;padding:10px;gap:8px;overflow:auto';
+      split.appendChild(envList); split.appendChild(editor);
+      card.appendChild(head); card.appendChild(split); overlay.appendChild(card); body.appendChild(overlay);
+
+      function renderList() {
+        listBox.innerHTML = '';
+        var names = Object.keys(envs);
+        if (!names.length) listBox.appendChild(el('div', 'hint', 'No environments yet.'));
+        names.forEach(function (n) {
+          var row = el('div'); row.style.cssText = 'padding:5px 8px;border-radius:5px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:6px' + (n === sel ? ';background:rgba(128,128,128,.18)' : '');
+          var dot = el('span'); dot.style.cssText = 'width:7px;height:7px;border-radius:50%;background:' + (n === activeEnv ? 'var(--accent,#d97a2b)' : 'transparent') + ';border:1px solid var(--accent,#d97a2b);flex:0 0 auto'; dot.title = n === activeEnv ? 'Active environment' : 'Click row, then Use';
+          var lab = el('span', null, n); lab.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+          row.appendChild(dot); row.appendChild(lab); row.onclick = function () { sel = n; renderEditor(); renderList(); };
+          listBox.appendChild(row);
+        });
+      }
+      function renderEditor() {
+        editor.innerHTML = '';
+        if (!sel) { editor.appendChild(el('div', 'hint', 'Create an environment, or pick one on the left.')); return; }
+        var nameRow = el('div'); nameRow.style.cssText = 'display:flex;gap:6px;align-items:center';
+        var nameIn = el('input', 'inp'); nameIn.value = sel; nameIn.style.flex = '1';
+        nameRow.appendChild(el('span', 'hint', 'Name')); nameRow.appendChild(nameIn);
+        var vars = envs[sel] || {};
+        var kv = kvEditor(); kv.setRows(Object.keys(vars).map(function (k) { return [k, vars[k]]; }));
+        var btns = el('div'); btns.style.cssText = 'display:flex;gap:6px;margin-top:4px';
+        var useBtn = el('button', 'btn', sel === activeEnv ? 'In use ✓' : 'Use'); useBtn.disabled = sel === activeEnv;
+        var saveB = el('button', 'btn', 'Save'); var delB = el('button', 'btn ghost', 'Delete');
+        btns.appendChild(saveB); btns.appendChild(useBtn); btns.appendChild(delB);
+        function persist(newName) {
+          var obj = {}; kv.getRows().forEach(function (p) { obj[p[0]] = p[1]; });
+          if (newName !== sel) { delete envs[sel]; if (activeEnv === sel) activeEnv = newName; }
+          envs[newName] = obj; sel = newName;
+          sv(LS.envs, envs); localStorage.setItem(LS.actEnv, activeEnv);
+        }
+        saveB.onclick = function () { var nn = nameIn.value.trim() || sel; persist(nn); renderList(); renderEditor(); renderSide(); };
+        useBtn.onclick = function () { persist(nameIn.value.trim() || sel); activeEnv = sel; localStorage.setItem(LS.actEnv, activeEnv); renderList(); renderEditor(); renderSide(); };
+        delB.onclick = function () { delete envs[sel]; if (activeEnv === sel) activeEnv = ''; sv(LS.envs, envs); localStorage.setItem(LS.actEnv, activeEnv); sel = Object.keys(envs)[0] || ''; renderList(); renderEditor(); renderSide(); };
+        editor.appendChild(nameRow);
+        editor.appendChild(el('div', 'hint', 'Variables — reference them anywhere as {{name}}'));
+        editor.appendChild(kv); editor.appendChild(btns);
+      }
+      addBtn.onclick = function () { var base = 'env'; var n = base, i = 1; while (envs[n]) n = base + (++i); envs[n] = {}; sel = n; sv(LS.envs, envs); renderList(); renderEditor(); };
+      function close() { body.removeChild(overlay); }
+      closeX.onclick = close; overlay.onclick = function (e) { if (e.target === overlay) close(); };
+      renderList(); renderEditor();
+    }
+    renderSide();
+    if (win.setMenus) win.setMenus([{ label: 'Request', items: [{ label: T('Send'), action: send }, { label: T('Save'), action: function () { saveBtn.click(); } }] }, { label: 'Environment', items: [{ label: 'Manage…', action: manageEnvs }] }]);
   }
 
   // Telnet / raw-TCP terminal over the /telnet WebSocket bridge.

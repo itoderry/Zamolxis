@@ -52,6 +52,10 @@ export interface AgentDef {
   /** The backend that produced this agent's most recent answer (e.g. "Cerebras (gpt-oss-120b)").
    *  Shown in the panel so a rotating tier like 'freecloud' reveals the actual model it used. */
   lastVia?: string;
+  /** Short "what I do / how to use me / what to configure" blurb (shown in the agent app). */
+  help?: string;
+  /** Longer step-by-step guide shown in the agent app's "How this works" section. */
+  guide?: string;
 }
 
 function slug(name: string): string {
@@ -110,6 +114,8 @@ export class AgentStore {
     open?: boolean;
     autostart?: boolean;
     createdBy?: 'user' | 'agent';
+    help?: string;
+    guide?: string;
   }): string {
     const name = slug(input.name);
     if (!name) throw new Error('invalid agent name');
@@ -127,6 +133,8 @@ export class AgentStore {
       autostart: typeof input.autostart === 'boolean' ? input.autostart : existing?.autostart,
       createdBy: input.createdBy ?? existing?.createdBy ?? 'user',
       createdAt: existing?.createdAt ?? Date.now(),
+      help: input.help ?? existing?.help,
+      guide: input.guide ?? existing?.guide,
     };
     if (existing) Object.assign(existing, def);
     else this.agents.push(def);
@@ -165,6 +173,22 @@ export class AgentStore {
       logger.info({ removed }, 'purged agent-created agents (not persisted per setting)');
     }
     return removed;
+  }
+
+  /** Set the short help blurb (used to back-fill pre-made agents created before `help` existed). */
+  setHelp(name: string, help: string): void {
+    const a = this.get(name);
+    if (!a || !help) return;
+    a.help = help;
+    this.persist();
+  }
+
+  /** Set the step-by-step guide (used to back-fill / refresh pre-made agents on upgrade). */
+  setGuide(name: string, guide: string): void {
+    const a = this.get(name);
+    if (!a || !guide) return;
+    a.guide = guide;
+    this.persist();
   }
 
   /** Record the backend that last answered for this agent (for the panel's model display). */
