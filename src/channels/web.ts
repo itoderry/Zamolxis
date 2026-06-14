@@ -932,16 +932,31 @@ $out | ConvertTo-Json -Compress`, 40000));
           }
           if (op === 'reg-clean') {
             if (o.confirm !== true) return this.json(res, 400, { error: 'confirm required' });
-            let removed = 0; const errors: string[] = [];
-            for (const it of arr(o.items)) {
-              const rp = String((it && it.regpath) || '');
-              // Safety gate: only ever delete under the known Uninstall / Run roots.
-              if (!/^HKEY_(LOCAL_MACHINE|CURRENT_USER)\\.*CurrentVersion\\(Uninstall|Run)/i.test(rp)) { errors.push('skipped (outside allowed roots): ' + rp); continue; }
-              const vn = it && it.valueName ? String(it.valueName) : '';
-              const r = spawnSync('reg', vn ? ['delete', rp, '/v', vn, '/f'] : ['delete', rp, '/f'], { encoding: 'utf8', windowsHide: true, timeout: 8000 });
-              if (r.status === 0) removed++; else errors.push((((r.stderr || r.stdout) || '').trim()) || ('failed: ' + rp));
+            // Safety gate: only ever touch the known Uninstall / Run roots.
+            const gate = /^HKEY_(LOCAL_MACHINE|CURRENT_USER)\\.*CurrentVersion\\(Uninstall|Run)/i;
+            const clean = (s: any) => String(s || '').replace(/"/g, '');
+            const wanted = arr(o.items).map((it: any) => ({ regpath: clean(it && it.regpath), valueName: clean(it && it.valueName) })).filter((it) => gate.test(it.regpath));
+            const skipped = arr(o.items).length - wanted.length;
+            const delCmd = (it: { regpath: string; valueName: string }) => 'reg delete "' + it.regpath + '"' + (it.valueName ? (' /v "' + it.valueName + '"') : '') + ' /f';
+            // After attempting a delete, ask the registry whether the entry is actually gone —
+            // reg.exe's exit code lies when it has no rights, so verification is the source of truth.
+            const stillThere = (it: { regpath: string; valueName: string }) => { const r = spawnSync('reg', it.valueName ? ['query', it.regpath, '/v', it.valueName] : ['query', it.regpath], { encoding: 'utf8', windowsHide: true, timeout: 8000 }); return r.status === 0; };
+            // HKCU deletes need no elevation; HKLM ones do, so batch them behind a single UAC prompt.
+            const hkcu = wanted.filter((it) => /^HKEY_CURRENT_USER/i.test(it.regpath));
+            const hklm = wanted.filter((it) => /^HKEY_LOCAL_MACHINE/i.test(it.regpath));
+            for (const it of hkcu) spawnSync('reg', it.valueName ? ['delete', it.regpath, '/v', it.valueName, '/f'] : ['delete', it.regpath, '/f'], { windowsHide: true, timeout: 8000 });
+            let uac = 'n/a';
+            if (hklm.length) {
+              const bat = path.join(os.tmpdir(), 'zamolxis-regclean-' + Date.now() + '.bat');
+              fs.writeFileSync(bat, hklm.map(delCmd).join('\r\n') + '\r\n', 'utf8');
+              const r = pwsh("try { Start-Process -FilePath cmd.exe -ArgumentList '/c','\"" + bat + "\"' -Verb RunAs -Wait -WindowStyle Hidden -ErrorAction Stop; 'ok' } catch { 'declined' }", 120000);
+              uac = (((r && r.stdout) || '').trim()) || 'error';
+              try { fs.unlinkSync(bat); } catch { /* temp file */ }
             }
-            return this.json(res, 200, { ok: true, removed, errors });
+            let removed = 0; const failed: Array<{ name: string; regpath: string }> = [];
+            for (const it of wanted) { if (stillThere(it)) failed.push({ name: it.valueName || it.regpath, regpath: it.regpath }); else removed++; }
+            const needAdmin = failed.some((f) => /^HKEY_LOCAL_MACHINE/i.test(f.regpath));
+            return this.json(res, 200, { ok: true, removed, failed, skipped, needAdmin, uac });
           }
           if (op === 'proc-kill') {
             if (o.confirm !== true) return this.json(res, 400, { error: 'confirm required' });

@@ -1842,7 +1842,23 @@
       function refresh() { listWrap.innerHTML = '<div class="hint">' + T('Scanning...') + '</div>'; syscall('reg-scan').then(function (d) { if (!d.ok) { listWrap.innerHTML = '<div class="hint">' + escapeHtml(d.error || 'error') + '</div>'; return; } regItems = d.items || []; listWrap.innerHTML = ''; if (!regItems.length) { listWrap.appendChild(el('div', 'hint', 'No leftover entries found — your registry looks clean.')); cleanB.disabled = true; return; } regItems.forEach(function (it, idx) { var r = el('label'); r.style.cssText = 'display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.12);cursor:pointer'; var cb = el('input'); cb.type = 'checkbox'; cb.checked = true; cb.dataset.idx = idx; cb.style.marginTop = '3px'; var info = el('div'); info.style.flex = '1'; info.innerHTML = '<b>' + escapeHtml(it.name) + '</b> <span class="hint">· ' + escapeHtml(it.reason) + '</span><div class="hint" style="font-size:11px;word-break:break-all">' + escapeHtml(it.target || '') + '</div>'; r.appendChild(cb); r.appendChild(info); listWrap.appendChild(r); }); cleanB.disabled = false; }); }
       scanB.onclick = refresh;
       backupB.onclick = function () { note.textContent = T('Backing up...'); syscall('reg-backup').then(function (d) { if (d.ok) { regBackedUp = true; note.textContent = '✓ Backed up to ' + d.dir + ' (' + (d.files || []).length + ' files). Restore by double-clicking a .reg file.'; } else note.textContent = d.error || 'backup failed'; }); };
-      cleanB.onclick = function () { var picks = [].slice.call(listWrap.querySelectorAll('input:checked')).map(function (cb) { return regItems[+cb.dataset.idx]; }).filter(Boolean); if (!picks.length) { note.textContent = 'Nothing selected.'; return; } if (!regBackedUp && !confirm('You have not backed up the registry. Remove ' + picks.length + ' entr' + (picks.length > 1 ? 'ies' : 'y') + ' anyway?')) return; if (!confirm('Remove ' + picks.length + ' selected registry entr' + (picks.length > 1 ? 'ies' : 'y') + '? Hard to undo without the backup.')) return; note.textContent = T('Removing...'); syscall('reg-clean', { confirm: true, items: picks }).then(function (d) { if (d.ok) note.textContent = '✓ Removed ' + d.removed + (d.errors && d.errors.length ? (' · ' + d.errors.length + ' skipped') : ''); else note.textContent = d.error || 'failed'; refresh(); }); };
+      cleanB.onclick = function () {
+        var picks = [].slice.call(listWrap.querySelectorAll('input:checked')).map(function (cb) { return regItems[+cb.dataset.idx]; }).filter(Boolean);
+        if (!picks.length) { note.textContent = 'Nothing selected.'; return; }
+        var needsAdmin = picks.some(function (p) { return /^HKEY_LOCAL_MACHINE/i.test(p.regpath); });
+        if (!regBackedUp && !confirm('You have not backed up the registry. Remove ' + picks.length + ' entr' + (picks.length > 1 ? 'ies' : 'y') + ' anyway?')) return;
+        if (!confirm('Remove ' + picks.length + ' selected registry entr' + (picks.length > 1 ? 'ies' : 'y') + '? Hard to undo without the backup.' + (needsAdmin ? '\n\nSome are system-wide (HKLM) entries — a Windows administrator prompt will appear.' : ''))) return;
+        note.textContent = needsAdmin ? 'Removing… approve the Windows administrator prompt when it appears.' : T('Removing...');
+        syscall('reg-clean', { confirm: true, items: picks }).then(function (d) {
+          if (!d.ok) { note.textContent = '✗ ' + (d.error || 'failed'); return; }
+          var nFail = (d.failed || []).length;
+          if (d.removed > 0 && !nFail) note.textContent = '✓ Removed ' + d.removed + ' entr' + (d.removed > 1 ? 'ies' : 'y') + '.';
+          else if (d.removed > 0) note.textContent = '⚠ Removed ' + d.removed + ', but ' + nFail + ' could not be removed' + (d.needAdmin ? ' — administrator rights required.' : '.');
+          else if (d.needAdmin) note.textContent = '✗ Nothing removed. These are system-wide (HKLM) entries needing administrator rights. ' + (d.uac === 'declined' ? 'The admin prompt was declined — try again and approve it,' : 'Approve the Windows admin prompt,') + ' or start Zamolxis as administrator (right-click → Run as administrator).';
+          else note.textContent = '✗ Nothing removed — the entries could not be deleted.';
+          refresh();
+        });
+      };
     }
 
     var TABS = [['overview', T('Overview'), renderOverview], ['cleanup', T('Cleanup'), renderCleanup], ['startup', T('Startup'), renderStartup], ['procs', T('Processes'), renderProcs], ['registry', T('Registry'), renderRegistry]];
