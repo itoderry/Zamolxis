@@ -18,6 +18,10 @@ import { onenoteRead, sqlQuery, browserHistory, archiveTool, openInExcel } from 
 import { openInWord, openInPowerpoint, openApp, scanDocument, itunes, systemStatus, steamGames, stickyNotes, autohotkey } from '../core/nativeApps.js';
 import { setCanvas, setCanvasTable } from '../core/canvas.js';
 import { browserControl } from '../core/browser.js';
+import { createJiraIssue, searchJira, getJiraIssue, whoAssigned, jiraConfigured, JIRA_SETUP_INSTRUCTIONS, getJiraIssuesByKeys } from './jira.js';
+import { addWatchedUrl, removeWatchedUrl, checkAllUrls, listWatchedUrls } from '../core/urlwatch.js';
+import { addWatchedIssue, removeWatchedIssue, checkWatchedIssues, listWatchedIssues } from '../core/jirawatch.js';
+import { getWatchers, setWatchers } from '../core/watchers.js';
 import type { AgentStore } from '../core/agents.js';
 
 /** Live conversation context, captured per agent turn so tools deliver to the right place. */
@@ -483,6 +487,146 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
     },
   );
 
+  const jiraCreateIssue = tool(
+    'jira_create_issue',
+    'Create a Jira issue (task/bug/story) in the configured Jira instance. Uses JIRA_DEFAULT_PROJECT when projectKey is omitted. Use for "create a jira task for this", "turn this email into a ticket". Returns the issue key and link.',
+    {
+      summary: z.string().describe('Issue summary/title'),
+      description: z.string().optional().describe('Issue description (plain text)'),
+      projectKey: z.string().optional().describe('Project key, e.g. PROJ (default: JIRA_DEFAULT_PROJECT)'),
+      issueType: z.string().optional().describe('Issue type name: Task | Bug | Story | ... (default Task)'),
+      labels: z.array(z.string()).optional().describe('Labels to apply'),
+    },
+    async (args) => {
+      if (!jiraConfigured()) return text(JIRA_SETUP_INSTRUCTIONS);
+      const r = await createJiraIssue(args);
+      if (!r.ok) return text('Could not create the Jira issue: ' + (r.error || 'unknown error'));
+      return text(`Created ${r.key}: ${r.url}`);
+    },
+  );
+  const jiraMyIssues = tool(
+    'jira_my_issues',
+    'List Jira issues assigned to the user (newest activity first): key, summary, status, reporter, created/updated. Use for "what is on my jira plate", "any new tasks assigned to me?". Pass jql to run a custom query instead.',
+    {
+      jql: z.string().optional().describe('Custom JQL (default: assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC)'),
+      limit: z.number().optional().describe('Max issues (default 25)'),
+    },
+    async (args) => {
+      if (!jiraConfigured()) return text(JIRA_SETUP_INSTRUCTIONS);
+      const jql = args.jql || 'assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC';
+      const r = await searchJira(jql, Math.min(Math.max(args.limit ?? 25, 1), 50));
+      if (!r.ok) return text('Jira search failed: ' + (r.error || 'unknown error'));
+      if (!r.issues.length) return text('No matching Jira issues.');
+      return text(r.issues.map((i, n) => `${n + 1}. ${i.key} [${i.status}] ${i.summary}\n   reporter: ${i.reporter} · assignee: ${i.assignee} · updated: ${i.updated}\n   ${i.url}`).join('\n\n'));
+    },
+  );
+  const jiraGetIssue = tool(
+    'jira_get_issue',
+    'Read one Jira issue in full: summary, status, reporter, assignee, who assigned it, and the description. Use when the user asks about a specific ticket (e.g. "what is PROJ-123 about?").',
+    {
+      key: z.string().describe('Issue key, e.g. PROJ-123'),
+    },
+    async (args) => {
+      if (!jiraConfigured()) return text(JIRA_SETUP_INSTRUCTIONS);
+      const r = await getJiraIssue(args.key);
+      if (!r.ok || !r.issue) return text('Could not read the issue: ' + (r.error || 'unknown error'));
+      const assigner = await whoAssigned(args.key);
+      const i = r.issue;
+      return text(`${i.key} [${i.status}] ${i.summary}\nReporter: ${i.reporter} · Assignee: ${i.assignee}${assigner ? ` · Assigned by: ${assigner}` : ''}\nCreated: ${i.created} · Updated: ${i.updated}\n${i.url}\n\n${i.description || '(no description)'}`);
+    },
+  );
+
+  const urlWatch = tool(
+    'url_watch',
+    'Site Sentinel: manage the list of URLs whose health is checked on an interval (default hourly; alerts fire when a site goes down or recovers). Actions: add (start watching a URL; optional name + mustContain text), remove (by URL, name, or unique fragment), list (all watched URLs with their last status), check (check all NOW and report), interval (change how often the background check runs, minutes). Use when the user says e.g. "watch https://example.com", "stop monitoring the blog", "are my sites up?", "check the sites every 30 minutes".',
+    {
+      action: z.enum(['add', 'remove', 'list', 'check', 'interval']).describe('What to do'),
+      url: z.string().optional().describe('add/remove: the URL (add) or URL/name/fragment (remove)'),
+      name: z.string().optional().describe('add: friendly name shown in alerts'),
+      mustContain: z.string().optional().describe('add: text the page body must contain to count as healthy'),
+      minutes: z.number().optional().describe('interval: minutes between background checks (1-1440)'),
+    },
+    async (args) => {
+      const fmt = (w: { url: string; name?: string; lastOk?: boolean; lastStatus?: number; lastMs?: number; lastError?: string; lastChecked?: number }) =>
+        `${w.lastOk === undefined ? '◌' : w.lastOk ? '✅' : '❌'} ${w.name ? w.name + ' — ' : ''}${w.url}` +
+        (w.lastChecked ? ` (${w.lastOk ? `HTTP ${w.lastStatus}` : w.lastError || 'failed'} · ${w.lastMs}ms · checked ${new Date(w.lastChecked).toLocaleString()})` : ' (not checked yet)');
+      if (args.action === 'add') {
+        if (!args.url) return text('Give me the URL to watch.');
+        const r = addWatchedUrl(args.url, args.name, args.mustContain);
+        if (!r.ok) return text(r.error!);
+        const every = getWatchers().urlHealth.intervalMin;
+        return text(`Watching ${r.url}${args.name ? ` as "${args.name}"` : ''}. It will be checked every ${every} min; you get an alert when it goes down or recovers. Use url_watch action="check" to test it now.`);
+      }
+      if (args.action === 'remove') {
+        if (!args.url) return text('Tell me which URL (or name) to remove.');
+        const r = removeWatchedUrl(args.url);
+        return text(r.ok ? `Stopped watching ${r.url}.` : r.error!);
+      }
+      if (args.action === 'check') {
+        const results = await checkAllUrls();
+        if (!results.length) return text('No URLs are being watched yet. Add one with url_watch action="add".');
+        const down = results.filter((r) => !r.ok);
+        return text(
+          `Checked ${results.length} URL(s) — ${down.length ? down.length + ' DOWN' : 'all healthy'}.\n` +
+          listWatchedUrls().map(fmt).join('\n'),
+        );
+      }
+      if (args.action === 'interval') {
+        if (!args.minutes) return text(`Background checks currently run every ${getWatchers().urlHealth.intervalMin} min. Pass minutes to change it.`);
+        const w = setWatchers({ urlHealth: { enabled: true, intervalMin: args.minutes } });
+        return text(`Site checks now run every ${w.urlHealth.intervalMin} min.`);
+      }
+      const all = listWatchedUrls();
+      const every = getWatchers().urlHealth.intervalMin;
+      return text(all.length ? `Watched URLs (checked every ${every} min):\n` + all.map(fmt).join('\n') : 'No URLs are being watched yet. Add one with url_watch action="add".');
+    },
+  );
+
+  const jiraWatch = tool(
+    'jira_watch',
+    'Follow specific Jira issues for updates — even ones NOT assigned to you — and get alerted when they change (status moved, reassigned, commented/edited). Actions: add (start following an issue key, optional note why), remove, list (followed issues with their current status), check (check all NOW and report what changed). Use when the user says e.g. "keep an eye on PROJ-42", "follow the issues blocking my release", "any updates on the tickets I\'m watching?", "stop watching PROJ-42".',
+    {
+      action: z.enum(['add', 'remove', 'list', 'check']).describe('What to do'),
+      key: z.string().optional().describe('add/remove: the Jira issue key, e.g. PROJ-123'),
+      note: z.string().optional().describe('add: why you are following it (shown in the list)'),
+    },
+    async (args) => {
+      if (!jiraConfigured()) return text(JIRA_SETUP_INSTRUCTIONS);
+      if (args.action === 'add') {
+        if (!args.key) return text('Give me the issue key to follow, e.g. PROJ-123.');
+        const r = addWatchedIssue(args.key, args.note);
+        if (!r.ok) return text(r.error!);
+        const got = await getJiraIssuesByKeys([r.key!]);
+        const found = got.issues[0];
+        return text(found
+          ? `Now following ${r.key} — “${found.summary}” [${found.status}], assignee ${found.assignee}. You'll be alerted when it changes.\n${found.url}`
+          : `Now following ${r.key}. (I couldn't read it yet — check the key is right and that your account can view it.)`);
+      }
+      if (args.action === 'remove') {
+        if (!args.key) return text('Which issue key should I stop following?');
+        const r = removeWatchedIssue(args.key);
+        return text(r.ok ? `Stopped following ${r.key}.` : r.error!);
+      }
+      if (args.action === 'check') {
+        const watched = listWatchedIssues();
+        if (!watched.length) return text('You are not following any Jira issues yet. Add one with jira_watch action="add" key="PROJ-123".');
+        const res = await checkWatchedIssues();
+        if (!res.ok) return text('Could not check the watched issues: ' + (res.error || 'unknown error'));
+        if (!res.changed.length) return text(`No changes on the ${watched.length} issue(s) you follow.`);
+        return text('Updates on issues you follow:\n' + res.changed.map((c) => `• ${c.key} [${c.status}] ${c.summary}\n  ${c.changes.join('; ')}\n  ${c.url}`).join('\n'));
+      }
+      // list — show current state for each followed issue
+      const watched = listWatchedIssues();
+      if (!watched.length) return text('You are not following any Jira issues yet. Add one with jira_watch action="add" key="PROJ-123".');
+      const got = await getJiraIssuesByKeys(watched.map((w) => w.key));
+      const byKey = new Map(got.issues.map((i) => [i.key, i]));
+      return text('Followed Jira issues:\n' + watched.map((w) => {
+        const i = byKey.get(w.key);
+        return i ? `• ${i.key} [${i.status}] ${i.summary} — assignee ${i.assignee}${w.note ? ` (watching: ${w.note})` : ''}\n  ${i.url}` : `• ${w.key} — not readable (check the key / your access)`;
+      }).join('\n'));
+    },
+  );
+
   const outlookMailTool = tool(
     'outlook_mail',
     'Read the user\'s LOCAL Outlook desktop mailbox (classic Outlook via COM — works even when Microsoft 365 blocks IMAP; no cloud login). READ-ONLY: never sends, deletes, or marks read. Actions: list (recent/unread), search (by subject/sender), read (full body by EntryID), folders. Use for "any new mail in outlook?", "summarize my unread work email", "find the email from X".',
@@ -695,6 +839,11 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
         archiveToolSdk,
         addEmailAccount,
         listEmailAccounts,
+        jiraCreateIssue,
+        jiraMyIssues,
+        jiraGetIssue,
+        urlWatch,
+        jiraWatch,
         createAgent,
         listAgents,
         runAgentTool,

@@ -18,7 +18,7 @@ import type { MemoryManager } from '../core/memory.js';
 import type { AgentStore } from '../core/agents.js';
 import { packSetup, type PackParts } from '../core/pack.js';
 import { extractDocText } from '../core/extract.js';
-import { outlookMailData, outlookPimData } from '../core/outlookLocal.js';
+import { outlookMailData, outlookPimData, outlookOpen } from '../core/outlookLocal.js';
 import { onenoteData, sqlQueryData, browserHistoryData, sqlConnections, sqlAddConnection, sqlRemoveConnection } from '../core/localApps.js';
 import { getCanvas } from '../core/canvas.js';
 import { listApps, rescanApps, launchHostApp, appIconPng } from '../core/appscan.js';
@@ -778,6 +778,198 @@ export class WebChannel implements Channel {
         res.writeHead(200, { 'content-type': ct, 'cache-control': 'max-age=86400' });
         res.end(data);
       } catch { res.writeHead(404); res.end(); }
+      return;
+    }
+    // API Client app — the browser can't call arbitrary hosts (CORS) or set some headers,
+    // so the server makes the request and returns status, headers, body, timing and size.
+    if (url.pathname === '/api/http' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      let body = '';
+      req.on('data', (c) => { body += c; if (body.length > 10_000_000) req.destroy(); });
+      req.on('end', () => {
+        void (async () => {
+          try {
+            const o = JSON.parse(body || '{}') as { method?: string; url?: string; headers?: Record<string, string>; body?: string };
+            const method = String(o.method || 'GET').toUpperCase();
+            let target = String(o.url || '').trim();
+            if (!target) return this.json(res, 200, { ok: false, error: 'No URL.' });
+            if (!/^https?:\/\//i.test(target)) target = 'http://' + target;
+            const u = new URL(target); // throws on a malformed URL
+            const headers: Record<string, string> = {};
+            if (o.headers && typeof o.headers === 'object') for (const [k, v] of Object.entries(o.headers)) if (k) headers[k] = String(v);
+            const init: RequestInit = { method, headers, redirect: 'follow', signal: AbortSignal.timeout(30_000) };
+            if (o.body != null && o.body !== '' && method !== 'GET' && method !== 'HEAD') init.body = String(o.body);
+            const t0 = Date.now();
+            const r = await fetch(u.toString(), init);
+            const ab = await r.arrayBuffer();
+            const ms = Date.now() - t0;
+            const buf = Buffer.from(ab);
+            const respHeaders: Record<string, string> = {};
+            r.headers.forEach((v, k) => { respHeaders[k] = v; });
+            const MAX = 2_000_000;
+            this.json(res, 200, {
+              ok: true, status: r.status, statusText: r.statusText, headers: respHeaders,
+              body: buf.subarray(0, MAX).toString('utf8'), truncated: buf.length > MAX,
+              ms, size: buf.length, contentType: r.headers.get('content-type') || '',
+            });
+          } catch (err) {
+            this.json(res, 200, { ok: false, error: String((err as Error)?.message || err) });
+          }
+        })();
+      });
+      return;
+    }
+    // Open an email in the classic Outlook desktop client by its EntryID — the target of the
+    // "Open in Outlook" link the Mail Sentinel attaches to each message (same-origin click).
+    if (url.pathname === '/api/outlook/open' && req.method === 'GET') {
+      if (!this.authOk(req)) { res.writeHead(401); res.end('unauthorized'); return; }
+      const id = url.searchParams.get('id') || '';
+      const escHtml = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      void outlookOpen(id).then((r) => {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        const msg = r.ok ? `Opening "${escHtml(r.subject || 'message')}" in Outlook…` : `Could not open it: ${escHtml(r.error || 'unknown error')}`;
+        res.end(`<!doctype html><meta charset="utf-8"><title>Zamolxis</title><body style="font:15px system-ui;background:#0e1320;color:#e6e9ef;display:grid;place-items:center;height:100vh;margin:0"><div style="text-align:center"><p>${msg}</p>${r.ok ? '<p style="color:#8fa3bd;font-size:13px">You can close this tab.</p><script>setTimeout(function(){window.close()},1200)</script>' : ''}</div></body>`);
+      }).catch((e) => { res.writeHead(500); res.end(String(e)); });
+      return;
+    }
+    // System Toolkit — a Swiss-army manager for the host machine. Read ops (info, cleanup-scan,
+    // startup-list, proc-list, reg-scan) just gather state; action ops (cleanup-run, proc-kill,
+    // reg-clean) change it and demand o.confirm===true. Windows-specific work shells out to
+    // PowerShell / reg.exe; the Overview (info, proc-list) also works on macOS/Linux.
+    if (url.pathname === '/api/system' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      let sysBody = ''; let sysTooBig = false;
+      req.on('data', (c) => { sysBody += c; if (sysBody.length > 2_000_000) { sysTooBig = true; req.destroy(); } });
+      req.on('end', () => {
+        if (sysTooBig) return this.json(res, 413, { error: 'too large' });
+        let o: any = {};
+        try { o = JSON.parse(sysBody || '{}'); } catch { return this.json(res, 400, { error: 'bad json' }); }
+        const op = String(o.op || '');
+        const win = process.platform === 'win32';
+        // Run a PowerShell snippet and hand back the result; pj() parses its JSON stdout.
+        const pwsh = (script: string, t = 30000) => spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], { encoding: 'utf8', windowsHide: true, timeout: t, maxBuffer: 24 * 1024 * 1024 });
+        const pj = (r: any) => { try { return JSON.parse(((r && r.stdout) || '').trim() || 'null'); } catch { return null; } };
+        const arr = (v: any) => Array.isArray(v) ? v : (v ? [v] : []);
+        try {
+          if (op === 'info') {
+            const cpus = os.cpus() || []; const total = os.totalmem(); const free = os.freemem();
+            let disks: Array<{ drive: string; total: number; free: number }> = [];
+            if (win) {
+              const d = pj(pwsh("Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | Select-Object DeviceID,Size,FreeSpace | ConvertTo-Json -Compress", 10000));
+              disks = arr(d).map((x: any) => ({ drive: x.DeviceID, total: Number(x.Size) || 0, free: Number(x.FreeSpace) || 0 }));
+            } else {
+              const r = spawnSync('df', ['-kP'], { encoding: 'utf8', timeout: 8000 });
+              disks = ((r.stdout) || '').trim().split('\n').slice(1).map((ln) => { const p = ln.split(/\s+/); const t = (Number(p[1]) || 0) * 1024; const used = (Number(p[2]) || 0) * 1024; return { drive: p[5] || p[0] || '?', total: t, free: t - used }; }).filter((x) => x.total > 0);
+            }
+            return this.json(res, 200, { ok: true, platform: process.platform, hostname: os.hostname(), arch: os.arch(), release: os.release(), cpu: ((cpus[0] && cpus[0].model) || '').trim(), cores: cpus.length, memTotal: total, memFree: free, memUsed: total - free, uptime: os.uptime(), disks });
+          }
+          if (op === 'proc-list') {
+            if (!win) {
+              const r = spawnSync('ps', ['-axo', 'comm=,pid=,rss='], { encoding: 'utf8', timeout: 8000 });
+              const items = ((r.stdout) || '').trim().split('\n').map((ln) => { const p = ln.trim().split(/\s+/); return { name: p.slice(0, -2).join(' ') || p[0], pid: Number(p[p.length - 2]) || 0, memMB: Math.round((Number(p[p.length - 1]) || 0) / 1024 * 10) / 10, cpuSec: 0 }; }).filter((x) => x.pid).sort((a, b) => b.memMB - a.memMB).slice(0, 40);
+              return this.json(res, 200, { ok: true, items });
+            }
+            const out = pj(pwsh("Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 40 Name,Id,@{n='memMB';e={[math]::Round($_.WorkingSet64/1MB,1)}},@{n='cpuSec';e={[math]::Round(($_.CPU),1)}} | ConvertTo-Json -Compress", 12000));
+            return this.json(res, 200, { ok: true, items: arr(out).map((x: any) => ({ name: x.Name, pid: x.Id, memMB: Number(x.memMB) || 0, cpuSec: Number(x.cpuSec) || 0 })) });
+          }
+          // Everything below is Windows-only.
+          if (!win) return this.json(res, 200, { ok: false, error: 'This function is available on Windows only.' });
+
+          if (op === 'cleanup-scan') {
+            const out = pj(pwsh(String.raw`$cats=@(
+@{name='User temp';path=$env:TEMP},
+@{name='Windows temp';path=(Join-Path $env:WINDIR 'Temp')},
+@{name='Windows Update cache';path=(Join-Path $env:WINDIR 'SoftwareDistribution\Download')},
+@{name='Thumbnail cache';path=(Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Explorer')},
+@{name='Recycle Bin';path='C:\$Recycle.Bin'}
+)
+$res=foreach($c in $cats){ $b=[int64]0;$n=0; if(Test-Path -LiteralPath $c.path){ Get-ChildItem -LiteralPath $c.path -Recurse -Force -File -ErrorAction SilentlyContinue | ForEach-Object { $b+=$_.Length; $n++ } }; [pscustomobject]@{name=$c.name;path=$c.path;bytes=$b;files=$n} }
+$res | ConvertTo-Json -Compress`, 60000));
+            return this.json(res, 200, { ok: true, items: arr(out).map((x: any) => ({ name: x.name, path: x.path, bytes: Number(x.bytes) || 0, files: Number(x.files) || 0 })) });
+          }
+          if (op === 'cleanup-run') {
+            if (o.confirm !== true) return this.json(res, 400, { error: 'confirm required' });
+            const out = pj(pwsh(String.raw`$paths=@($env:TEMP,(Join-Path $env:WINDIR 'Temp'))
+$freed=[int64]0
+foreach($p in $paths){ if(Test-Path -LiteralPath $p){ Get-ChildItem -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object { try{ if(-not $_.PSIsContainer){ $freed+=$_.Length }; Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop }catch{} } } }
+try{ Clear-RecycleBin -Force -ErrorAction SilentlyContinue }catch{}
+[pscustomobject]@{freedBytes=$freed} | ConvertTo-Json -Compress`, 180000));
+            return this.json(res, 200, { ok: true, freedBytes: (out && Number(out.freedBytes)) || 0 });
+          }
+          if (op === 'startup-list') {
+            const out = pj(pwsh(String.raw`$out=@()
+$runKeys=@('HKCU:\Software\Microsoft\Windows\CurrentVersion\Run','HKLM:\Software\Microsoft\Windows\CurrentVersion\Run','HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run')
+foreach($k in $runKeys){ if(Test-Path $k){ $p=Get-ItemProperty -Path $k -ErrorAction SilentlyContinue; if($p){ $p.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { $out+=[pscustomobject]@{name=$_.Name;command=[string]$_.Value;location=$k} } } } }
+$folders=@([Environment]::GetFolderPath('Startup'),[Environment]::GetFolderPath('CommonStartup'))
+foreach($f in $folders){ if($f -and (Test-Path -LiteralPath $f)){ Get-ChildItem -LiteralPath $f -File -ErrorAction SilentlyContinue | ForEach-Object { $out+=[pscustomobject]@{name=$_.Name;command=$_.FullName;location='Startup folder'} } } }
+$out | ConvertTo-Json -Compress`, 20000));
+            return this.json(res, 200, { ok: true, items: arr(out).map((x: any) => ({ name: x.name, command: x.command, location: x.location })) });
+          }
+          if (op === 'reg-scan') {
+            // Heuristic registry scan: uninstall entries whose install folder is gone, and Run
+            // entries whose target .exe is missing. Reported for review — never auto-removed.
+            const out = pj(pwsh(String.raw`$out=@()
+$un=@('HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall','HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall')
+foreach($base in $un){ if(Test-Path $base){ Get-ChildItem -Path $base -ErrorAction SilentlyContinue | ForEach-Object { $pp=Get-ItemProperty -Path $_.PSPath -ErrorAction SilentlyContinue; if($pp){ $loc=[string]$pp.InstallLocation; if($loc -and $loc.Trim().Length -gt 3 -and -not (Test-Path -LiteralPath $loc)){ $out+=[pscustomobject]@{name=[string]$pp.DisplayName;reason='Install folder missing';target=$loc;regpath=$_.Name;valueName=''} } } } } }
+$runKeys=@('HKCU:\Software\Microsoft\Windows\CurrentVersion\Run','HKLM:\Software\Microsoft\Windows\CurrentVersion\Run')
+foreach($k in $runKeys){ if(Test-Path $k){ $hive= if($k -like 'HKCU:*'){'HKEY_CURRENT_USER'}else{'HKEY_LOCAL_MACHINE'}; $sub=$k -replace '^HK(CU|LM):\\',''; $full=$hive+'\'+$sub; $p=Get-ItemProperty -Path $k -ErrorAction SilentlyContinue; if($p){ $p.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { $cmd=[string]$_.Value; $exe=''; if($cmd -match '^\"([^\"]+)\"'){$exe=$matches[1]} elseif($cmd -match '^([^\s]+\.exe)'){$exe=$matches[1]}; if($exe -ne '' -and $exe -like '*\*' -and -not (Test-Path -LiteralPath $exe)){ $out+=[pscustomobject]@{name=$_.Name;reason='Startup file missing';target=$cmd;regpath=$full;valueName=$_.Name} } } } } }
+$out | ConvertTo-Json -Compress`, 40000));
+            return this.json(res, 200, { ok: true, items: arr(out).map((x: any) => ({ name: x.name || '(unnamed)', reason: x.reason, target: x.target, regpath: x.regpath, valueName: x.valueName || '' })) });
+          }
+          if (op === 'reg-backup') {
+            // Export the affected hives to .reg files before any cleaning, so it's reversible.
+            const dir = path.join(os.homedir(), '.zamolxis', 'reg-backups', String(Date.now()));
+            fs.mkdirSync(dir, { recursive: true });
+            const keys: Array<[string, string]> = [
+              ['HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall', 'uninstall.reg'],
+              ['HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall', 'uninstall-wow64.reg'],
+              ['HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', 'run-user.reg'],
+              ['HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', 'run-machine.reg'],
+            ];
+            const done: string[] = [];
+            for (const [k, f] of keys) { const r = spawnSync('reg', ['export', k, path.join(dir, f), '/y'], { encoding: 'utf8', windowsHide: true, timeout: 15000 }); if (r.status === 0) done.push(f); }
+            return this.json(res, 200, { ok: true, dir, files: done });
+          }
+          if (op === 'reg-clean') {
+            if (o.confirm !== true) return this.json(res, 400, { error: 'confirm required' });
+            // Safety gate: only ever touch the known Uninstall / Run roots.
+            const gate = /^HKEY_(LOCAL_MACHINE|CURRENT_USER)\\.*CurrentVersion\\(Uninstall|Run)/i;
+            const clean = (s: any) => String(s || '').replace(/"/g, '');
+            const wanted = arr(o.items).map((it: any) => ({ regpath: clean(it && it.regpath), valueName: clean(it && it.valueName) })).filter((it) => gate.test(it.regpath));
+            const skipped = arr(o.items).length - wanted.length;
+            const delCmd = (it: { regpath: string; valueName: string }) => 'reg delete "' + it.regpath + '"' + (it.valueName ? (' /v "' + it.valueName + '"') : '') + ' /f';
+            // After attempting a delete, ask the registry whether the entry is actually gone —
+            // reg.exe's exit code lies when it has no rights, so verification is the source of truth.
+            const stillThere = (it: { regpath: string; valueName: string }) => { const r = spawnSync('reg', it.valueName ? ['query', it.regpath, '/v', it.valueName] : ['query', it.regpath], { encoding: 'utf8', windowsHide: true, timeout: 8000 }); return r.status === 0; };
+            // HKCU deletes need no elevation; HKLM ones do, so batch them behind a single UAC prompt.
+            const hkcu = wanted.filter((it) => /^HKEY_CURRENT_USER/i.test(it.regpath));
+            const hklm = wanted.filter((it) => /^HKEY_LOCAL_MACHINE/i.test(it.regpath));
+            for (const it of hkcu) spawnSync('reg', it.valueName ? ['delete', it.regpath, '/v', it.valueName, '/f'] : ['delete', it.regpath, '/f'], { windowsHide: true, timeout: 8000 });
+            let uac = 'n/a';
+            if (hklm.length) {
+              const bat = path.join(os.tmpdir(), 'zamolxis-regclean-' + Date.now() + '.bat');
+              fs.writeFileSync(bat, hklm.map(delCmd).join('\r\n') + '\r\n', 'utf8');
+              const r = pwsh("try { Start-Process -FilePath cmd.exe -ArgumentList '/c','\"" + bat + "\"' -Verb RunAs -Wait -WindowStyle Hidden -ErrorAction Stop; 'ok' } catch { 'declined' }", 120000);
+              uac = (((r && r.stdout) || '').trim()) || 'error';
+              try { fs.unlinkSync(bat); } catch { /* temp file */ }
+            }
+            let removed = 0; const failed: Array<{ name: string; regpath: string }> = [];
+            for (const it of wanted) { if (stillThere(it)) failed.push({ name: it.valueName || it.regpath, regpath: it.regpath }); else removed++; }
+            const needAdmin = failed.some((f) => /^HKEY_LOCAL_MACHINE/i.test(f.regpath));
+            return this.json(res, 200, { ok: true, removed, failed, skipped, needAdmin, uac });
+          }
+          if (op === 'proc-kill') {
+            if (o.confirm !== true) return this.json(res, 400, { error: 'confirm required' });
+            const pid = parseInt(o.pid, 10);
+            if (!pid || pid < 10) return this.json(res, 400, { error: 'refused (invalid or protected pid)' });
+            const r = pwsh('Stop-Process -Id ' + pid + ' -Force -ErrorAction Stop; "ok"', 8000);
+            return this.json(res, 200, r.status === 0 ? { ok: true } : { ok: false, error: ((r.stderr || '').trim()) || 'could not end process' });
+          }
+          return this.json(res, 400, { error: 'unknown op: ' + op });
+        } catch (err) {
+          return this.json(res, 500, { error: String((err as Error)?.message || err) });
+        }
+      });
       return;
     }
     // Agent canvas — latest agent-pushed HTML for the Canvas desktop app to render/poll.

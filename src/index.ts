@@ -29,6 +29,9 @@ import { initClaudeModels } from './core/claudeModels.js';
 import { initLocalApps } from './core/localApps.js';
 import { initWatchers } from './core/watchers.js';
 import { initAppScan } from './core/appscan.js';
+import { initUrlWatch } from './core/urlwatch.js';
+import { initJiraWatch } from './core/jirawatch.js';
+import { PREMADE_AGENTS } from './core/premadeAgents.js';
 import { BanStore, isSmartestModel } from './core/bans.js';
 import { configuredProviders } from './core/providers.js';
 import { buildToolServers } from './tools/index.js';
@@ -88,7 +91,9 @@ async function main(): Promise<void> {
   initProviders(config.dataDir); // free-cloud provider rotation: daily usage tracking
   initClaudeModels(config.dataDir); // live Claude model list from the API (cached; falls back offline)
   initLocalApps(config.dataDir); // saved SQL connection profiles for the Database app/tool
-  initWatchers(config.dataDir); // proactive watchers (e.g. Outlook inbox) that push notifications
+  initUrlWatch(config.dataDir); // Site Sentinel: the watched-URL list (checked by the urlHealth watcher)
+  initJiraWatch(config.dataDir); // watched Jira tasks: followed issue keys (checked by the jiraTasks watcher)
+  initWatchers(config.dataDir); // proactive watchers (Outlook inbox / site health / Jira tasks) that push notifications
   initAppScan(config.dataDir); // discover the host's installed apps for the desktop launchers
   const auth = checkAuth();
   logger.info(
@@ -126,6 +131,21 @@ async function main(): Promise<void> {
   // Scheduler is created before the engine so the engine can drive it: auto-schedule an agent
   // when the planner extracts a recurring job from the story, and suspend/resume on Stop.
   const scheduler = new Scheduler(config.dataDir);
+  // Pre-made agents (seeded once per name; the user can edit, reschedule, stop, or delete them
+  // like any other agent and they are NOT re-imposed). Cron schedules are seeded only together
+  // with the agent's first creation, so a deleted schedule stays deleted.
+  for (const pre of PREMADE_AGENTS) {
+    try {
+      if (agentStore.get(pre.name)) continue;
+      agentStore.upsert({ name: pre.name, label: pre.label, job: pre.job, tools: pre.tools, model: 'claude', canElevate: true, open: pre.open, createdBy: 'user', help: pre.help, guide: pre.guide });
+      if (pre.cron && scheduler.countByAgent(pre.name) === 0) {
+        scheduler.add({ name: `agent:${pre.name}`, agent: pre.name, prompt: '', cron: pre.cron, channel: 'agent', chatId: pre.name, conversationKey: `agent:${pre.name}` });
+      }
+      logger.info({ name: pre.name, cron: pre.cron }, 'pre-made agent seeded');
+    } catch (err) {
+      logger.warn({ err: String(err), name: pre.name }, 'pre-made agent seeding skipped');
+    }
+  }
   // Per-(model, skill) ban list: a banned model refuses that capability; auto-populated on escalate.
   const bans = new BanStore(config.dataDir);
   const engine = new Engine({
