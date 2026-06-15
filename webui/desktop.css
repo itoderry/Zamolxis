@@ -188,6 +188,10 @@ body {
 .msg.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
 .msg.bot { align-self: flex-start; background: #efefef; color: #1b1b1b; border-bottom-left-radius: 4px; }
 .msg .who { font-size: 10.5px; opacity: .65; margin-bottom: 3px; }
+/* The desktop sets user-select:none globally (so dragging windows/icons doesn't select
+   labels). Re-enable selection for actual readable content so chat text, code and
+   responses can be copied. */
+.chat-log, .msg, .msg *, pre, textarea, input, [contenteditable] { user-select: text; -webkit-user-select: text; cursor: auto; }
 .chat-input { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #e6e6e6; background: #fafafa; }
 .chat-input textarea {
   flex: 1; resize: none; height: 38px; max-height: 120px; border: 1px solid #d6d6d6; border-radius: 8px;
