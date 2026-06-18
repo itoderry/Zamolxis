@@ -283,9 +283,9 @@
     var ticon = el('div', 't-icon', spec.iconSvg || '');
     var title = el('div', 't-title', spec.title || 'App');
     var ctrls = el('div', 'win-controls');
-    var bMin = el('button', 'min', "<span class='g'></span>"); bMin.title = T('Minimize');
-    var bMax = el('button', 'max', "<span class='g'></span>"); bMax.title = T('Maximize');
-    var bClose = el('button', 'close', "<span class='g'></span>"); bClose.title = T('Close');
+    var bMin = el('button', 'min', "<svg viewBox='0 0 10 10' aria-hidden='true'><path d='M1 5 h8'/></svg>"); bMin.title = T('Minimize');
+    var bMax = el('button', 'max', "<svg viewBox='0 0 10 10' aria-hidden='true'><rect x='1.2' y='1.2' width='7.6' height='7.6'/></svg>"); bMax.title = T('Maximize');
+    var bClose = el('button', 'close', "<svg viewBox='0 0 10 10' aria-hidden='true'><path d='M1.5 1.5 L8.5 8.5 M8.5 1.5 L1.5 8.5'/></svg>"); bClose.title = T('Close');
     ctrls.appendChild(bMin); ctrls.appendChild(bMax); ctrls.appendChild(bClose);
     bar.appendChild(ticon); bar.appendChild(title); bar.appendChild(ctrls);
 

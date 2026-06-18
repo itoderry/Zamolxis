@@ -88,6 +88,8 @@ body {
 .win-controls button.close .g::before, .win-controls button.close .g::after { content: ""; position: absolute; left: 50%; top: 0; width: 1px; height: 100%; margin-left: -0.5px; background: currentColor; }
 .win-controls button.close .g::before { transform: rotate(45deg); }
 .win-controls button.close .g::after { transform: rotate(-45deg); }
+/* SVG glyphs (minimize line / maximize square / close X), drawn in currentColor. */
+.win-controls button svg { width: 10px; height: 10px; stroke: currentColor; stroke-width: 1.2; fill: none; stroke-linecap: square; }
 
 .win-body { flex: 1 1 auto; overflow: auto; background: #fff; position: relative; }
 
