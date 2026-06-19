@@ -63,12 +63,12 @@
     if (p.indexOf('linux') !== -1 || p.indexOf('ubuntu') !== -1 || p.indexOf('x11') !== -1) return 'ubuntu';
     return 'win';
   }
-  function themeChoice() { return localStorage.getItem('zx_os') || 'auto'; }
+  // One desktop OS view (Giskard's scheme): a single built-in style, with the Classic text
+  // UI still available. Any legacy saved value (auto/mac/ubuntu/win) resolves to the one style.
+  function themeChoice() { return 'win'; }
   function applyTheme() {
-    var choice = themeChoice();
-    var eff = choice === 'auto' ? detectOS() : choice;
-    document.body.dataset.os = eff;
-    return { choice: choice, effective: eff };
+    document.body.dataset.os = 'win';
+    return { choice: 'win', effective: 'win' };
   }
   function setTheme(choice) { localStorage.setItem('zx_os', choice); applyTheme(); try { Object.keys(wins).forEach(function (k) { applyWinMenus(wins[k]); }); } catch (e) {} rerenderSettings(); }
 
@@ -283,9 +283,9 @@
     var ticon = el('div', 't-icon', spec.iconSvg || '');
     var title = el('div', 't-title', spec.title || 'App');
     var ctrls = el('div', 'win-controls');
-    var bMin = el('button', 'min', "<span class='g'></span>"); bMin.title = T('Minimize');
-    var bMax = el('button', 'max', "<span class='g'></span>"); bMax.title = T('Maximize');
-    var bClose = el('button', 'close', "<span class='g'></span>"); bClose.title = T('Close');
+    var bMin = el('button', 'min', "<svg viewBox='0 0 10 10' aria-hidden='true'><path d='M1 5 h8'/></svg>"); bMin.title = T('Minimize');
+    var bMax = el('button', 'max', "<svg viewBox='0 0 10 10' aria-hidden='true'><rect x='1.2' y='1.2' width='7.6' height='7.6'/></svg>"); bMax.title = T('Maximize');
+    var bClose = el('button', 'close', "<svg viewBox='0 0 10 10' aria-hidden='true'><path d='M1.5 1.5 L8.5 8.5 M8.5 1.5 L1.5 8.5'/></svg>"); bClose.title = T('Close');
     ctrls.appendChild(bMin); ctrls.appendChild(bMax); ctrls.appendChild(bClose);
     bar.appendChild(ticon); bar.appendChild(title); bar.appendChild(ctrls);
 
@@ -321,13 +321,13 @@
     } else {
       w.prev = { l: w.root.style.left, t: w.root.style.top, w: w.root.style.width, h: w.root.style.height };
       w.root.classList.add('maximized');
-      var os = document.body.dataset.os;
-      var tb = os === 'ubuntu' ? 28 : (os === 'mac' ? 26 : 0);
-      var bb = os === 'win' ? 48 : (os === 'mac' ? 88 : 0);
-      var lb = os === 'ubuntu' ? 64 : 0;
-      w.root.style.left = lb + 'px'; w.root.style.top = tb + 'px';
-      w.root.style.width = (window.innerWidth - lb) + 'px';
-      w.root.style.height = (window.innerHeight - tb - bb) + 'px';
+      // One desktop style: a bottom taskbar only — keep a maximized window clear of it
+      // (subtract the actual taskbar height instead of per-OS offsets).
+      var taskbar = document.getElementById('taskbar');
+      var bb = taskbar ? taskbar.offsetHeight : 48;
+      w.root.style.left = '0px'; w.root.style.top = '0px';
+      w.root.style.width = window.innerWidth + 'px';
+      w.root.style.height = (window.innerHeight - bb) + 'px';
       w.maximized = true;
     }
     saveSession();
@@ -758,7 +758,7 @@
   }
 
   // ---------- App: Settings (tabbed, wired to the real backend) ----------
-  function osName(o) { return o === 'mac' ? 'macOS' : (o === 'ubuntu' ? 'Ubuntu' : 'Windows'); }
+  function osName() { return 'Zamolxis'; }
   function postSettings(patch) { return api('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch) }); }
   function restartZam(btn, status) { if (btn) btn.disabled = true; if (status) status.textContent = T('Restarting...'); api('/api/restart', { method: 'POST' }).then(function () { setTimeout(function () { location.reload(); }, 4500); }).catch(function () { if (btn) btn.disabled = false; if (status) status.textContent = T('Failed.'); }); }
   function fld(labelTxt, node, hint) { var f = el('div', 'field'); f.appendChild(el('label', null, labelTxt)); if (hint) f.appendChild(el('div', 'hint', hint)); f.appendChild(node); return f; }
@@ -793,15 +793,15 @@
     var t = applyTheme();
     var f = el('div', 'field');
     f.appendChild(el('label', null, T('Desktop style')));
-    f.appendChild(el('div', 'hint', 'Auto follows your OS (detected: ' + osName(t.effective) + '). Override below.'));
+    f.appendChild(el('div', 'hint', 'The Zamolxis desktop is the single built-in style. "Classic" opens the previous stable text interface.'));
     var seg = el('div', 'seg');
-    [['auto', 'Auto'], ['win', 'Windows 11'], ['mac', 'macOS'], ['ubuntu', 'Ubuntu'], ['classic', 'Classic']].forEach(function (o) {
+    [['win', 'Zamolxis'], ['classic', 'Classic']].forEach(function (o) {
       var b = el('button', t.choice === o[0] ? 'active' : null, T(o[1]));
       b.addEventListener('click', function () { if (o[0] === 'classic') { location.href = '/classic'; } else { setTheme(o[0]); } });
       seg.appendChild(b);
     });
     f.appendChild(seg); pane.appendChild(f);
-    pane.appendChild(el('div', 'hint', '"Classic" opens the previous stable Zamolxis interface (the last stable version), kept as a fourth option.'));
+    pane.appendChild(el('div', 'hint', '"Classic" opens the previous stable Zamolxis interface (the last stable version), kept as a second option.'));
 
     var mc = modeChoice();
     var f2 = el('div', 'field');
