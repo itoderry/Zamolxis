@@ -22,6 +22,7 @@ import { createJiraIssue, searchJira, getJiraIssue, whoAssigned, jiraConfigured,
 import { addWatchedUrl, removeWatchedUrl, checkAllUrls, listWatchedUrls } from '../core/urlwatch.js';
 import { addWatchedIssue, removeWatchedIssue, checkWatchedIssues, listWatchedIssues } from '../core/jirawatch.js';
 import { getWatchers, setWatchers } from '../core/watchers.js';
+import { fetchXchangeRates, xchangeTable } from '../core/xchange.js';
 import type { AgentStore } from '../core/agents.js';
 
 /** Live conversation context, captured per agent turn so tools deliver to the right place. */
@@ -627,6 +628,26 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
     },
   );
 
+  // Currency exchange rates via the Xchange Rate API. Credentials default to the configured
+  // XCHANGE_UID / XCHANGE_PASSWORD so the agent that owns them just works.
+  const exchangeRatesTool = tool(
+    'exchange_rates',
+    'Fetch current currency exchange rates (USD-based, source XE.COM) from the Xchange Rate API and return a Markdown table. Uses the configured XCHANGE_UID / XCHANGE_PASSWORD; pass uid/password to override. Pass isocode for a single currency.',
+    {
+      isocode: z.string().optional().describe('ISO 4217 code for one currency (e.g. EUR); omit for all'),
+      uid: z.string().optional().describe('Account UID (defaults to the configured XCHANGE_UID)'),
+      password: z.string().optional().describe('Account password (defaults to the configured XCHANGE_PASSWORD)'),
+    },
+    async (args) => {
+      const uid = (args.uid || process.env.XCHANGE_UID || '').trim();
+      const password = args.password || process.env.XCHANGE_PASSWORD || '';
+      if (!uid || !password) return text('Xchange Rate is not configured. Set XCHANGE_UID and XCHANGE_PASSWORD (or pass uid/password).');
+      const r = await fetchXchangeRates({ uid, password, isocode: args.isocode });
+      if (!r.ok) return text('Could not fetch exchange rates: ' + r.error);
+      return text(xchangeTable(r.rows!) + `\n\n${r.rows!.length} currencies · USD-based (source: XE.COM)`);
+    },
+  );
+
   const outlookMailTool = tool(
     'outlook_mail',
     'Read the user\'s LOCAL Outlook desktop mailbox (classic Outlook via COM — works even when Microsoft 365 blocks IMAP; no cloud login). READ-ONLY: never sends, deletes, or marks read. Actions: list (recent/unread), search (by subject/sender), read (full body by EntryID), folders. Use for "any new mail in outlook?", "summarize my unread work email", "find the email from X".',
@@ -844,6 +865,7 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
         jiraGetIssue,
         urlWatch,
         jiraWatch,
+        exchangeRatesTool,
         createAgent,
         listAgents,
         runAgentTool,
