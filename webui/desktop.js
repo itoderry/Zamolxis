@@ -772,7 +772,7 @@
     var nav = el('div', 'set-nav');
     var pane = el('div', 'set-pane');
     wrap.appendChild(nav); wrap.appendChild(pane); body.appendChild(wrap);
-    var tabs = [['appearance', T('Appearance')], ['engine', T('Engine')], ['providers', T('Providers')], ['channels', T('Channels')], ['skills', T('Skills')], ['system', T('System')]];
+    var tabs = [['appearance', T('Appearance')], ['engine', T('Engine')], ['providers', T('Providers')], ['channels', T('Channels')], ['skills', T('Skills')], ['agents', T('Sub-agents')], ['system', T('System')]];
     function renderNav() { nav.innerHTML = ''; tabs.forEach(function (t) { var b = el('button', state.tab === t[0] ? 'active' : null, t[1]); b.addEventListener('click', function () { state.tab = t[0]; renderNav(); renderTab(); }); nav.appendChild(b); }); }
     function renderTab() {
       pane.innerHTML = '';
@@ -781,6 +781,7 @@
       else if (state.tab === 'providers') tabProviders(pane);
       else if (state.tab === 'channels') tabChannels(pane);
       else if (state.tab === 'skills') tabSkills(pane);
+      else if (state.tab === 'agents') tabAgents(pane);
       else tabSystem(pane);
     }
     settingsRender = function () { renderTab(); };
@@ -954,6 +955,144 @@
         pane.appendChild(card);
       });
     }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', T('Could not load settings.'))); });
+  }
+
+  // Settings → Sub-agents: every scheduled agent in one place, with its description, when it
+  // fires, the model (click-to-change), and per-agent Run / Pause-Resume / Change / Remove controls
+  // (plus Pause-all / Resume-all).
+  function tabAgents(pane) {
+    pane.appendChild(el('div', 'hint', T('Loading...')));
+    function cronHuman(cron) {
+      if (!cron) return '';
+      var p = String(cron).trim().split(/\s+/);
+      if (p.length < 5) return cron;
+      var mn = p[0], hr = p[1], dom = p[2], mon = p[3], dow = p[4];
+      var DOWN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      function days() {
+        if (dow === '*') return '';
+        if (dow === '1-5') return T('weekdays');
+        if (dow === '0,6' || dow === '6,0') return T('weekends');
+        return dow.split(',').map(function (t) { var m = /^(\d)(?:-(\d))?$/.exec(t); if (!m) return t; return m[2] == null ? DOWN[+m[1] % 7] : DOWN[+m[1] % 7] + '–' + DOWN[+m[2] % 7]; }).join(', ');
+      }
+      function hm(h, m) { h = +h; m = +m || 0; var ap = h < 12 ? 'am' : 'pm'; var hh = h % 12; if (hh === 0) hh = 12; return hh + (m ? ':' + (m < 10 ? '0' + m : m) : '') + ap; }
+      if (dom !== '*' || mon !== '*') return cron;
+      var d = days(); var suffix = d ? ', ' + d : '';
+      var stepM = /^\*\/(\d+)$/.exec(mn), stepH = /^\*\/(\d+)$/.exec(hr), rangeH = /^(\d+)-(\d+)$/.exec(hr);
+      if (stepM) return T('Every') + ' ' + stepM[1] + ' ' + T('minutes') + suffix;
+      if (hr === '*') return (mn === '0' ? T('Hourly') : ('At :' + mn + ' each hour')) + suffix;
+      if (stepH) return T('Every') + ' ' + stepH[1] + ' ' + T('hours') + suffix;
+      if (rangeH) return T('Hourly') + ', ' + hm(rangeH[1], mn) + '–' + hm(rangeH[2], mn) + suffix;
+      if (/^\d+$/.test(hr)) return hm(hr, mn) + suffix;
+      return cron;
+    }
+    function describe(s) {
+      if (!s) return T('No schedule');
+      if (s.at) { try { return T('Once at') + ' ' + new Date(s.at).toLocaleString(); } catch (e) { return T('Once at') + ' ' + s.at; } }
+      return cronHuman(s.cron);
+    }
+    function post(body) { return api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); }
+
+    function render(agentsList, schedules, modelOpts) {
+      pane.innerHTML = '';
+      pane.appendChild(el('label', null, T('Sub-agent schedules')));
+      pane.appendChild(el('div', 'hint', T('Every scheduled sub-agent in one place. Pause one to stop it running (and using model quota), resume or run it on demand, or change when it fires.')));
+      var bar = el('div'); bar.style.cssText = 'display:flex;gap:8px;align-items:center;margin:8px 0';
+      var allStop = el('button', 'btn', T('Pause all'));
+      var allResume = el('button', 'btn ghost', T('Resume all'));
+      var allNote = el('span', 'hint');
+      bar.appendChild(allStop); bar.appendChild(allResume); bar.appendChild(allNote);
+      pane.appendChild(bar);
+      function allSched(action, btn) {
+        if (action === 'stopall' && !confirm(T('Pause ALL scheduled agents? They stop running (and stop using your quota) until you resume them.'))) return;
+        btn.disabled = true; allNote.textContent = T('Working...');
+        post({ action: action }).then(function () { reload(); }).catch(function () { btn.disabled = false; allNote.textContent = T('Failed.'); });
+      }
+      allStop.addEventListener('click', function () { allSched('stopall', allStop); });
+      allResume.addEventListener('click', function () { allSched('resumeall', allResume); });
+
+      var byAgent = {};
+      schedules.forEach(function (s) { if (s.agent) (byAgent[s.agent] = byAgent[s.agent] || []).push(s); });
+      var list = el('div'); list.style.cssText = 'display:flex;flex-direction:column;gap:10px;margin-top:10px';
+      pane.appendChild(list);
+
+      agentsList.slice().sort(function (a, b) { return (a.label || a.name).localeCompare(b.label || b.name); }).forEach(function (agent) {
+        var mine = byAgent[agent.name] || [];
+        var paused = !!agent.stopped;
+        var card = el('div'); card.style.cssText = 'border:1px solid rgba(128,128,128,.2);border-radius:8px;padding:10px 12px;background:rgba(128,128,128,.04)';
+        var titleRow = el('div'); titleRow.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+        var nm = el('strong'); nm.textContent = agent.label || agent.name; titleRow.appendChild(nm);
+        var modelSel = el('select'); modelSel.title = T('Change the model this agent runs on');
+        modelSel.style.cssText = 'font-size:11px;padding:1px 6px;border:1px solid rgba(128,128,128,.3);border-radius:10px;background:transparent;color:inherit;cursor:pointer';
+        fillSelect(modelSel, modelOpts, agent.model || 'claude');
+        titleRow.appendChild(modelSel);
+        var modelNote = el('span', 'hint'); modelNote.style.fontSize = '11px'; titleRow.appendChild(modelNote);
+        modelSel.addEventListener('change', function () {
+          var want = modelSel.value; modelSel.disabled = true; modelNote.textContent = '...';
+          post({ action: 'model', name: agent.name, model: want })
+            .then(function (d) { modelSel.disabled = false; if (d && d.error) { modelNote.textContent = String(d.error); fillSelect(modelSel, modelOpts, agent.model); } else { agent.model = d.model || want; modelNote.textContent = T('Saved.'); setTimeout(function () { modelNote.textContent = ''; }, 1200); } })
+            .catch(function () { modelSel.disabled = false; modelNote.textContent = T('Failed.'); });
+        });
+        var chip = el('span'); chip.textContent = paused ? T('Paused') : (mine.length ? T('Active') : T('No schedule'));
+        chip.style.cssText = 'margin-left:auto;font-size:11px;padding:2px 8px;border-radius:10px;' + (paused ? 'background:rgba(180,140,0,.25);color:#b8860b' : (mine.length ? 'background:rgba(60,170,90,.22);color:#2e9e3f' : 'background:rgba(140,140,140,.2);color:#888'));
+        titleRow.appendChild(chip);
+        card.appendChild(titleRow);
+        if (agent.help) { var desc = el('div', 'hint'); desc.textContent = agent.help; desc.style.marginTop = '4px'; card.appendChild(desc); }
+        var schedLine = el('div'); schedLine.style.cssText = 'margin-top:6px;font-size:12.5px';
+        schedLine.appendChild(el('span', 'hint', T('Schedule') + ': '));
+        var sv = el('span'); sv.textContent = mine.length ? mine.map(describe).join(' · ') : T('No schedule'); schedLine.appendChild(sv);
+        card.appendChild(schedLine);
+        var btns = el('div'); btns.style.cssText = 'display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center';
+        var note = el('span', 'hint');
+        var runBtn = el('button', 'btn ghost', T('Run now'));
+        var pauseBtn = el('button', 'btn', paused ? T('Resume') : T('Pause'));
+        var changeBtn = el('button', 'btn ghost', T('Change schedule'));
+        btns.appendChild(runBtn); btns.appendChild(pauseBtn); btns.appendChild(changeBtn);
+        if (mine.length) {
+          var rmBtn = el('button', 'btn ghost', T('Remove schedule'));
+          btns.appendChild(rmBtn);
+          rmBtn.addEventListener('click', function () {
+            if (!confirm(T('Remove the schedule for') + ' "' + (agent.label || agent.name) + '"?')) return;
+            note.textContent = T('Working...');
+            Promise.all(mine.map(function (s) { return post({ action: 'unschedule', id: s.id }); })).then(function () { reload(); }).catch(function () { note.textContent = T('Failed.'); });
+          });
+        }
+        btns.appendChild(note);
+        card.appendChild(btns);
+        runBtn.addEventListener('click', function () {
+          runBtn.disabled = true; note.textContent = T('Running...');
+          post({ action: 'run', name: agent.name })
+            .then(function (d) { runBtn.disabled = false; note.textContent = (d && d.error) ? String(d.error) : (T('Done') + (d && d.via ? ' · ' + d.via : '')); })
+            .catch(function () { runBtn.disabled = false; note.textContent = T('Unreachable'); });
+        });
+        pauseBtn.addEventListener('click', function () {
+          var willStop = !agent.stopped; pauseBtn.disabled = true; note.textContent = T('Working...');
+          post({ action: 'stop', name: agent.name, stop: willStop }).then(function () { reload(); }).catch(function () { pauseBtn.disabled = false; note.textContent = T('Unreachable'); });
+        });
+        changeBtn.addEventListener('click', function () {
+          var when = prompt(T('Schedule this agent — e.g. "every weekday at 9am", "every 30 minutes", or a cron expression:'), (mine[0] && mine[0].cron) || '');
+          if (when === null || !when.trim()) return;
+          note.textContent = T('Scheduling...');
+          Promise.all(mine.map(function (s) { return post({ action: 'unschedule', id: s.id }); }))
+            .then(function () { return post({ action: 'schedule', name: agent.name, when: when.trim() }); })
+            .then(function (d) {
+              if (d && d.error) { note.textContent = String(d.error); return; }
+              if (agent.stopped) return post({ action: 'stop', name: agent.name, stop: true }).then(function () { reload(); });
+              reload();
+            })
+            .catch(function () { note.textContent = T('Unreachable'); });
+        });
+        list.appendChild(card);
+      });
+      if (!agentsList.length) list.appendChild(el('div', 'hint', T('No sub-agents yet.')));
+    }
+    function reload() {
+      Promise.all([
+        api('/api/agents').then(function (d) { return Array.isArray(d) ? d : []; }),
+        post({ action: 'schedules' }).then(function (d) { return (d && d.schedules) || []; }),
+        fetchModelOpts().catch(function () { return [['claude', T('Claude (default model)')]]; })
+      ]).then(function (r) { render(r[0], r[1], r[2]); }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'hint', T('Could not load agents.'))); });
+    }
+    reload();
   }
 
   function tabSkills(pane) {
@@ -2545,6 +2684,21 @@
     var delBtn = el('button', 'btn ghost', T('Delete'));
     bar.appendChild(toggle); bar.appendChild(lbl); bar.appendChild(spacer); bar.appendChild(note); bar.appendChild(runBtn); bar.appendChild(delBtn);
     head.appendChild(bar);
+    // Web-page delivery: publish this agent's latest result at /<agent-name> (a live, self-refreshing page).
+    var dv = agent.deliver || {};
+    var webRow = el('div'); webRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:8px';
+    var webCb = el('input'); webCb.type = 'checkbox'; webCb.checked = !!dv.web; webCb.id = 'webdeliver_' + agent.name;
+    var webLbl = el('label', 'hint', T('Web page')); webLbl.htmlFor = webCb.id;
+    var webLink = el('a', null, T('open page') + ' ↗'); webLink.href = location.origin + '/' + agent.name; webLink.target = '_blank'; webLink.style.cssText = 'color:var(--accent,#0067c0);font-size:12px'; webLink.style.display = dv.web ? 'inline' : 'none';
+    var webNote = el('span', 'hint');
+    webCb.addEventListener('change', function () {
+      webNote.textContent = '...';
+      api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'deliver', name: agent.name, chat: dv.chat !== false, slack: !!dv.slack, slackChannel: dv.slackChannel, web: webCb.checked }) })
+        .then(function (d) { if (d && d.deliver) { agent.deliver = d.deliver; dv = d.deliver; } webLink.style.display = webCb.checked ? 'inline' : 'none'; webNote.textContent = webCb.checked ? T('Publishing latest result here (after the next run)') : ''; })
+        .catch(function () { webNote.textContent = T('Unreachable'); });
+    });
+    webRow.appendChild(webCb); webRow.appendChild(webLbl); webRow.appendChild(webLink); webRow.appendChild(webNote);
+    head.appendChild(webRow);
     wrap.appendChild(head);
     var content = el('div'); content.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column';
     wrap.appendChild(content);

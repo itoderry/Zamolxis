@@ -481,9 +481,39 @@ Examples:
   zamolxis stop`);
 }
 
+// `zamolxis run-agent <name>` — fire a single agent once. This is what each per-agent Windows
+// Scheduled Task calls, so the OS is the trigger. Starts Zamolxis first if it isn't running.
+// Loopback calls are trusted (no token); a configured non-loopback token is read from .env.
+function webAuthToken() {
+  try { const m = /^\s*ZAMOLXIS_WEB_AUTH_TOKEN=(.+)$/m.exec(fs.readFileSync(path.join(root, '.env'), 'utf8')); if (m) return m[1].trim().replace(/^["']|["']$/g, ''); } catch {}
+  return process.env.ZAMOLXIS_WEB_AUTH_TOKEN || '';
+}
+function authHeaders() { const t = webAuthToken(); return t ? { 'x-zamolxis-token': t } : {}; }
+async function runAgentCmd(name) {
+  if (!name) { console.error('Usage: zamolxis run-agent <agent-name>'); process.exit(1); }
+  const base = `http://127.0.0.1:${webPort()}`;
+  const up = async () => { try { const r = await fetch(base + '/api/status', { headers: authHeaders() }); return r.ok || r.status === 401; } catch { return false; } };
+  if (!(await up())) {
+    console.log('Zamolxis is not running — starting it...');
+    start([]);
+    let ok = false;
+    for (let i = 0; i < 60; i++) { await sleep(500); if (await up()) { ok = true; break; } }
+    if (!ok) { console.error('Could not reach Zamolxis after starting it.'); process.exit(1); }
+  }
+  try {
+    const r = await fetch(base + '/api/agents', { method: 'POST', headers: { 'content-type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'run', name, deliver: true }) });
+    const d = await r.json().catch(() => ({}));
+    if (d && d.ok) { console.log(`[${name}] ${d.skipped ? '(skipped: ' + (d.reason || 'nothing new') + ')' : (d.reply || '(no reply)')}`); }
+    else { console.error('Agent run failed:', (d && d.error) || ('HTTP ' + r.status)); process.exit(1); }
+  } catch (e) { console.error('Agent run failed:', e?.message || e); process.exit(1); }
+}
+
 const cmd = process.argv[2];
 const extra = process.argv.slice(3);
 switch (cmd) {
+  case 'run-agent':
+    await runAgentCmd(extra[0]);
+    break;
   case 'run':
     runForeground(extra.length ? extra : ['--web']);
     break;

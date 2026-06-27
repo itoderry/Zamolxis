@@ -47,10 +47,16 @@ export interface RunRequest {
   escalated?: boolean;
   /** Agent run: the agent's role/instructions, prepended to the system prompt. */
   agentJob?: string;
+  /** Agent run: the agent's name — selects its OWN working-memory file so agents don't share notes. */
+  agentName?: string;
   /** Agent run: restrict the tool-using tiers to only these tool names ([] / undefined = all). */
   agentTools?: string[];
   /** Agent run: allow falling back to Claude (smartest) even on a fixed tier / chain without it. */
   elevate?: boolean;
+  /** Run with NO prior conversation history (no Claude session resume, no replayed turns). Used for
+   *  an agent's STANDING job ("do your job now"): each run executes the job fresh from its definition
+   *  instead of continuing — and possibly drifting away from — whatever it produced last time. */
+  freshContext?: boolean;
   /** Internal: the user invoked a specific capability via "/skill ..." — route to the first
    *  model NOT banned from it, and tell the model to use exactly this skill/tool. */
   forcedSkill?: string;
@@ -95,6 +101,8 @@ export interface EngineDeps {
   agents?: Record<string, AgentDefinition>;
   /** User-defined agents (named jobs that run on any tier). */
   agentStore?: AgentStore;
+  /** Publishes an agent's latest result to its web page (when "Web page" delivery is on). */
+  pages?: { set: (name: string, text: string, via?: string) => void };
   /** Sink for agent messages (to other agents or the user) - delivered to channels + logged. */
   onAgentMessage?: (msg: { from: string; to: string; text: string; ts: number; via?: string }) => void;
   /** Schedule a named agent on a cron (deterministic). Late-bound to the scheduler. */
@@ -117,6 +125,33 @@ const AUTH_EXPIRED_MSG =
 // Loop guard for agent->agent messaging: at most this many agent-triggered runs in flight at once.
 let AGENT_HOPS = 0;
 const MAX_AGENT_HOPS = 6;
+
+const DOW_NAMES: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+/** Parse the common plain-language schedules into a 5-field cron WITHOUT the model, so the
+ *  Schedule button works instantly and even when the smart model is unreachable. Returns null
+ *  for anything it doesn't confidently recognize (then the caller falls back to the model). */
+function localCron(textRaw: string): { cron: string; note: string } | null {
+  const t = textRaw.toLowerCase().trim();
+  let m: RegExpExecArray | null;
+  if ((m = /\bevery\s+(\d+)\s*min(?:ute)?s?\b/.exec(t))) return { cron: `*/${Number(m[1])} * * * *`, note: `Runs every ${Number(m[1])} minute(s).` };
+  if (/\bevery\s+minute\b/.test(t)) return { cron: '* * * * *', note: 'Runs every minute.' };
+  if ((m = /\bevery\s+(\d+)\s*hours?\b/.exec(t))) return { cron: `0 */${Number(m[1])} * * *`, note: `Runs every ${Number(m[1])} hour(s).` };
+  if (/\b(every\s+hour|hourly)\b/.test(t)) return { cron: '0 * * * *', note: 'Runs hourly.' };
+  // A time of day ("at 9am", "9:30 pm", "at 7").
+  const tm = /\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/.exec(t) || /\bat\s+(\d{1,2})(?::(\d{2}))?\b/.exec(t);
+  let hh: number | undefined; let mm = 0;
+  if (tm) { hh = Number(tm[1]); mm = tm[2] ? Number(tm[2]) : 0; const ap = tm[3]; if (ap === 'pm' && hh < 12) hh += 12; if (ap === 'am' && hh === 12) hh = 0; }
+  let dow = '*';
+  if (/\bweekdays?\b/.test(t)) dow = '1-5';
+  else if (/\bweekends?\b/.test(t)) dow = '0,6';
+  else { const picked: number[] = []; for (const [name, n] of Object.entries(DOW_NAMES)) if (new RegExp('\\b' + name + 's?\\b').test(t)) picked.push(n); if (picked.length) dow = picked.sort((a, b) => a - b).join(','); }
+  const daily = /\b(daily|every day|each day|every morning|each morning|every evening|every night|each night)\b/.test(t);
+  if (hh !== undefined && hh <= 23 && (daily || dow !== '*' || /\bat\b/.test(t))) {
+    const dowNote = dow === '1-5' ? ' on weekdays' : dow === '0,6' ? ' on weekends' : dow !== '*' ? ' on the chosen day(s)' : ' daily';
+    return { cron: `${mm} ${hh} * * ${dow}`, note: `Runs at ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}${dowNote}.` };
+  }
+  return null;
+}
 
 function sanitizeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
@@ -531,11 +566,16 @@ export class Engine {
 
   /** Run a named user-defined agent against a task, on its configured tier with only its tools.
    *  Runs in its own conversation context ("agent:<name>") so it doesn't pollute a user chat. */
-  async runAgent(name: string, task?: string): Promise<RunResult & { agent?: string }> {
+  async runAgent(name: string, task?: string, opts?: { force?: boolean }): Promise<RunResult & { agent?: string }> {
     const def = this.deps.agentStore?.get(name);
     if (!def) return { reply: `No agent named "${name}".`, sessionId: '', costUsd: 0, isError: true, agent: name };
-    if (def.stopped) return { reply: `Agent "${def.name}" is stopped — resume it to run.`, sessionId: '', costUsd: 0, isError: true, agent: def.name };
-    if (this.sessionPaused.has(def.name)) return { reply: `Agent "${def.name}" is paused by the startup policy — resume it to run.`, sessionId: '', costUsd: 0, isError: true, agent: def.name };
+    // A manual "Run now" (force) executes the job regardless of the schedule being paused or the
+    // startup-restore pause — those only gate AUTOMATIC (scheduled) firing. The scheduler/headless
+    // path leaves force unset, so a paused agent is still skipped there.
+    if (!opts?.force) {
+      if (def.stopped) return { reply: `Agent "${def.name}" is stopped — resume it to run.`, sessionId: '', costUsd: 0, isError: true, agent: def.name };
+      if (this.sessionPaused.has(def.name)) return { reply: `Agent "${def.name}" is paused by the startup policy — resume it to run.`, sessionId: '', costUsd: 0, isError: true, agent: def.name };
+    }
     // Inactive: the pinned model isn't available — don't attempt/escalate, tell the user to Fix it.
     const avail = this.agentModelAvailable(def.name);
     if (!avail.ok) return { reply: `Agent "${def.name}" is inactive: ${avail.reason}. Use Fix (or its Job) to switch its model.`, sessionId: '', costUsd: 0, isError: true, agent: def.name };
@@ -568,10 +608,17 @@ export class Engine {
       text: adhoc ? task! : `Do your job now.`,
       route,
       agentJob,
+      agentName: def.name,
       agentTools: def.tools,
       elevate: def.canElevate,
+      // A standing-job run starts from a clean slate so it executes the job, not a continuation of
+      // its (possibly off-topic) last output. An ad-hoc task in the agent's chat keeps continuity.
+      freshContext: !adhoc,
     });
     if (!r.isError && r.via) this.deps.agentStore?.setLastVia(def.name, r.via);
+    // If this agent publishes to a web page, store its latest result so /<agent-name> shows it.
+    // Covers both scheduled fires and manual "Run now" — everything routes through here.
+    if (!r.isError && def.deliver?.web) this.deps.pages?.set(def.name, r.reply, r.via);
     return { ...r, agent: def.name };
   }
 
@@ -642,14 +689,23 @@ export class Engine {
   async nlToCron(text: string): Promise<{ cron?: string; note: string }> {
     const t = (text || '').trim();
     if (!t) return { note: 'empty' };
-    const system =
-      'Convert a plain-language schedule into a SINGLE standard 5-field cron expression (minute hour day-of-month month day-of-week). ' +
-      'Output ONLY one JSON object: {"cron": string|null, "note": string}. cron is the expression (e.g. "*/5 * * * *" = every 5 minutes, "0 9 * * 1-5" = 9am weekdays); note is a short human-readable confirmation. ' +
-      'If the text is not a recurring/timed schedule, output {"cron": null, "note": "why"}.';
-    const raw = await this.oneShotClaude(system, `Schedule: ${t}\n\nJSON:`, this.deps.config.smartModel || this.deps.config.model);
-    const o = this.parseJsonObject(raw);
-    const cron = o && typeof o.cron === 'string' && o.cron.trim() ? o.cron.trim() : undefined;
-    return { cron, note: o && typeof o.note === 'string' ? o.note : '' };
+    // Deterministic first: common phrases ("every 5 minutes", "weekdays at 9am", "daily at 7:30")
+    // parse locally so scheduling works instantly and even when the smart model is unavailable.
+    const local = localCron(t);
+    if (local) return local;
+    // Otherwise ask the smart model (and degrade gracefully if it can't be reached).
+    try {
+      const system =
+        'Convert a plain-language schedule into a SINGLE standard 5-field cron expression (minute hour day-of-month month day-of-week). ' +
+        'Output ONLY one JSON object: {"cron": string|null, "note": string}. cron is the expression (e.g. "*/5 * * * *" = every 5 minutes, "0 9 * * 1-5" = 9am weekdays); note is a short human-readable confirmation. ' +
+        'If the text is not a recurring/timed schedule, output {"cron": null, "note": "why"}.';
+      const raw = await this.oneShotClaude(system, `Schedule: ${t}\n\nJSON:`, this.deps.config.smartModel || this.deps.config.model);
+      const o = this.parseJsonObject(raw);
+      const cron = o && typeof o.cron === 'string' && o.cron.trim() ? o.cron.trim() : undefined;
+      return { cron, note: o && typeof o.note === 'string' ? o.note : '' };
+    } catch {
+      return { note: 'Could not parse that schedule.' };
+    }
   }
 
   /** Current date/time as a string in the user's configured timezone (config.timezone), so agents
@@ -1220,7 +1276,7 @@ export class Engine {
     const lm = this.deps.config.localModel!;
     const bannedCaps = this.deps.bans?.bannedSkillsFor('local') ?? [];
     const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill });
-    const history = this.recentHistory(req.conversationKey);
+    const history = req.freshContext ? [] : this.recentHistory(req.conversationKey);
     // Agent executions run at temperature 0 for determinism (no fabrication / no chit-chat drift).
     const temp = req.agentJob ? 0 : this.deps.config.localTemp;
     const r = await this.toolLoop({ url: `${lm.url}/chat/completions`, model: lm.model, system, userText: req.text, tools, history, numCtx: this.deps.config.localContext, keepAlive: this.deps.config.localKeepAlive, temp });
@@ -1236,7 +1292,7 @@ export class Engine {
     if (!key) return { escalate: true };
     const bannedCaps = this.deps.bans?.bannedSkillsFor(p.id) ?? [];
     const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill });
-    const history = this.recentHistory(req.conversationKey);
+    const history = req.freshContext ? [] : this.recentHistory(req.conversationKey);
     const r = await this.toolLoop({ url: `${p.baseUrl}/chat/completions`, model: p.model, apiKey: key, system, userText: req.text, tools, history, temp: req.agentJob ? 0 : undefined, images: p.vision ? req.images : undefined });
     recordProviderUse(p.id);
     if (!r.failed) this.deps.usage?.recordEngine({ [`${p.kind}:${p.id}:${p.model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
@@ -1442,7 +1498,7 @@ export class Engine {
       `(documents, exports, outputs, downloads) under "${config.workDir}". Put scripts you install — ` +
       `.bat/.ps1/.sh, e.g. ones a scheduled task runs — under "${config.batDir}". Create these folders if ` +
       `missing. Only use a different path when the user gives an explicit absolute one.`;
-    const append = [agentRole, laws, buildPersona(dispName), this.deps.memory.systemPromptBlock(), memoryAware, skillsHint, escalationHint, searchHint, localHint, pathRule, config.systemPromptAppend, nameLock]
+    const append = [agentRole, laws, buildPersona(dispName), this.deps.memory.systemPromptBlock(req.agentName), memoryAware, skillsHint, escalationHint, searchHint, localHint, pathRule, config.systemPromptAppend, nameLock]
       .filter(Boolean)
       .join('\n\n');
 
@@ -1496,7 +1552,7 @@ export class Engine {
       env: engineEnv(),
       mcpServers,
       agents: this.deps.agents,
-      ...(existing ? { resume: existing.sessionId } : {}),
+      ...(existing && !req.freshContext ? { resume: existing.sessionId } : {}),
       stderr: (d) => {
         const t = d.trim();
         if (t) logger.warn({ cc: t }, 'cc-stderr');
@@ -1508,7 +1564,7 @@ export class Engine {
     // context so a conversation that bounced local <-> Claude stays coherent. (`recent` is
     // chronological; we take only turns newer than Claude's last and cap the block.)
     const sinceClaude = existing?.lastClaudeTs ?? 0;
-    const unseen = (this.deps.sessionIndex?.recent(req.conversationKey, 20) ?? []).filter((t) => t.ts > sinceClaude);
+    const unseen = req.freshContext ? [] : (this.deps.sessionIndex?.recent(req.conversationKey, 20) ?? []).filter((t) => t.ts > sinceClaude);
     let priorContext = '';
     if (unseen.length) {
       const lines = unseen

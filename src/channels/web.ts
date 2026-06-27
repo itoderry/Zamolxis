@@ -15,10 +15,11 @@ import type { TabsManager } from '../core/tabs.js';
 import type { UsageTracker } from '../core/usage.js';
 import type { SkillsManager } from '../skills/manager.js';
 import type { MemoryManager } from '../core/memory.js';
-import type { AgentStore } from '../core/agents.js';
+import type { AgentStore, AgentDef } from '../core/agents.js';
 import { packSetup, type PackParts } from '../core/pack.js';
 import { extractDocText } from '../core/extract.js';
 import { outlookMailData, outlookPimData, outlookOpen } from '../core/outlookLocal.js';
+import { agentPrecheck } from '../core/agentPrecheck.js';
 import { onenoteData, sqlQueryData, browserHistoryData, sqlConnections, sqlAddConnection, sqlRemoveConnection } from '../core/localApps.js';
 import { getCanvas } from '../core/canvas.js';
 import { listApps, rescanApps, launchHostApp, appIconPng } from '../core/appscan.js';
@@ -242,7 +243,7 @@ export class WebChannel implements Channel {
     private readonly skills?: SkillsManager,
     private readonly memory?: MemoryManager,
     private readonly agentStore?: AgentStore,
-    private readonly runAgent?: (name: string, task?: string) => Promise<{ reply: string; via?: string }>,
+    private readonly runAgent?: (name: string, task?: string, force?: boolean) => Promise<{ reply: string; via?: string; isError?: boolean }>,
     /** Live agent-message log (agent->agent and agent->user), polled by the Agents chat. */
     private readonly agentMsgs?: Array<{ from: string; to: string; text: string; ts: number; via?: string }>,
     /** Schedule a named agent on a cron expression (deterministic — does not rely on the model). */
@@ -282,6 +283,8 @@ export class WebChannel implements Channel {
     private readonly channelMessages?: (channel: string) => Array<{ chatId: string; from?: string; dir: string; text: string; ts: number }>,
     /** Messages client: send a message out through a channel. */
     private readonly sendToChannel?: (channel: string, chatId: string, text: string) => Promise<{ ok: boolean; error?: string }>,
+    /** Per-agent published "last result" pages, served at /<agent-name>. */
+    private readonly agentPages?: { get: (name: string) => { text: string; ts: number; via?: string } | undefined },
   ) {
     const { bind, authToken } = config.web;
     if (!LOOPBACK.includes(bind) && !authToken) {
@@ -348,6 +351,59 @@ export class WebChannel implements Channel {
     res.end(JSON.stringify(body));
   }
 
+  /** Render an agent's latest result as a standalone web page (the "Web page" delivery target). */
+  private renderAgentPage(agent: AgentDef, page?: { text: string; ts: number; via?: string }): string {
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const title = esc(agent.label || agent.name);
+    const body = page ? this.mdToHtml(page.text) : `<p class="empty">${esc('No result yet — run this agent (or wait for its schedule) and it will appear here.')}</p>`;
+    const when = page ? new Date(page.ts).toLocaleString() : '';
+    const meta = page ? `<div class="meta">Last updated ${esc(when)}${page.via ? ' · via ' + esc(page.via) : ''}</div>` : '';
+    // Auto-refresh so a left-open page reflects the next run without a manual reload.
+    return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="60"><title>${title}</title>
+<style>
+:root{color-scheme:dark light}
+body{margin:0;background:#0c0a07;color:#e8e2d4;font:15px/1.65 system-ui,Segoe UI,Roboto,sans-serif}
+main{max-width:820px;margin:0 auto;padding:32px 22px 64px}
+h1{font-size:22px;margin:0 0 2px} .meta{color:#9a9384;font-size:12.5px;margin-bottom:22px}
+.card{background:#15110b;border:1px solid #2a2218;border-radius:12px;padding:20px 22px}
+.card h2{font-size:18px;margin:18px 0 8px} .card h3{font-size:15.5px;margin:14px 0 6px}
+.card ul{margin:8px 0;padding-left:22px} .card li{margin:4px 0}
+.card a{color:#d4a55a} .card p{margin:10px 0} .empty{color:#9a9384}
+code{background:#1f1810;padding:1px 5px;border-radius:5px}
+.foot{margin-top:20px;font-size:12px;color:#6f6857}
+</style></head><body><main>
+<h1>${title}</h1>${meta}
+<div class="card">${body}</div>
+<div class="foot">Zamolxis agent page · refreshes automatically · <a href="/">open Zamolxis</a></div>
+</main></body></html>`;
+  }
+
+  /** Minimal, safe Markdown→HTML for agent results: escapes first, then headings, bullets,
+   *  bold, inline code, and links (markdown + bare URLs). Good enough for briefings and tables-of-bullets. */
+  private mdToHtml(src: string): string {
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const inline = (s: string) =>
+      esc(s)
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+        .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>');
+    const out: string[] = [];
+    let inList = false;
+    const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+    for (const raw of String(src).split(/\r?\n/)) {
+      const line = raw.trimEnd();
+      const h = /^(#{1,6})\s+(.*)$/.exec(line);
+      const li = /^[-*]\s+(.*)$/.exec(line);
+      if (h) { closeList(); const lvl = Math.min(h[1]!.length + 1, 4); out.push(`<h${lvl}>${inline(h[2]!)}</h${lvl}>`); }
+      else if (li) { if (!inList) { out.push('<ul>'); inList = true; } out.push(`<li>${inline(li[1]!)}</li>`); }
+      else if (!line.trim()) { closeList(); }
+      else { closeList(); out.push(`<p>${inline(line)}</p>`); }
+    }
+    closeList();
+    return out.join('\n');
+  }
+
   /** Serve a static asset from <repo>/webui (the native-OS desktop UI), guarding path traversal. Returns false if not found. */
   private serveWebUiAsset(res: http.ServerResponse, rel: string): boolean {
     const clean = rel.replace(/\?.*$/, '').replace(/\\/g, '/');
@@ -397,6 +453,18 @@ export class WebChannel implements Channel {
         res.end(PAGE.replace(/__AGENT_NAME__/g, name));
       }
       return;
+    }
+    // Published agent page: GET /<agent-name> shows that agent's latest result, when the agent has
+    // "Web page" delivery turned on. A stable URL that always reflects the most recent run.
+    if (req.method === 'GET' && /^\/[a-z0-9][a-z0-9_-]*$/.test(url.pathname)) {
+      const slug = url.pathname.slice(1);
+      const a = this.agentStore?.get(slug);
+      if (a && a.deliver?.web) {
+        if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        res.end(this.renderAgentPage(a, this.agentPages?.get(slug)));
+        return;
+      }
     }
     if (url.pathname === '/healthz') {
       res.writeHead(200, { 'content-type': 'text/plain' });
@@ -1158,8 +1226,19 @@ $out | ConvertTo-Json -Compress`, 40000));
                 const c = await this.nlToCron(task);
                 if (c.cron) { this.scheduleAgent(name, c.cron, undefined); scheduled = { cron: c.cron, note: c.note }; }
               }
-              const r = await this.runAgent(name, task);
-              return this.json(res, 200, { ok: true, reply: r.reply, via: r.via, scheduled, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
+              // Cheap, no-LLM gate for headless/scheduled runs: skip the whole model turn when a tiny
+              // probe says nothing's changed (no new mail, no Jira movement). Manual runs from the UI
+              // (no deliver flag) always go through — the user clicked Run and wants an answer.
+              if (o.deliver) {
+                const pre = await agentPrecheck(name);
+                if (!pre.run) return this.json(res, 200, { ok: true, skipped: true, reason: pre.reason, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
+              }
+              // A manual run from the UI (no deliver flag) is an explicit "do it now" — force it so a
+              // paused/stopped agent still runs on demand. The scheduled/headless path (deliver:true)
+              // leaves force off, so a paused agent is still skipped there.
+              const manual = o.deliver !== true;
+              const r = await this.runAgent(name, task, manual);
+              return this.json(res, 200, { ok: !r.isError, error: r.isError ? r.reply : undefined, reply: r.reply, via: r.via, scheduled, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
             }
             if (action === 'schedule') {
               if (!this.scheduleAgent) return this.json(res, 400, { error: 'scheduling unavailable' });
@@ -1194,6 +1273,29 @@ $out | ConvertTo-Json -Compress`, 40000));
             if (action === 'unschedule') {
               const ok = this.cancelSchedule ? this.cancelSchedule(String(o.id || '')) : false;
               return this.json(res, 200, { ok, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
+            }
+            if (action === 'stopall' || action === 'resumeall') {
+              // Pause (or resume) every agent's schedule at once — the Settings "Pause all" control.
+              if (!this.stopAgent) return this.json(res, 400, { error: 'stop unavailable' });
+              const stop = action === 'stopall';
+              let affected = 0;
+              for (const a of this.agentStore.list()) { const r = await this.stopAgent(a.name, stop); if (r.ok) affected++; }
+              return this.json(res, 200, { ok: true, affected, stopped: stop, agents: this.agentStore.list(), schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
+            }
+            if (action === 'model') {
+              // Change the model an agent runs on (from the Sub-agents settings list / agent window).
+              const model = String(o.model || '').trim();
+              if (!model) return this.json(res, 400, { error: 'model required' });
+              const a = this.agentStore.setModel(String(o.name || ''), model);
+              if (!a) return this.json(res, 400, { error: 'no such agent' });
+              return this.json(res, 200, { ok: true, model: a.model, agents: this.agentStore.list() });
+            }
+            if (action === 'deliver') {
+              // Where this agent posts its output: the chat/agent feed, a Slack channel, and/or
+              // a web page at /<name> that shows its latest result.
+              const a = this.agentStore.setDeliver(String(o.name || ''), { chat: o.chat !== false, slack: !!o.slack, slackChannel: typeof o.slackChannel === 'string' ? o.slackChannel : undefined, web: !!o.web });
+              if (!a) return this.json(res, 400, { error: 'no such agent' });
+              return this.json(res, 200, { ok: true, deliver: a.deliver, agents: this.agentStore.list() });
             }
             return this.json(res, 400, { error: 'unknown action' });
           } catch (err) {

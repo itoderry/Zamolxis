@@ -32,6 +32,7 @@ import { initAppScan } from './core/appscan.js';
 import { initUrlWatch } from './core/urlwatch.js';
 import { initJiraWatch } from './core/jirawatch.js';
 import { PREMADE_AGENTS } from './core/premadeAgents.js';
+import { AgentPages } from './core/agentPages.js';
 import { BanStore, isSmartestModel } from './core/bans.js';
 import { configuredProviders } from './core/providers.js';
 import { buildToolServers } from './tools/index.js';
@@ -134,22 +135,62 @@ async function main(): Promise<void> {
   // Pre-made agents (seeded once per name; the user can edit, reschedule, stop, or delete them
   // like any other agent and they are NOT re-imposed). Cron schedules are seeded only together
   // with the agent's first creation, so a deleted schedule stays deleted.
+  // Only the two heaviest-reasoning agents start on the top Claude tier; everything else runs on
+  // Sonnet, which is plenty for routine watch/triage work and a fraction of the token cost. New
+  // agents are seeded PAUSED so a fresh install doesn't quietly burn the model budget — the user
+  // turns on the ones they actually want from the Sub-agents panel.
+  const TOP_TIER = new Set(['research-analyst', 'pr-reviewer']);
   for (const pre of PREMADE_AGENTS) {
     try {
       if (agentStore.get(pre.name)) continue;
-      agentStore.upsert({ name: pre.name, label: pre.label, job: pre.job, tools: pre.tools, model: 'claude', canElevate: true, open: pre.open, createdBy: 'user', help: pre.help, guide: pre.guide });
+      agentStore.upsert({ name: pre.name, label: pre.label, job: pre.job, tools: pre.tools, model: TOP_TIER.has(pre.name) ? 'claude' : 'sonnet', canElevate: true, open: pre.open, createdBy: 'user', help: pre.help, guide: pre.guide });
+      agentStore.setStopped(pre.name, true);
       if (pre.cron && scheduler.countByAgent(pre.name) === 0) {
         scheduler.add({ name: `agent:${pre.name}`, agent: pre.name, prompt: '', cron: pre.cron, channel: 'agent', chatId: pre.name, conversationKey: `agent:${pre.name}` });
+        scheduler.setAgentEnabled(pre.name, false); // seeded paused: schedule defined but disarmed
       }
       logger.info({ name: pre.name, cron: pre.cron }, 'pre-made agent seeded');
     } catch (err) {
       logger.warn({ err: String(err), name: pre.name }, 'pre-made agent seeding skipped');
     }
   }
+  // One-time usage clamp for installs that seeded the pre-made agents on the top tier / aggressive
+  // cadences: move routine agents off the top tier onto Sonnet (only if still on a default tier, so
+  // a deliberate choice is preserved), re-time the two agents whose cadence changed, and pause
+  // everything so nothing runs until the user opts in. Once only (marker), so later tweaks stick.
+  // NOTE: this only changes Claude tiers + paused state — the provider routing (paid/free/local) is
+  // untouched. Re-enable any agent from Settings → Sub-agents.
+  try {
+    const fsmod = await import('node:fs');
+    const pathmod = await import('node:path');
+    const usageMarker = pathmod.join(config.dataDir, '.premade-usage-v1');
+    if (!fsmod.existsSync(usageMarker)) {
+      const keepTopTier = new Set(['research-analyst', 'pr-reviewer']);
+      const recadence: Record<string, string> = { 'jira-watcher': '0 8-17 * * 1-5', 'meeting-prep': '0 */3 * * 1-5' };
+      for (const pre of PREMADE_AGENTS) {
+        const a = agentStore.get(pre.name);
+        if (!a) continue;
+        if (!keepTopTier.has(pre.name) && (a.model === 'claude' || a.model === 'auto')) agentStore.setModel(pre.name, 'sonnet');
+        const cron = recadence[pre.name];
+        if (cron) {
+          for (const j of scheduler.list().filter((s) => s.agent === pre.name)) scheduler.cancel(j.id);
+          scheduler.add({ name: `agent:${pre.name}`, agent: pre.name, prompt: '', cron, channel: 'agent', chatId: pre.name, conversationKey: `agent:${pre.name}` });
+        }
+        agentStore.setStopped(pre.name, true);
+        scheduler.setAgentEnabled(pre.name, false);
+      }
+      fsmod.writeFileSync(usageMarker, new Date().toISOString());
+      logger.info('one-time pre-made agent usage clamp applied (Sonnet tier + paused)');
+    }
+  } catch (err) {
+    logger.warn({ err: String(err) }, 'usage-clamp migration skipped');
+  }
   // Per-(model, skill) ban list: a banned model refuses that capability; auto-populated on escalate.
   const bans = new BanStore(config.dataDir);
+  // Per-agent published "last result" pages, served at /<agent-name> when web delivery is on.
+  const agentPages = new AgentPages(config.dataDir);
   const engine = new Engine({
-    config, sessions, throttle, memory, sessionIndex, usage, skills, agentStore, bans, onAgentMessage: pushAgentMsg,
+    config, sessions, throttle, memory, sessionIndex, usage, skills, agentStore, bans, pages: agentPages, onAgentMessage: pushAgentMsg,
     scheduleAgent: (name, cron, task) => void scheduler.add({ name: `agent:${name}`, agent: name, prompt: task || '', cron, channel: 'agent', chatId: name, conversationKey: `agent:${name}` }),
     countAgentSchedules: (name) => scheduler.countByAgent(name),
     setAgentSchedulesEnabled: (name, enabled) => scheduler.setAgentEnabled(name, enabled),
@@ -162,6 +203,13 @@ async function main(): Promise<void> {
 
   // Wire the scheduler to the engine + channels (created above).
   scheduler.wire(engine, manager);
+  // OPT-IN (set ZAMOLXIS_AGENT_TRIGGER=windows): mirror each scheduled agent into the Windows Task
+  // Scheduler so the OS triggers it (it shows up there and fires even with the app closed), instead
+  // of the in-process timer. Each schedule becomes a task that runs `zamolxis run-agent <name>`.
+  // Defaulted OFF so it doesn't silently move live agents to OS scheduling / create schtasks; the
+  // full machinery is in place and flips on with that env var.
+  scheduler.winTrigger = process.platform === 'win32' && (process.env.ZAMOLXIS_AGENT_TRIGGER || '').toLowerCase() === 'windows';
+  scheduler.winExec = { nodeExe: process.execPath, binPath: fileURLToPath(new URL('../bin/zamolxis.mjs', import.meta.url)) };
 
   let reloading = false;
 
@@ -182,7 +230,7 @@ async function main(): Promise<void> {
       [config.channels.whatsapp, () => new WhatsAppChannel(config.dataDir)],
       [config.channels.signal, () => new SignalChannel()],
       [config.channels.email, () => new EmailChannel()],
-      [config.channels.web, () => new WebChannel(config, settings, reload, (key) => sessions.purge(key), tabs, usage, skills, memory, agentStore, (n, t) => engine.runAgent(n, t).then((r) => ({ reply: r.reply, via: r.via })), agentMsgs,
+      [config.channels.web, () => new WebChannel(config, settings, reload, (key) => sessions.purge(key), tabs, usage, skills, memory, agentStore, (n, t, force) => engine.runAgent(n, t, { force }).then((r) => ({ reply: r.reply, via: r.via, isError: r.isError })), agentMsgs,
         (name, cron, task) => scheduler.add({ name: `agent:${name}`, agent: name, prompt: task || '', cron, channel: 'agent', chatId: name, conversationKey: `agent:${name}` }),
         () => scheduler.list().filter((j) => j.agent).map((j) => ({ id: j.id, agent: j.agent, cron: j.cron, at: j.at, prompt: j.prompt })),
         (id) => scheduler.cancel(id),
@@ -200,7 +248,8 @@ async function main(): Promise<void> {
         },
         () => manager.connectedChannels(),
         (name) => manager.channelMessages(name),
-        (name, chatId, text) => manager.sendToChannel(name, chatId, text))],
+        (name, chatId, text) => manager.sendToChannel(name, chatId, text),
+        agentPages)],
     ];
     for (const [enabled, make] of factories) {
       if (!enabled) continue;
