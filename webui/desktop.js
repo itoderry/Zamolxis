@@ -1021,8 +1021,7 @@
         var card = el('div'); card.style.cssText = 'border:1px solid rgba(128,128,128,.2);border-radius:8px;padding:10px 12px;background:rgba(128,128,128,.04)';
         var titleRow = el('div'); titleRow.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap';
         var nm = el('strong'); nm.textContent = agent.label || agent.name; titleRow.appendChild(nm);
-        var modelSel = el('select'); modelSel.title = T('Change the model this agent runs on');
-        modelSel.style.cssText = 'font-size:11px;padding:1px 6px;border:1px solid rgba(128,128,128,.3);border-radius:10px;background:transparent;color:inherit;cursor:pointer';
+        var modelSel = el('select', 'agent-model-sel'); modelSel.title = T('Change the model this agent runs on');
         fillSelect(modelSel, modelOpts, agent.model || 'claude');
         titleRow.appendChild(modelSel);
         var modelNote = el('span', 'hint'); modelNote.style.fontSize = '11px'; titleRow.appendChild(modelNote);
