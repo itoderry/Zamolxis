@@ -135,17 +135,55 @@ async function main(): Promise<void> {
   // Pre-made agents (seeded once per name; the user can edit, reschedule, stop, or delete them
   // like any other agent and they are NOT re-imposed). Cron schedules are seeded only together
   // with the agent's first creation, so a deleted schedule stays deleted.
+  // Only the two heaviest-reasoning agents start on the top Claude tier; everything else runs on
+  // Sonnet, which is plenty for routine watch/triage work and a fraction of the token cost. New
+  // agents are seeded PAUSED so a fresh install doesn't quietly burn the model budget — the user
+  // turns on the ones they actually want from the Sub-agents panel.
+  const TOP_TIER = new Set(['research-analyst', 'pr-reviewer']);
   for (const pre of PREMADE_AGENTS) {
     try {
       if (agentStore.get(pre.name)) continue;
-      agentStore.upsert({ name: pre.name, label: pre.label, job: pre.job, tools: pre.tools, model: 'claude', canElevate: true, open: pre.open, createdBy: 'user', help: pre.help, guide: pre.guide });
+      agentStore.upsert({ name: pre.name, label: pre.label, job: pre.job, tools: pre.tools, model: TOP_TIER.has(pre.name) ? 'claude' : 'sonnet', canElevate: true, open: pre.open, createdBy: 'user', help: pre.help, guide: pre.guide });
+      agentStore.setStopped(pre.name, true);
       if (pre.cron && scheduler.countByAgent(pre.name) === 0) {
         scheduler.add({ name: `agent:${pre.name}`, agent: pre.name, prompt: '', cron: pre.cron, channel: 'agent', chatId: pre.name, conversationKey: `agent:${pre.name}` });
+        scheduler.setAgentEnabled(pre.name, false); // seeded paused: schedule defined but disarmed
       }
       logger.info({ name: pre.name, cron: pre.cron }, 'pre-made agent seeded');
     } catch (err) {
       logger.warn({ err: String(err), name: pre.name }, 'pre-made agent seeding skipped');
     }
+  }
+  // One-time usage clamp for installs that seeded the pre-made agents on the top tier / aggressive
+  // cadences: move routine agents off the top tier onto Sonnet (only if still on a default tier, so
+  // a deliberate choice is preserved), re-time the two agents whose cadence changed, and pause
+  // everything so nothing runs until the user opts in. Once only (marker), so later tweaks stick.
+  // NOTE: this only changes Claude tiers + paused state — the provider routing (paid/free/local) is
+  // untouched. Re-enable any agent from Settings → Sub-agents.
+  try {
+    const fsmod = await import('node:fs');
+    const pathmod = await import('node:path');
+    const usageMarker = pathmod.join(config.dataDir, '.premade-usage-v1');
+    if (!fsmod.existsSync(usageMarker)) {
+      const keepTopTier = new Set(['research-analyst', 'pr-reviewer']);
+      const recadence: Record<string, string> = { 'jira-watcher': '0 8-17 * * 1-5', 'meeting-prep': '0 */3 * * 1-5' };
+      for (const pre of PREMADE_AGENTS) {
+        const a = agentStore.get(pre.name);
+        if (!a) continue;
+        if (!keepTopTier.has(pre.name) && (a.model === 'claude' || a.model === 'auto')) agentStore.setModel(pre.name, 'sonnet');
+        const cron = recadence[pre.name];
+        if (cron) {
+          for (const j of scheduler.list().filter((s) => s.agent === pre.name)) scheduler.cancel(j.id);
+          scheduler.add({ name: `agent:${pre.name}`, agent: pre.name, prompt: '', cron, channel: 'agent', chatId: pre.name, conversationKey: `agent:${pre.name}` });
+        }
+        agentStore.setStopped(pre.name, true);
+        scheduler.setAgentEnabled(pre.name, false);
+      }
+      fsmod.writeFileSync(usageMarker, new Date().toISOString());
+      logger.info('one-time pre-made agent usage clamp applied (Sonnet tier + paused)');
+    }
+  } catch (err) {
+    logger.warn({ err: String(err) }, 'usage-clamp migration skipped');
   }
   // Per-(model, skill) ban list: a banned model refuses that capability; auto-populated on escalate.
   const bans = new BanStore(config.dataDir);

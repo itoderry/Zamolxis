@@ -162,21 +162,24 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
     async (args) => {
       const profile = args.scope === 'profile';
       const label = profile ? 'Profile' : 'Memory';
+      // Working memory is per-agent (so agents don't read each other's notes); the user profile is
+      // shared. An agent turn has conversationKey "agent:<name>"; the main chat has none.
+      const wmAgent = profile ? undefined : (ctx.conversationKey.startsWith('agent:') ? ctx.conversationKey.slice('agent:'.length) : undefined);
       switch (args.action) {
         case 'list': {
-          const u = profile ? deps.memory.userUsage() : deps.memory.usage();
-          const items = profile ? deps.memory.userList() : deps.memory.list();
+          const u = profile ? deps.memory.userUsage() : deps.memory.usage(wmAgent);
+          const items = profile ? deps.memory.userList() : deps.memory.list(wmAgent);
           return text(`${label} ${u.pct}% full (${u.chars}/${u.max} chars):\n${items.length ? items.map((e) => `- ${e}`).join('\n') : '(empty)'}`);
         }
         case 'add':
           if (!args.text) return text('Provide `text` to record.');
-          return text((profile ? deps.memory.addUser(args.text) : deps.memory.add(args.text)).message);
+          return text((profile ? deps.memory.addUser(args.text) : deps.memory.add(args.text, wmAgent)).message);
         case 'replace':
           if (!(args.find && args.text)) return text('Provide both `find` and `text`.');
-          return text((profile ? deps.memory.replaceUser(args.find, args.text) : deps.memory.replace(args.find, args.text)).message);
+          return text((profile ? deps.memory.replaceUser(args.find, args.text) : deps.memory.replace(args.find, args.text, wmAgent)).message);
         case 'remove':
           if (!args.find) return text('Provide `find`.');
-          return text((profile ? deps.memory.removeUser(args.find) : deps.memory.remove(args.find)).message);
+          return text((profile ? deps.memory.removeUser(args.find) : deps.memory.remove(args.find, wmAgent)).message);
         default:
           return text('Unknown action.');
       }

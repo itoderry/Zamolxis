@@ -47,6 +47,8 @@ export interface RunRequest {
   escalated?: boolean;
   /** Agent run: the agent's role/instructions, prepended to the system prompt. */
   agentJob?: string;
+  /** Agent run: the agent's name — selects its OWN working-memory file so agents don't share notes. */
+  agentName?: string;
   /** Agent run: restrict the tool-using tiers to only these tool names ([] / undefined = all). */
   agentTools?: string[];
   /** Agent run: allow falling back to Claude (smartest) even on a fixed tier / chain without it. */
@@ -123,6 +125,33 @@ const AUTH_EXPIRED_MSG =
 // Loop guard for agent->agent messaging: at most this many agent-triggered runs in flight at once.
 let AGENT_HOPS = 0;
 const MAX_AGENT_HOPS = 6;
+
+const DOW_NAMES: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+/** Parse the common plain-language schedules into a 5-field cron WITHOUT the model, so the
+ *  Schedule button works instantly and even when the smart model is unreachable. Returns null
+ *  for anything it doesn't confidently recognize (then the caller falls back to the model). */
+function localCron(textRaw: string): { cron: string; note: string } | null {
+  const t = textRaw.toLowerCase().trim();
+  let m: RegExpExecArray | null;
+  if ((m = /\bevery\s+(\d+)\s*min(?:ute)?s?\b/.exec(t))) return { cron: `*/${Number(m[1])} * * * *`, note: `Runs every ${Number(m[1])} minute(s).` };
+  if (/\bevery\s+minute\b/.test(t)) return { cron: '* * * * *', note: 'Runs every minute.' };
+  if ((m = /\bevery\s+(\d+)\s*hours?\b/.exec(t))) return { cron: `0 */${Number(m[1])} * * *`, note: `Runs every ${Number(m[1])} hour(s).` };
+  if (/\b(every\s+hour|hourly)\b/.test(t)) return { cron: '0 * * * *', note: 'Runs hourly.' };
+  // A time of day ("at 9am", "9:30 pm", "at 7").
+  const tm = /\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/.exec(t) || /\bat\s+(\d{1,2})(?::(\d{2}))?\b/.exec(t);
+  let hh: number | undefined; let mm = 0;
+  if (tm) { hh = Number(tm[1]); mm = tm[2] ? Number(tm[2]) : 0; const ap = tm[3]; if (ap === 'pm' && hh < 12) hh += 12; if (ap === 'am' && hh === 12) hh = 0; }
+  let dow = '*';
+  if (/\bweekdays?\b/.test(t)) dow = '1-5';
+  else if (/\bweekends?\b/.test(t)) dow = '0,6';
+  else { const picked: number[] = []; for (const [name, n] of Object.entries(DOW_NAMES)) if (new RegExp('\\b' + name + 's?\\b').test(t)) picked.push(n); if (picked.length) dow = picked.sort((a, b) => a - b).join(','); }
+  const daily = /\b(daily|every day|each day|every morning|each morning|every evening|every night|each night)\b/.test(t);
+  if (hh !== undefined && hh <= 23 && (daily || dow !== '*' || /\bat\b/.test(t))) {
+    const dowNote = dow === '1-5' ? ' on weekdays' : dow === '0,6' ? ' on weekends' : dow !== '*' ? ' on the chosen day(s)' : ' daily';
+    return { cron: `${mm} ${hh} * * ${dow}`, note: `Runs at ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}${dowNote}.` };
+  }
+  return null;
+}
 
 function sanitizeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
@@ -579,6 +608,7 @@ export class Engine {
       text: adhoc ? task! : `Do your job now.`,
       route,
       agentJob,
+      agentName: def.name,
       agentTools: def.tools,
       elevate: def.canElevate,
       // A standing-job run starts from a clean slate so it executes the job, not a continuation of
@@ -659,14 +689,23 @@ export class Engine {
   async nlToCron(text: string): Promise<{ cron?: string; note: string }> {
     const t = (text || '').trim();
     if (!t) return { note: 'empty' };
-    const system =
-      'Convert a plain-language schedule into a SINGLE standard 5-field cron expression (minute hour day-of-month month day-of-week). ' +
-      'Output ONLY one JSON object: {"cron": string|null, "note": string}. cron is the expression (e.g. "*/5 * * * *" = every 5 minutes, "0 9 * * 1-5" = 9am weekdays); note is a short human-readable confirmation. ' +
-      'If the text is not a recurring/timed schedule, output {"cron": null, "note": "why"}.';
-    const raw = await this.oneShotClaude(system, `Schedule: ${t}\n\nJSON:`, this.deps.config.smartModel || this.deps.config.model);
-    const o = this.parseJsonObject(raw);
-    const cron = o && typeof o.cron === 'string' && o.cron.trim() ? o.cron.trim() : undefined;
-    return { cron, note: o && typeof o.note === 'string' ? o.note : '' };
+    // Deterministic first: common phrases ("every 5 minutes", "weekdays at 9am", "daily at 7:30")
+    // parse locally so scheduling works instantly and even when the smart model is unavailable.
+    const local = localCron(t);
+    if (local) return local;
+    // Otherwise ask the smart model (and degrade gracefully if it can't be reached).
+    try {
+      const system =
+        'Convert a plain-language schedule into a SINGLE standard 5-field cron expression (minute hour day-of-month month day-of-week). ' +
+        'Output ONLY one JSON object: {"cron": string|null, "note": string}. cron is the expression (e.g. "*/5 * * * *" = every 5 minutes, "0 9 * * 1-5" = 9am weekdays); note is a short human-readable confirmation. ' +
+        'If the text is not a recurring/timed schedule, output {"cron": null, "note": "why"}.';
+      const raw = await this.oneShotClaude(system, `Schedule: ${t}\n\nJSON:`, this.deps.config.smartModel || this.deps.config.model);
+      const o = this.parseJsonObject(raw);
+      const cron = o && typeof o.cron === 'string' && o.cron.trim() ? o.cron.trim() : undefined;
+      return { cron, note: o && typeof o.note === 'string' ? o.note : '' };
+    } catch {
+      return { note: 'Could not parse that schedule.' };
+    }
   }
 
   /** Current date/time as a string in the user's configured timezone (config.timezone), so agents
@@ -1459,7 +1498,7 @@ export class Engine {
       `(documents, exports, outputs, downloads) under "${config.workDir}". Put scripts you install — ` +
       `.bat/.ps1/.sh, e.g. ones a scheduled task runs — under "${config.batDir}". Create these folders if ` +
       `missing. Only use a different path when the user gives an explicit absolute one.`;
-    const append = [agentRole, laws, buildPersona(dispName), this.deps.memory.systemPromptBlock(), memoryAware, skillsHint, escalationHint, searchHint, localHint, pathRule, config.systemPromptAppend, nameLock]
+    const append = [agentRole, laws, buildPersona(dispName), this.deps.memory.systemPromptBlock(req.agentName), memoryAware, skillsHint, escalationHint, searchHint, localHint, pathRule, config.systemPromptAppend, nameLock]
       .filter(Boolean)
       .join('\n\n');
 

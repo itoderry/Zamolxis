@@ -62,6 +62,7 @@ export class MemoryManager {
   private readonly soulFile: string;
   private readonly userFile: string;
   private readonly memFile: string;
+  private readonly agentMemDir: string;
   private readonly learnFile: string;
   private readonly learnings: LearningsStore;
 
@@ -70,6 +71,9 @@ export class MemoryManager {
     this.soulFile = path.join(dataDir, 'SOUL.md');
     this.userFile = path.join(dataDir, 'USER.md');
     this.memFile = path.join(dataDir, 'MEMORY.md');
+    // Each agent keeps its OWN working notes here so one agent's task state never leaks into
+    // another's context. The shared MEMORY.md above is the working memory for the main chat only.
+    this.agentMemDir = path.join(dataDir, 'agent-memory');
     this.learnFile = path.join(dataDir, 'LEARNINGS.md');
     if (!fs.existsSync(this.learnFile)) fs.writeFileSync(this.learnFile, '');
     if (!fs.existsSync(this.lawsFile)) fs.writeFileSync(this.lawsFile, LAWS_SEED);
@@ -257,24 +261,32 @@ export class MemoryManager {
     return { ok: true, message: `Removed ${entries.length - kept.length} entry(ies). ${label} now ${this.docUsage(file, max).pct}% full.` };
   }
 
-  // ── MEMORY.md: the agent's working notes (no header) ──
-  list(): string[] {
-    return this.docList(this.memFile);
+  // ── MEMORY.md: working notes (no header). With an `agent` name, routes to that agent's OWN
+  //    notes file (agent-memory/<agent>.md) so agents never read each other's task state; without
+  //    one, the shared MEMORY.md (used by the main chat). ──
+  private memFileFor(agent?: string): string {
+    if (!agent) return this.memFile;
+    const safe = agent.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'agent';
+    try { if (!fs.existsSync(this.agentMemDir)) fs.mkdirSync(this.agentMemDir, { recursive: true }); } catch { /* best-effort */ }
+    return path.join(this.agentMemDir, `${safe}.md`);
   }
-  usage(): MemoryUsage {
-    return this.docUsage(this.memFile, MEMORY_MAX);
+  list(agent?: string): string[] {
+    return this.docList(this.memFileFor(agent));
+  }
+  usage(agent?: string): MemoryUsage {
+    return this.docUsage(this.memFileFor(agent), MEMORY_MAX);
   }
   private writeEntries(entries: string[]): void {
     this.docWrite(this.memFile, null, entries);
   }
-  add(text: string): { ok: boolean; message: string } {
-    return this.docAdd(this.memFile, null, MEMORY_MAX, 'Memory', text);
+  add(text: string, agent?: string): { ok: boolean; message: string } {
+    return this.docAdd(this.memFileFor(agent), null, MEMORY_MAX, 'Memory', text);
   }
-  replace(find: string, text: string): { ok: boolean; message: string } {
-    return this.docReplace(this.memFile, null, MEMORY_MAX, 'Memory', find, text);
+  replace(find: string, text: string, agent?: string): { ok: boolean; message: string } {
+    return this.docReplace(this.memFileFor(agent), null, MEMORY_MAX, 'Memory', find, text);
   }
-  remove(find: string): { ok: boolean; message: string } {
-    return this.docRemove(this.memFile, null, MEMORY_MAX, 'Memory', find);
+  remove(find: string, agent?: string): { ok: boolean; message: string } {
+    return this.docRemove(this.memFileFor(agent), null, MEMORY_MAX, 'Memory', find);
   }
 
   // ── USER.md: the agent-curated profile of the user (header preserved) ──
@@ -380,7 +392,7 @@ export class MemoryManager {
   }
 
   /** The curated block injected into the system prompt every turn. */
-  systemPromptBlock(): string {
+  systemPromptBlock(agent?: string): string {
     const parts: string[] = [];
     const soul = this.getSoul().replace(/^#.*$/m, '').trim();
     if (soul) parts.push(`## Persona / voice (defined by the user — do not rewrite it)\n${soul}`);
@@ -389,8 +401,8 @@ export class MemoryManager {
     parts.push(
       `## About the user [${uu.pct}% of ${uu.max} chars] — you maintain this profile with the \`memory\` tool using scope="profile" (add / replace / remove). Record durable facts about the user here (name, timezone, communication style, recurring projects, things to avoid); keep it concise and consolidate when it nears full.\n${user || '(empty)'}`,
     );
-    const entries = this.list();
-    const u = this.usage();
+    const entries = this.list(agent);
+    const u = this.usage(agent);
     parts.push(
       `## Your working memory [${u.pct}% of ${u.max} chars] — you curate this with the \`memory\` tool (default scope="memory"). Use it for ongoing tasks and context that isn't part of the user's profile. Keep it concise; when it nears full, consolidate or drop stale entries.\n${
         entries.length ? entries.map((e) => `- ${e}`).join('\n') : '(empty)'
