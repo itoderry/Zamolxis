@@ -315,6 +315,10 @@ body[data-mode="dark"] .msg.bot { background: #3a3a3a; color: #eaeaea; }
 body[data-mode="dark"] #status, body[data-mode="dark"] .chat-bar, body[data-mode="dark"] .chat-input { background: #242424; color: #bdbdbd; border-color: rgba(255,255,255,.08); }
 body[data-mode="dark"] .chat-input textarea, body[data-mode="dark"] .inp, body[data-mode="dark"] select.inp, body[data-mode="dark"] textarea.inp { background: #1e1e1e; color: #eaeaea; border-color: rgba(255,255,255,.16); }
 body[data-mode="dark"] .agent-head, body[data-mode="dark"] .skill { border-color: rgba(255,255,255,.08); }
+/* Sub-agents model dropdown (badge-styled). Explicit colors + color-scheme so the native options
+   popup is readable in dark mode (transparent/inherit rendered white-on-white). */
+.agent-model-sel { font-size: 11px; padding: 1px 6px; border: 1px solid rgba(128,128,128,.3); border-radius: 10px; background: #fff; color: #1b1b1b; cursor: pointer; color-scheme: light; }
+body[data-mode="dark"] .agent-model-sel { background: #1e1e1e; color: #eaeaea; border-color: rgba(255,255,255,.22); color-scheme: dark; }
 body[data-mode="dark"] .prov { border-color: rgba(255,255,255,.12); }
 body[data-mode="dark"] .set-nav { background: #242424; border-right-color: rgba(255,255,255,.08); }
 body[data-mode="dark"] .set-nav button { color: #ddd; }
