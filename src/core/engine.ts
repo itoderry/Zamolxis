@@ -95,6 +95,8 @@ export interface EngineDeps {
   agents?: Record<string, AgentDefinition>;
   /** User-defined agents (named jobs that run on any tier). */
   agentStore?: AgentStore;
+  /** Publishes an agent's latest result to its web page (when "Web page" delivery is on). */
+  pages?: { set: (name: string, text: string, via?: string) => void };
   /** Sink for agent messages (to other agents or the user) - delivered to channels + logged. */
   onAgentMessage?: (msg: { from: string; to: string; text: string; ts: number; via?: string }) => void;
   /** Schedule a named agent on a cron (deterministic). Late-bound to the scheduler. */
@@ -572,6 +574,9 @@ export class Engine {
       elevate: def.canElevate,
     });
     if (!r.isError && r.via) this.deps.agentStore?.setLastVia(def.name, r.via);
+    // If this agent publishes to a web page, store its latest result so /<agent-name> shows it.
+    // Covers both scheduled fires and manual "Run now" — everything routes through here.
+    if (!r.isError && def.deliver?.web) this.deps.pages?.set(def.name, r.reply, r.via);
     return { ...r, agent: def.name };
   }
 

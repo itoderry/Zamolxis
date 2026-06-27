@@ -2545,6 +2545,21 @@
     var delBtn = el('button', 'btn ghost', T('Delete'));
     bar.appendChild(toggle); bar.appendChild(lbl); bar.appendChild(spacer); bar.appendChild(note); bar.appendChild(runBtn); bar.appendChild(delBtn);
     head.appendChild(bar);
+    // Web-page delivery: publish this agent's latest result at /<agent-name> (a live, self-refreshing page).
+    var dv = agent.deliver || {};
+    var webRow = el('div'); webRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:8px';
+    var webCb = el('input'); webCb.type = 'checkbox'; webCb.checked = !!dv.web; webCb.id = 'webdeliver_' + agent.name;
+    var webLbl = el('label', 'hint', T('Web page')); webLbl.htmlFor = webCb.id;
+    var webLink = el('a', null, T('open page') + ' ↗'); webLink.href = location.origin + '/' + agent.name; webLink.target = '_blank'; webLink.style.cssText = 'color:var(--accent,#0067c0);font-size:12px'; webLink.style.display = dv.web ? 'inline' : 'none';
+    var webNote = el('span', 'hint');
+    webCb.addEventListener('change', function () {
+      webNote.textContent = '...';
+      api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'deliver', name: agent.name, chat: dv.chat !== false, slack: !!dv.slack, slackChannel: dv.slackChannel, web: webCb.checked }) })
+        .then(function (d) { if (d && d.deliver) { agent.deliver = d.deliver; dv = d.deliver; } webLink.style.display = webCb.checked ? 'inline' : 'none'; webNote.textContent = webCb.checked ? T('Publishing latest result here (after the next run)') : ''; })
+        .catch(function () { webNote.textContent = T('Unreachable'); });
+    });
+    webRow.appendChild(webCb); webRow.appendChild(webLbl); webRow.appendChild(webLink); webRow.appendChild(webNote);
+    head.appendChild(webRow);
     wrap.appendChild(head);
     var content = el('div'); content.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column';
     wrap.appendChild(content);

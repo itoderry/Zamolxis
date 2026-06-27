@@ -56,6 +56,10 @@ export interface AgentDef {
   help?: string;
   /** Longer step-by-step guide shown in the agent app's "How this works" section. */
   guide?: string;
+  /** Where this agent's result is delivered (scheduled or manual). 'chat' = the web/agent feed;
+   *  'slack' posts to a Slack channel/DM; 'web' publishes the latest result at /<agent-name>.
+   *  Default: chat only. */
+  deliver?: { chat?: boolean; slack?: boolean; slackChannel?: string; web?: boolean };
 }
 
 function slug(name: string): string {
@@ -173,6 +177,21 @@ export class AgentStore {
       logger.info({ removed }, 'purged agent-created agents (not persisted per setting)');
     }
     return removed;
+  }
+
+  /** Set where this agent sends its reply (the chat feed, a Slack channel, and/or a web page). */
+  setDeliver(name: string, deliver: { chat?: boolean; slack?: boolean; slackChannel?: string; web?: boolean }): AgentDef | undefined {
+    const a = this.get(name);
+    if (!a) return undefined;
+    a.deliver = {
+      chat: deliver.chat !== false,
+      slack: !!deliver.slack,
+      slackChannel: typeof deliver.slackChannel === 'string' ? deliver.slackChannel.trim() : a.deliver?.slackChannel,
+      web: !!deliver.web,
+    };
+    this.persist();
+    logger.info({ name: a.name, deliver: a.deliver }, 'agent delivery updated');
+    return a;
   }
 
   /** Set the short help blurb (used to back-fill pre-made agents created before `help` existed). */

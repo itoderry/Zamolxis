@@ -32,6 +32,7 @@ import { initAppScan } from './core/appscan.js';
 import { initUrlWatch } from './core/urlwatch.js';
 import { initJiraWatch } from './core/jirawatch.js';
 import { PREMADE_AGENTS } from './core/premadeAgents.js';
+import { AgentPages } from './core/agentPages.js';
 import { BanStore, isSmartestModel } from './core/bans.js';
 import { configuredProviders } from './core/providers.js';
 import { buildToolServers } from './tools/index.js';
@@ -148,8 +149,10 @@ async function main(): Promise<void> {
   }
   // Per-(model, skill) ban list: a banned model refuses that capability; auto-populated on escalate.
   const bans = new BanStore(config.dataDir);
+  // Per-agent published "last result" pages, served at /<agent-name> when web delivery is on.
+  const agentPages = new AgentPages(config.dataDir);
   const engine = new Engine({
-    config, sessions, throttle, memory, sessionIndex, usage, skills, agentStore, bans, onAgentMessage: pushAgentMsg,
+    config, sessions, throttle, memory, sessionIndex, usage, skills, agentStore, bans, pages: agentPages, onAgentMessage: pushAgentMsg,
     scheduleAgent: (name, cron, task) => void scheduler.add({ name: `agent:${name}`, agent: name, prompt: task || '', cron, channel: 'agent', chatId: name, conversationKey: `agent:${name}` }),
     countAgentSchedules: (name) => scheduler.countByAgent(name),
     setAgentSchedulesEnabled: (name, enabled) => scheduler.setAgentEnabled(name, enabled),
@@ -200,7 +203,8 @@ async function main(): Promise<void> {
         },
         () => manager.connectedChannels(),
         (name) => manager.channelMessages(name),
-        (name, chatId, text) => manager.sendToChannel(name, chatId, text))],
+        (name, chatId, text) => manager.sendToChannel(name, chatId, text),
+        agentPages)],
     ];
     for (const [enabled, make] of factories) {
       if (!enabled) continue;
