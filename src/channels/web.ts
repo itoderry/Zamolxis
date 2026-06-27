@@ -19,6 +19,7 @@ import type { AgentStore, AgentDef } from '../core/agents.js';
 import { packSetup, type PackParts } from '../core/pack.js';
 import { extractDocText } from '../core/extract.js';
 import { outlookMailData, outlookPimData, outlookOpen } from '../core/outlookLocal.js';
+import { agentPrecheck } from '../core/agentPrecheck.js';
 import { onenoteData, sqlQueryData, browserHistoryData, sqlConnections, sqlAddConnection, sqlRemoveConnection } from '../core/localApps.js';
 import { getCanvas } from '../core/canvas.js';
 import { listApps, rescanApps, launchHostApp, appIconPng } from '../core/appscan.js';
@@ -1224,6 +1225,13 @@ $out | ConvertTo-Json -Compress`, 40000));
                   /\b(every|each|hourly|daily|weekly|minute|minutes|hour|hours|morning|evening|night|noon|midnight|weekday|weekdays|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(task)) {
                 const c = await this.nlToCron(task);
                 if (c.cron) { this.scheduleAgent(name, c.cron, undefined); scheduled = { cron: c.cron, note: c.note }; }
+              }
+              // Cheap, no-LLM gate for headless/scheduled runs: skip the whole model turn when a tiny
+              // probe says nothing's changed (no new mail, no Jira movement). Manual runs from the UI
+              // (no deliver flag) always go through — the user clicked Run and wants an answer.
+              if (o.deliver) {
+                const pre = await agentPrecheck(name);
+                if (!pre.run) return this.json(res, 200, { ok: true, skipped: true, reason: pre.reason, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
               }
               // A manual run from the UI (no deliver flag) is an explicit "do it now" — force it so a
               // paused/stopped agent still runs on demand. The scheduled/headless path (deliver:true)

@@ -5,6 +5,7 @@ import { Cron } from 'croner';
 import { logger } from '../logger.js';
 import type { Engine } from '../core/engine.js';
 import type { ChannelManager } from '../channels/manager.js';
+import { installAgentTask, removeAgentTask, listAgentTasks, setAgentTaskEnabled } from '../core/winAgentTasks.js';
 
 export interface ScheduledJob {
   id: string;
@@ -36,6 +37,11 @@ export class Scheduler {
   private readonly crons = new Map<string, Cron>();
   private engine?: Engine;
   private channels?: ChannelManager;
+  /** On Windows we make the OS the trigger: each agent schedule becomes a Windows Task Scheduler
+   *  task (so it shows up there and fires even with the app closed), and the in-process timer does
+   *  NOT also arm that agent job. Set from index.ts; winExec carries the command to run. */
+  winTrigger = false;
+  winExec?: { nodeExe: string; binPath: string };
 
   constructor(dataDir: string) {
     this.file = path.join(dataDir, 'jobs.json');
@@ -62,11 +68,25 @@ export class Scheduler {
   /** Arm all enabled jobs. Call once after wiring. */
   start(): void {
     for (const job of this.jobs) if (job.enabled) this.arm(job);
+    // On Windows, drop any leftover agent tasks whose schedule no longer exists (e.g. a deleted
+    // or retired agent) so Task Scheduler stays in sync with what Zamolxis actually schedules.
+    if (this.winTrigger) {
+      try {
+        const live = new Set(this.jobs.filter((j) => j.agent && j.enabled && j.cron).map((j) => j.agent as string));
+        for (const name of listAgentTasks()) if (!live.has(name)) removeAgentTask(name);
+      } catch (err) { logger.warn({ err: String(err) }, 'windows task prune skipped'); }
+    }
     logger.info({ count: this.crons.size }, 'scheduler started');
   }
 
   private arm(job: ScheduledJob): void {
     this.disarm(job.id);
+    // Agent jobs on Windows are triggered by the OS: register a Task Scheduler task and DON'T also
+    // arm the in-process timer (avoids double-firing). If the cron can't be expressed as a Windows
+    // task, fall through and use the in-process timer so it still runs.
+    if (job.agent && this.winTrigger && job.cron && this.winExec) {
+      if (installAgentTask(job.agent, job.cron, this.winExec.nodeExe, this.winExec.binPath)) return;
+    }
     const pattern = job.cron ?? (job.at ? new Date(job.at) : undefined);
     if (!pattern) return;
     const cron = new Cron(pattern as string | Date, { name: job.id }, () => void this.fire(job.id));
@@ -129,9 +149,14 @@ export class Scheduler {
   cancel(id: string): boolean {
     const idx = this.jobs.findIndex((j) => j.id === id);
     if (idx < 0) return false;
+    const removed = this.jobs[idx]!;
     this.disarm(id);
     this.jobs.splice(idx, 1);
     this.persist();
+    // If that was an agent's last schedule, drop its Windows task too.
+    if (removed.agent && this.winTrigger && !this.jobs.some((j) => j.agent === removed.agent)) {
+      try { removeAgentTask(removed.agent); } catch (err) { logger.warn({ err: String(err) }, 'windows task removal skipped'); }
+    }
     return true;
   }
 
@@ -152,6 +177,11 @@ export class Scheduler {
       n++;
     }
     if (n) this.persist();
+    // On Windows the trigger is the Task Scheduler task, so pausing/resuming must disable/enable
+    // it too (arm() re-installs it enabled on resume; here we disable it on pause).
+    if (n && this.winTrigger) {
+      try { setAgentTaskEnabled(agent, enabled); } catch (err) { logger.warn({ agent, err: String(err) }, 'windows task enable/disable skipped'); }
+    }
     return n;
   }
 

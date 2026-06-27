@@ -51,6 +51,10 @@ export interface RunRequest {
   agentTools?: string[];
   /** Agent run: allow falling back to Claude (smartest) even on a fixed tier / chain without it. */
   elevate?: boolean;
+  /** Run with NO prior conversation history (no Claude session resume, no replayed turns). Used for
+   *  an agent's STANDING job ("do your job now"): each run executes the job fresh from its definition
+   *  instead of continuing — and possibly drifting away from — whatever it produced last time. */
+  freshContext?: boolean;
   /** Internal: the user invoked a specific capability via "/skill ..." — route to the first
    *  model NOT banned from it, and tell the model to use exactly this skill/tool. */
   forcedSkill?: string;
@@ -577,6 +581,9 @@ export class Engine {
       agentJob,
       agentTools: def.tools,
       elevate: def.canElevate,
+      // A standing-job run starts from a clean slate so it executes the job, not a continuation of
+      // its (possibly off-topic) last output. An ad-hoc task in the agent's chat keeps continuity.
+      freshContext: !adhoc,
     });
     if (!r.isError && r.via) this.deps.agentStore?.setLastVia(def.name, r.via);
     // If this agent publishes to a web page, store its latest result so /<agent-name> shows it.
@@ -1230,7 +1237,7 @@ export class Engine {
     const lm = this.deps.config.localModel!;
     const bannedCaps = this.deps.bans?.bannedSkillsFor('local') ?? [];
     const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill });
-    const history = this.recentHistory(req.conversationKey);
+    const history = req.freshContext ? [] : this.recentHistory(req.conversationKey);
     // Agent executions run at temperature 0 for determinism (no fabrication / no chit-chat drift).
     const temp = req.agentJob ? 0 : this.deps.config.localTemp;
     const r = await this.toolLoop({ url: `${lm.url}/chat/completions`, model: lm.model, system, userText: req.text, tools, history, numCtx: this.deps.config.localContext, keepAlive: this.deps.config.localKeepAlive, temp });
@@ -1246,7 +1253,7 @@ export class Engine {
     if (!key) return { escalate: true };
     const bannedCaps = this.deps.bans?.bannedSkillsFor(p.id) ?? [];
     const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill });
-    const history = this.recentHistory(req.conversationKey);
+    const history = req.freshContext ? [] : this.recentHistory(req.conversationKey);
     const r = await this.toolLoop({ url: `${p.baseUrl}/chat/completions`, model: p.model, apiKey: key, system, userText: req.text, tools, history, temp: req.agentJob ? 0 : undefined, images: p.vision ? req.images : undefined });
     recordProviderUse(p.id);
     if (!r.failed) this.deps.usage?.recordEngine({ [`${p.kind}:${p.id}:${p.model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
@@ -1506,7 +1513,7 @@ export class Engine {
       env: engineEnv(),
       mcpServers,
       agents: this.deps.agents,
-      ...(existing ? { resume: existing.sessionId } : {}),
+      ...(existing && !req.freshContext ? { resume: existing.sessionId } : {}),
       stderr: (d) => {
         const t = d.trim();
         if (t) logger.warn({ cc: t }, 'cc-stderr');
@@ -1518,7 +1525,7 @@ export class Engine {
     // context so a conversation that bounced local <-> Claude stays coherent. (`recent` is
     // chronological; we take only turns newer than Claude's last and cap the block.)
     const sinceClaude = existing?.lastClaudeTs ?? 0;
-    const unseen = (this.deps.sessionIndex?.recent(req.conversationKey, 20) ?? []).filter((t) => t.ts > sinceClaude);
+    const unseen = req.freshContext ? [] : (this.deps.sessionIndex?.recent(req.conversationKey, 20) ?? []).filter((t) => t.ts > sinceClaude);
     let priorContext = '';
     if (unseen.length) {
       const lines = unseen

@@ -165,6 +165,13 @@ async function main(): Promise<void> {
 
   // Wire the scheduler to the engine + channels (created above).
   scheduler.wire(engine, manager);
+  // OPT-IN (set ZAMOLXIS_AGENT_TRIGGER=windows): mirror each scheduled agent into the Windows Task
+  // Scheduler so the OS triggers it (it shows up there and fires even with the app closed), instead
+  // of the in-process timer. Each schedule becomes a task that runs `zamolxis run-agent <name>`.
+  // Defaulted OFF so it doesn't silently move live agents to OS scheduling / create schtasks; the
+  // full machinery is in place and flips on with that env var.
+  scheduler.winTrigger = process.platform === 'win32' && (process.env.ZAMOLXIS_AGENT_TRIGGER || '').toLowerCase() === 'windows';
+  scheduler.winExec = { nodeExe: process.execPath, binPath: fileURLToPath(new URL('../bin/zamolxis.mjs', import.meta.url)) };
 
   let reloading = false;
 
