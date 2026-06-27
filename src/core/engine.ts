@@ -533,11 +533,16 @@ export class Engine {
 
   /** Run a named user-defined agent against a task, on its configured tier with only its tools.
    *  Runs in its own conversation context ("agent:<name>") so it doesn't pollute a user chat. */
-  async runAgent(name: string, task?: string): Promise<RunResult & { agent?: string }> {
+  async runAgent(name: string, task?: string, opts?: { force?: boolean }): Promise<RunResult & { agent?: string }> {
     const def = this.deps.agentStore?.get(name);
     if (!def) return { reply: `No agent named "${name}".`, sessionId: '', costUsd: 0, isError: true, agent: name };
-    if (def.stopped) return { reply: `Agent "${def.name}" is stopped — resume it to run.`, sessionId: '', costUsd: 0, isError: true, agent: def.name };
-    if (this.sessionPaused.has(def.name)) return { reply: `Agent "${def.name}" is paused by the startup policy — resume it to run.`, sessionId: '', costUsd: 0, isError: true, agent: def.name };
+    // A manual "Run now" (force) executes the job regardless of the schedule being paused or the
+    // startup-restore pause — those only gate AUTOMATIC (scheduled) firing. The scheduler/headless
+    // path leaves force unset, so a paused agent is still skipped there.
+    if (!opts?.force) {
+      if (def.stopped) return { reply: `Agent "${def.name}" is stopped — resume it to run.`, sessionId: '', costUsd: 0, isError: true, agent: def.name };
+      if (this.sessionPaused.has(def.name)) return { reply: `Agent "${def.name}" is paused by the startup policy — resume it to run.`, sessionId: '', costUsd: 0, isError: true, agent: def.name };
+    }
     // Inactive: the pinned model isn't available — don't attempt/escalate, tell the user to Fix it.
     const avail = this.agentModelAvailable(def.name);
     if (!avail.ok) return { reply: `Agent "${def.name}" is inactive: ${avail.reason}. Use Fix (or its Job) to switch its model.`, sessionId: '', costUsd: 0, isError: true, agent: def.name };

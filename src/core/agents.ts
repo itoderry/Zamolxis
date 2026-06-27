@@ -179,6 +179,16 @@ export class AgentStore {
     return removed;
   }
 
+  /** Change the model/tier an agent runs on (from the Sub-agents settings list / agent window). */
+  setModel(name: string, model: string): AgentDef | undefined {
+    const a = this.get(name);
+    if (!a || !model.trim()) return undefined;
+    a.model = model.trim();
+    this.persist();
+    logger.info({ name: a.name, model: a.model }, 'agent model changed');
+    return a;
+  }
+
   /** Set where this agent sends its reply (the chat feed, a Slack channel, and/or a web page). */
   setDeliver(name: string, deliver: { chat?: boolean; slack?: boolean; slackChannel?: string; web?: boolean }): AgentDef | undefined {
     const a = this.get(name);

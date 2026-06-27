@@ -242,7 +242,7 @@ export class WebChannel implements Channel {
     private readonly skills?: SkillsManager,
     private readonly memory?: MemoryManager,
     private readonly agentStore?: AgentStore,
-    private readonly runAgent?: (name: string, task?: string) => Promise<{ reply: string; via?: string }>,
+    private readonly runAgent?: (name: string, task?: string, force?: boolean) => Promise<{ reply: string; via?: string; isError?: boolean }>,
     /** Live agent-message log (agent->agent and agent->user), polled by the Agents chat. */
     private readonly agentMsgs?: Array<{ from: string; to: string; text: string; ts: number; via?: string }>,
     /** Schedule a named agent on a cron expression (deterministic — does not rely on the model). */
@@ -1225,8 +1225,12 @@ $out | ConvertTo-Json -Compress`, 40000));
                 const c = await this.nlToCron(task);
                 if (c.cron) { this.scheduleAgent(name, c.cron, undefined); scheduled = { cron: c.cron, note: c.note }; }
               }
-              const r = await this.runAgent(name, task);
-              return this.json(res, 200, { ok: true, reply: r.reply, via: r.via, scheduled, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
+              // A manual run from the UI (no deliver flag) is an explicit "do it now" — force it so a
+              // paused/stopped agent still runs on demand. The scheduled/headless path (deliver:true)
+              // leaves force off, so a paused agent is still skipped there.
+              const manual = o.deliver !== true;
+              const r = await this.runAgent(name, task, manual);
+              return this.json(res, 200, { ok: !r.isError, error: r.isError ? r.reply : undefined, reply: r.reply, via: r.via, scheduled, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
             }
             if (action === 'schedule') {
               if (!this.scheduleAgent) return this.json(res, 400, { error: 'scheduling unavailable' });
@@ -1261,6 +1265,22 @@ $out | ConvertTo-Json -Compress`, 40000));
             if (action === 'unschedule') {
               const ok = this.cancelSchedule ? this.cancelSchedule(String(o.id || '')) : false;
               return this.json(res, 200, { ok, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
+            }
+            if (action === 'stopall' || action === 'resumeall') {
+              // Pause (or resume) every agent's schedule at once — the Settings "Pause all" control.
+              if (!this.stopAgent) return this.json(res, 400, { error: 'stop unavailable' });
+              const stop = action === 'stopall';
+              let affected = 0;
+              for (const a of this.agentStore.list()) { const r = await this.stopAgent(a.name, stop); if (r.ok) affected++; }
+              return this.json(res, 200, { ok: true, affected, stopped: stop, agents: this.agentStore.list(), schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
+            }
+            if (action === 'model') {
+              // Change the model an agent runs on (from the Sub-agents settings list / agent window).
+              const model = String(o.model || '').trim();
+              if (!model) return this.json(res, 400, { error: 'model required' });
+              const a = this.agentStore.setModel(String(o.name || ''), model);
+              if (!a) return this.json(res, 400, { error: 'no such agent' });
+              return this.json(res, 200, { ok: true, model: a.model, agents: this.agentStore.list() });
             }
             if (action === 'deliver') {
               // Where this agent posts its output: the chat/agent feed, a Slack channel, and/or
