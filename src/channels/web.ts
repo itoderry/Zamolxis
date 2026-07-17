@@ -164,7 +164,9 @@ let UPDATE_CHECKING = false;
 async function refreshUpdate(): Promise<void> {
   if (UPDATE_CHECKING) return;
   UPDATE_CHECKING = true;
-  const git = (args: string[], timeout = 8000) => pexec(GIT_BIN, args, { cwd: REPO_ROOT, timeout, windowsHide: true });
+  // Never let the fetch/check block on a credential prompt (private repo, no stdin) — fail fast.
+  const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', GCM_INTERACTIVE: 'never', GCM_PROVIDER: 'none' };
+  const git = (args: string[], timeout = 8000) => pexec(GIT_BIN, args, { cwd: REPO_ROOT, timeout, windowsHide: true, env: gitEnv });
   try {
     await git(['rev-parse', '--is-inside-work-tree']);
     const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim();
@@ -632,8 +634,13 @@ code{background:#1f1810;padding:1px 5px;border-radius:5px}
     }
     if (url.pathname === '/api/checkupdate' && req.method === 'POST') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
-      // Force an immediate git fetch + behind-count (bypasses the ~5-min poll cache) and return it.
-      refreshUpdate().then(() => this.json(res, 200, UPDATE)).catch((err) => this.json(res, 500, { error: String(err) }));
+      // Force an immediate git fetch + behind-count (bypasses the ~5-min poll cache) and return it,
+      // plus the outcome of the last update attempt (so a failed/aborted update isn't silent).
+      refreshUpdate().then(() => {
+        let lastResult: unknown = null;
+        try { lastResult = JSON.parse(fs.readFileSync(path.join(this.config.dataDir, 'update-result.json'), 'utf8')); } catch { /* none yet */ }
+        this.json(res, 200, { ...UPDATE, lastResult });
+      }).catch((err) => this.json(res, 500, { error: String(err) }));
       return;
     }
     if (url.pathname === '/api/update' && req.method === 'POST') {
