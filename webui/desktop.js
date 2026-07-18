@@ -1175,10 +1175,23 @@
           var tries = 0;
           (function poll() {
             tries++;
-            api('/api/status').then(function (ns) {
-              if (ns && ns.build && ns.build.started && ns.build.started !== before) { upMsg.textContent = T('Updated — reloading...'); setTimeout(function () { location.reload(); }, 800); }
-              else if (tries < 60) { setTimeout(poll, 3000); }
-              else { upMsg.textContent = T('Still working... reload manually in a bit.'); }
+            // Watch for the restart (success) AND for a recorded update failure (so an aborted
+            // update — e.g. the private repo couldn't authenticate, or the pull can't fast-forward —
+            // shows its reason immediately instead of spinning "Updating…" forever).
+            api('/api/checkupdate', { method: 'POST' }).then(function (uu) {
+              var lr = uu && uu.lastResult;
+              if (lr && lr.ok === false && lr.step && lr.step !== 'running') {
+                upBtn.disabled = false; checkBtn.disabled = false;
+                setUStat(uu.behind, uu.branch);
+                upBtn.textContent = uu.behind ? Tf('Upgrade now ({n})', { n: uu.behind }) : T('Upgrade');
+                upMsg.textContent = '✗ ' + (lr.message || ('Update failed at: ' + lr.step));
+                return; // stop polling — surfaced the failure
+              }
+              return api('/api/status').then(function (ns) {
+                if (ns && ns.build && ns.build.started && ns.build.started !== before) { upMsg.textContent = T('Updated — reloading...'); setTimeout(function () { location.reload(); }, 800); }
+                else if (tries < 60) { setTimeout(poll, 3000); }
+                else { upMsg.textContent = T('Still working... reload manually in a bit.'); }
+              });
             }).catch(function () { if (tries < 60) setTimeout(poll, 3000); });
           })();
         }).catch(function () { upBtn.disabled = false; checkBtn.disabled = false; upMsg.textContent = T('Upgrade failed to start.'); });

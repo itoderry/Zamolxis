@@ -332,18 +332,28 @@ function updateStep(label, cmd, args) {
   fs.mkdirSync(logDir, { recursive: true });
   fs.appendFileSync(logFile, `\n[update] ${label}: ${cmd} ${args.join(' ')}\n`);
   const out = fs.openSync(logFile, 'a');
-  const r = spawnSync(cmd, args, { cwd: root, stdio: ['ignore', out, out], windowsHide: true, shell: process.platform === 'win32' });
+  // NEVER let git block on an interactive credential/askpass prompt: this runs DETACHED with no
+  // stdin, so a prompt (terminal or the OS credential-manager GUI) would hang the whole update
+  // forever (the classic "stuck on Updating…" on a private repo). Force it to fail fast instead,
+  // so the update aborts cleanly with a logged reason. Harmless for the npm steps.
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', GCM_INTERACTIVE: 'never', GCM_PROVIDER: 'none' };
+  const r = spawnSync(cmd, args, { cwd: root, stdio: ['ignore', out, out], windowsHide: true, shell: process.platform === 'win32', env });
   fs.closeSync(out);
   return r.status === 0;
 }
 // Pull the latest from git, reinstall, rebuild, and restart. A failed pull or build ABORTS
 // without restarting, so a broken update never takes down a working instance.
+function writeUpdateResult(obj) {
+  try { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(path.join(dataDir, 'update-result.json'), JSON.stringify({ ...obj, at: new Date().toISOString() })); } catch {}
+}
 async function updateCmd() {
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   fs.mkdirSync(logDir, { recursive: true });
   fs.appendFileSync(logFile, `\n[update] starting at ${new Date().toISOString()} (cwd ${root})\n`);
+  writeUpdateResult({ ok: false, step: 'running', message: 'Update in progress…' });
   if (!updateStep('git pull', 'git', ['pull', '--ff-only'])) {
-    fs.appendFileSync(logFile, '[update] git pull --ff-only failed (diverged history or no network); aborting, NOT restarting.\n');
+    fs.appendFileSync(logFile, '[update] git pull --ff-only failed (auth to the private repo, diverged history, or no network); aborting, NOT restarting.\n');
+    writeUpdateResult({ ok: false, step: 'git pull', message: 'git pull failed — usually the private repo could not authenticate non-interactively, or the local checkout has diverged. Update manually in the install folder: git pull, npm run build, restart.' });
     console.error('Update aborted: `git pull --ff-only` failed (see log).');
     process.exit(1);
   }
@@ -352,15 +362,18 @@ async function updateCmd() {
   // with "tsc: command not found" and the update silently aborts. Forcing dev deps fixes it on every OS.
   if (!updateStep('npm install', npm, ['install', '--no-audit', '--no-fund', '--include=dev'])) {
     fs.appendFileSync(logFile, '[update] npm install failed; aborting, NOT restarting.\n');
+    writeUpdateResult({ ok: false, step: 'npm install', message: 'npm install failed (see the log).' });
     console.error('Update aborted: npm install failed (see log).');
     process.exit(1);
   }
   if (!updateStep('npm run build', npm, ['run', 'build'])) {
     fs.appendFileSync(logFile, '[update] build failed; aborting (NOT restarting on a broken build).\n');
+    writeUpdateResult({ ok: false, step: 'npm run build', message: 'build (tsc) failed (see the log).' });
     console.error('Update aborted: build failed (see log).');
     process.exit(1);
   }
   fs.appendFileSync(logFile, '[update] pull + install + build OK; restarting.\n');
+  writeUpdateResult({ ok: true, step: 'done', message: 'Updated and restarting.' });
   await stop();
   await sleep(600);
   start([]);
