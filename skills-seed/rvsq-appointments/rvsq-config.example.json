@@ -1,0 +1,15 @@
+{
+  "_comment": "Copy this file to %USERPROFILE%\\.zamolxis\\rvsq-config.json and fill in YOUR RAMQ details. This file stays on your machine only — it is never committed, logged, or sent anywhere except the official RVSQ site. NAM = the health-insurance number on your RAMQ card; card_seq_number = the small sequential number after your name on the card. birth_month is the value the RVSQ month dropdown expects (try the two-digit month, e.g. 03).",
+  "personal_info": {
+    "first_name": "YOUR FIRST NAME",
+    "last_name": "YOUR LAST NAME",
+    "nam": "ABCD00000000",
+    "card_seq_number": "00",
+    "birth_day": "01",
+    "birth_month": "01",
+    "birth_year": "1990",
+    "postal_code": "H0H0H0"
+  },
+  "headless": false,
+  "radius_km": "4"
+}
