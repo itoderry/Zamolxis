@@ -37,8 +37,9 @@ top-level `personal_info` — the old one-person format — still works.)
 ## One-time setup
 
 1. Copy `rvsq-config.example.json` to `%USERPROFILE%\.zamolxis\rvsq-config.json` and fill in one
-   `users` entry per person (`nam` = the number on the card; `card_seq_number` = the small sequence
-   number after the name; `birth_month` = try the two-digit month, e.g. `03`).
+   `users` entry per person. RVSQ's login needs name + `nam` (health-insurance number) +
+   `card_seq_number` (the small **sequential** number on the card) + **date of birth** — there is
+   **no card-expiry field**. `birth_month` accepts `1`–`12` or the French month name (e.g. `mars`).
 2. That's it — Node and Chrome are already present via Zamolxis. Verify with a self-test (it opens
    the page and confirms the RAMQ form loads for each person, then stops WITHOUT submitting anything):
 

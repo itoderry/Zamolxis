@@ -28,7 +28,21 @@ const REASON_URGENT = 'ac2a5fa4-8514-11ef-a759-005056b11d6c'; // "Consultation U
 const REQUIRED = ['first_name', 'last_name', 'nam', 'card_seq_number', 'birth_day', 'birth_month', 'birth_year', 'postal_code'];
 const shotDir = path.join(os.homedir(), '.zamolxis', 'rvsq-screenshots');
 
+const FR_MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 function out(o) { process.stdout.write(JSON.stringify({ checked_at: new Date().toISOString(), ...o }) + '\n'); }
+
+// The RVSQ birth-MONTH field is a <select> of French month names (option 0 is a placeholder).
+// Accept 1-12, "03", or a French name — try value, then label, then index — so config "just works".
+async function selectBirthMonth(page, sel, m) {
+  const raw = String(m == null ? '' : m).trim();
+  const n = parseInt(raw, 10);
+  const tries = [];
+  if (raw) tries.push({ value: raw });
+  if (n >= 1 && n <= 12) { tries.push({ label: FR_MONTHS[n - 1] }); tries.push({ index: n }); } // option 0 = placeholder
+  if (isNaN(n) && raw) tries.push({ label: raw.toLowerCase() });
+  for (const t of tries) { try { await page.selectOption(sel, t); return; } catch { /* try next */ } }
+  throw new Error(`could not set birth month from "${raw}" (use 1-12 or a French month name like "mars")`);
+}
 function safeLabel(s, i) { return String(s || `user ${i + 1}`).replace(/[^\w .\-'À-ÿ]/g, '').slice(0, 40) || `user ${i + 1}`; }
 
 function loadUsers() {
@@ -84,7 +98,7 @@ async function checkUser(browser, u) {
     await page.fill('#ctl00_ContentPlaceHolderMP_AssureForm_NAM', pi.nam);
     await page.fill('#ctl00_ContentPlaceHolderMP_AssureForm_CardSeqNumber', pi.card_seq_number);
     await page.fill('#ctl00_ContentPlaceHolderMP_AssureForm_Day', String(pi.birth_day));
-    await page.selectOption('#ctl00_ContentPlaceHolderMP_AssureForm_Month', String(pi.birth_month));
+    await selectBirthMonth(page, '#ctl00_ContentPlaceHolderMP_AssureForm_Month', pi.birth_month);
     await page.fill('#ctl00_ContentPlaceHolderMP_AssureForm_Year', String(pi.birth_year));
     await page.check('#AssureForm_CSTMT');
     await page.waitForSelector('#ctl00_ContentPlaceHolderMP_myButton:not([disabled])');
