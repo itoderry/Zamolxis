@@ -1060,12 +1060,7 @@
         runBtn.addEventListener('click', function () {
           runBtn.disabled = true; note.textContent = T('Running...');
           post({ action: 'run', name: agent.name })
-            .then(function (d) {
-              runBtn.disabled = false;
-              var reply = (d && (d.reply || d.error)) ? String(d.reply || d.error) : '';
-              note.textContent = reply ? (reply.length > 140 ? reply.slice(0, 140) + '…' : reply) : (T('Done') + (d && d.via ? ' · ' + d.via : ''));
-              note.title = reply || '';
-            })
+            .then(function (d) { runBtn.disabled = false; note.textContent = (d && d.error) ? String(d.error) : (T('Done') + (d && d.via ? ' · ' + d.via : '')); })
             .catch(function () { runBtn.disabled = false; note.textContent = T('Unreachable'); });
         });
         pauseBtn.addEventListener('click', function () {
@@ -2716,10 +2711,6 @@
     });
     webRow.appendChild(webCb); webRow.appendChild(webLbl); webRow.appendChild(webLink); webRow.appendChild(webNote);
     head.appendChild(webRow);
-    // Shows the result of the last manual "Run job" (the agent's reply) — so you get real feedback
-    // instead of a bare "Done", even when the agent's job is to stay quiet unless something's found.
-    var runOut = el('div', 'hint'); runOut.style.cssText = 'margin-top:8px;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow:auto;padding:8px 10px;border:1px solid rgba(128,128,128,.2);border-radius:6px;font-size:12px;display:none';
-    head.appendChild(runOut);
     wrap.appendChild(head);
     var content = el('div'); content.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column';
     wrap.appendChild(content);
@@ -2736,14 +2727,9 @@
       setAppChat(win.appId, now); toggle.classList.toggle('on', now); render();
     });
     runBtn.addEventListener('click', function () {
-      runBtn.disabled = true; note.textContent = T('Running...'); runOut.style.display = 'none';
+      runBtn.disabled = true; note.textContent = T('Running...');
       api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'run', name: agent.name }) })
-        .then(function (d) {
-          runBtn.disabled = false;
-          note.textContent = (d && d.error) ? T('Failed') : (T('Done') + (d && d.via ? ' · ' + d.via : ''));
-          var body = (d && (d.reply || d.error)) ? String(d.reply || d.error) : '(no output)';
-          runOut.textContent = body; runOut.style.display = '';
-        })
+        .then(function (d) { runBtn.disabled = false; note.textContent = (d && d.error) ? String(d.error) : (T('Done') + (d.via ? ' · ' + d.via : '')); })
         .catch(function () { runBtn.disabled = false; note.textContent = T('Unreachable'); });
     });
     delBtn.addEventListener('click', function () {
