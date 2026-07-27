@@ -33,8 +33,19 @@ const out = (o) => process.stdout.write(JSON.stringify(o) + '\n');
 const round = (n, d = 2) => (Number.isFinite(n) ? Math.round(n * 10 ** d) / 10 ** d : null);
 
 function load() {
-  try { return JSON.parse(fs.readFileSync(LEDGER, 'utf8')); }
-  catch { return { cash: START_CASH, startCash: START_CASH, startedAt: now(), positions: [], closed: [], watchlist: ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN'] }; }
+  try { const l = JSON.parse(fs.readFileSync(LEDGER, 'utf8')); if (!l.challengeDays) l.challengeDays = 30; if (!l.equityHistory) l.equityHistory = []; return l; }
+  catch { return { cash: START_CASH, startCash: START_CASH, startedAt: now(), challengeDays: 30, positions: [], closed: [], equityHistory: [], watchlist: ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN'] }; }
+}
+// Snapshot equity onto the 30-day curve, de-duped to ~2h so refreshes don't bloat it.
+function snapshotEquity(l, equity) {
+  l.equityHistory = l.equityHistory || [];
+  const last = l.equityHistory[l.equityHistory.length - 1];
+  if (!last || Date.now() - new Date(last.t).getTime() > 2 * 3600 * 1000) {
+    l.equityHistory.push({ t: now(), e: round(equity) });
+    if (l.equityHistory.length > 400) l.equityHistory = l.equityHistory.slice(-400);
+    return true;
+  }
+  return false;
 }
 function save(l) { fs.mkdirSync(DIR, { recursive: true }); fs.writeFileSync(LEDGER, JSON.stringify(l, null, 2)); }
 
@@ -171,7 +182,10 @@ async function main() {
         const daysHeld = Math.round((Date.now() - new Date(p.entryDate).getTime()) / 86400000);
         positions.push({ ticker: p.ticker, shares: p.shares, entry: p.entry, price: round(cur), unreal_pct: cur != null ? round((cur / p.entry - 1) * 100, 2) : null, target: p.target, horizonDays: p.horizonDays, daysHeld, matured: daysHeld >= p.horizonDays, confidence: p.confidence, rationale: p.rationale });
       }
-      return out({ ok: true, asOf: now(), cash: round(l.cash), equity: round(equity), total_return_pct: round((equity / l.startCash - 1) * 100, 2), open_positions: positions, stats: l.stats || null });
+      if (snapshotEquity(l, equity)) save(l);
+      const days = l.challengeDays || 30;
+      const elapsed = Math.floor((Date.now() - new Date(l.startedAt).getTime()) / 86400000);
+      return out({ ok: true, asOf: now(), cash: round(l.cash), equity: round(equity), total_return_pct: round((equity / l.startCash - 1) * 100, 2), start_cash: l.startCash, challenge_days: days, days_elapsed: elapsed, days_left: Math.max(0, days - elapsed), open_positions: positions, stats: l.stats || null, equity_history: (l.equityHistory || []).slice(-60).map((x) => [x.t, x.e]) });
     }
     if (cmd === 'evaluate') {
       const closedNow = [];
@@ -199,7 +213,7 @@ async function main() {
       if (sub === 'add' || sub === 'remove') save(l);
       return out({ ok: true, watchlist: l.watchlist });
     }
-    if (cmd === 'reset') { const cash = parseFloat(rest[0]) || START_CASH; save({ cash, startCash: cash, startedAt: now(), positions: [], closed: [], watchlist: l.watchlist }); return out({ ok: true, reset: true, cash }); }
+    if (cmd === 'reset') { const cash = parseFloat(rest[0]) || START_CASH; const days = parseInt(rest[1], 10) || 30; save({ cash, startCash: cash, startedAt: now(), challengeDays: days, positions: [], closed: [], equityHistory: [], watchlist: l.watchlist }); return out({ ok: true, reset: true, cash, challengeDays: days }); }
     return out({ ok: false, error: `unknown command "${cmd || ''}". Try: quote | history | buy | sell | portfolio | evaluate | track | watchlist | reset` });
   } catch (err) { return out({ ok: false, error: String(err.message || err) }); }
 }

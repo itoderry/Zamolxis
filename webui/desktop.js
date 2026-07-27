@@ -1929,7 +1929,7 @@
     root.appendChild(summ); root.appendChild(bar); root.appendChild(pane); body.appendChild(root);
 
     var note = el('span', 'hint');
-    var aiBtn = el('button', 'btn', T('AI plays a round'));
+    var aiBtn = el('button', 'btn', '🤖 ' + T('Run AI now'));
     var evalBtn = el('button', 'btn ghost', T('Evaluate'));
     var addBtn = el('button', 'btn ghost', T('Add ticker'));
     var refreshBtn = el('button', 'btn ghost', T('Refresh'));
@@ -1942,13 +1942,25 @@
       var l = el('div', 'hint'); l.textContent = label; l.style.fontSize = '11px';
       d.appendChild(v); d.appendChild(l); return d;
     }
+    function sparkline(hist, w, h, base) {
+      var vals = hist.map(function (p) { return p[1]; });
+      var lo = Math.min.apply(null, vals.concat([base])), hi = Math.max.apply(null, vals.concat([base])); var rng = (hi - lo) || 1;
+      var y = function (v) { return (h - 2 - ((v - lo) / rng) * (h - 4)).toFixed(1); };
+      var pts = hist.map(function (p, i) { return ((i / (hist.length - 1)) * (w - 4) + 2).toFixed(1) + ',' + y(p[1]); }).join(' ');
+      var up = vals[vals.length - 1] >= base; var col = up ? '#2e9e3f' : '#e05a5a';
+      var d = el('div');
+      d.innerHTML = '<svg width="' + w + '" height="' + h + '"><line x1="2" y1="' + y(base) + '" x2="' + (w - 2) + '" y2="' + y(base) + '" stroke="rgba(128,128,128,.35)" stroke-dasharray="2 2"/><polyline points="' + pts + '" fill="none" stroke="' + col + '" stroke-width="1.6"/></svg>';
+      return d.firstChild;
+    }
     function renderSummary(pf) {
       summ.innerHTML = '';
-      summ.appendChild(stat(T('Equity'), money(pf.equity)));
-      summ.appendChild(stat(T('Cash'), money(pf.cash)));
+      summ.appendChild(stat(T('Balance'), money(pf.equity), pcol(pf.total_return_pct)));
       summ.appendChild(stat(T('Return'), pct(pf.total_return_pct), pcol(pf.total_return_pct)));
+      summ.appendChild(stat(T('Cash'), money(pf.cash)));
+      summ.appendChild(stat('Day ' + (pf.days_elapsed != null ? pf.days_elapsed : '?') + ' / ' + (pf.challenge_days || 30), (pf.days_left != null ? pf.days_left : '?') + ' ' + T('days left')));
       var s = pf.stats;
       summ.appendChild(stat(T('Win rate'), s && s.predictions ? (s.win_rate_pct + '% (' + s.predictions + ')') : '—'));
+      if (pf.equity_history && pf.equity_history.length > 1) { var sp = el('div'); sp.style.cssText = 'margin-left:auto;align-self:center'; sp.appendChild(sparkline(pf.equity_history, 150, 42, pf.start_cash || 1000)); pf.equity_history.length && sp.appendChild(el('div', 'hint', T('equity, 30-day') )); sp.lastChild.style.cssText = 'font-size:10px;text-align:right'; summ.appendChild(sp); }
     }
     function sectionTitle(t) { var h = el('div'); h.textContent = t; h.style.cssText = 'font-weight:700;font-size:13px;margin:16px 0 6px'; return h; }
     function badge(txt, bg, fg) { var b = el('span'); b.textContent = txt; b.style.cssText = 'font-size:10.5px;padding:1px 7px;border-radius:10px;background:' + bg + ';color:' + fg; return b; }
@@ -2033,6 +2045,9 @@
         var pf = r[0] || {}, tr = r[1] || {}, q = r[2] || {};
         renderSummary(pf);
         pane.innerHTML = '';
+        var goal = el('div'); goal.style.cssText = 'background:rgba(46,158,63,.08);border:1px solid rgba(46,158,63,.25);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12.5px';
+        goal.innerHTML = '🎯 <b>' + T('30-Day Challenge') + ':</b> ' + T('the AI trades this') + ' ' + money(pf.start_cash || 1000) + ' ' + T('account on real market data to grow it — it runs automatically on weekdays, or press "Run AI now".') + (pf.days_left != null ? (' <b>' + pf.days_left + '</b> ' + T('days left') + '.') : '');
+        pane.appendChild(goal);
         renderPositions(pf); renderWatchlist(q); renderTrack(tr);
         pane.appendChild(el('div', 'hint', '⚠ ' + T('Simulation / game — not financial advice.'))).style.cssText = 'margin-top:16px;font-size:11px';
       }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'hint', T('Could not load the game.'))); });
