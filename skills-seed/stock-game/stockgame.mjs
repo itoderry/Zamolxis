@@ -27,7 +27,7 @@ import path from 'node:path';
 
 const DIR = path.join(os.homedir(), '.zamolxis', 'stockgame');
 const LEDGER = path.join(DIR, 'ledger.json');
-const START_CASH = 100000;
+const START_CASH = 1000;
 const now = () => new Date().toISOString();
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\n');
 const round = (n, d = 2) => (Number.isFinite(n) ? Math.round(n * 10 ** d) / 10 ** d : null);

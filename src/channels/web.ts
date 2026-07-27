@@ -1047,6 +1047,28 @@ $out | ConvertTo-Json -Compress`, 40000));
       });
       return;
     }
+    // Stock Game — the desktop app drives the stock-game engine (real market data + paper ledger)
+    // by shelling out to skills-seed/stock-game/stockgame.mjs. Read ops (portfolio/track/quote/
+    // history) and user actions (buy/sell/evaluate/watchlist/reset) all go through here.
+    if (url.pathname === '/api/stockgame' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      let body = ''; req.on('data', (c) => { body += c; if (body.length > 100_000) req.destroy(); });
+      req.on('end', () => {
+        try {
+          const o = JSON.parse(body || '{}') as { op?: string; args?: unknown[] };
+          const ALLOWED = new Set(['portfolio', 'track', 'quote', 'history', 'evaluate', 'buy', 'sell', 'watchlist', 'reset']);
+          const op = String(o.op || '');
+          if (!ALLOWED.has(op)) return this.json(res, 400, { error: 'unknown op' });
+          const args = Array.isArray(o.args) ? o.args.map((x) => String(x)).slice(0, 20) : [];
+          const script = path.join(REPO_ROOT, 'skills-seed', 'stock-game', 'stockgame.mjs');
+          const r = spawnSync(process.execPath, [script, op, ...args], { encoding: 'utf8', windowsHide: true, timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
+          let data: unknown; try { data = JSON.parse(((r.stdout || '').trim().split('\n').pop()) || 'null'); } catch { data = null; }
+          if (data == null) return this.json(res, 200, { ok: false, error: ((r.stderr || r.stdout || '').trim().slice(0, 400)) || 'no output from engine' });
+          return this.json(res, 200, data);
+        } catch (err) { return this.json(res, 400, { error: String(err) }); }
+      });
+      return;
+    }
     // Agent canvas — latest agent-pushed HTML for the Canvas desktop app to render/poll.
     if (url.pathname === '/api/canvas' && req.method === 'GET') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });

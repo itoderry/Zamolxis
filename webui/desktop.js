@@ -28,6 +28,7 @@
     net: "<svg viewBox='0 0 24 24' fill='none' stroke='#5566cc' stroke-width='1.6'><circle cx='12' cy='12' r='9'/><path d='M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18'/></svg>",
     api: "<svg viewBox='0 0 24 24' fill='none' stroke='#e0772b' stroke-width='1.6'><rect x='3' y='4' width='18' height='16' rx='2'/><path d='M8.5 9.5L6 12l2.5 2.5M15.5 9.5L18 12l-2.5 2.5M13 8l-2 8' stroke-linecap='round' stroke-linejoin='round'/></svg>",
     sys: "<svg viewBox='0 0 24 24' fill='none' stroke='#9b8cff' stroke-width='1.6'><circle cx='12' cy='12' r='3.2'/><path d='M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5 5l2.1 2.1M16.9 16.9 19 19M19 5l-2.1 2.1M7.1 16.9 5 19'/></svg>",
+    stock: "<svg viewBox='0 0 24 24' fill='none' stroke='#2e9e3f' stroke-width='1.7'><path d='M3 17l5-5 3 3 7-8' stroke-linecap='round' stroke-linejoin='round'/><path d='M15 4h5v5' stroke-linecap='round' stroke-linejoin='round'/></svg>",
     chat: "<svg viewBox='0 0 24 24' fill='none' stroke='#0a8acb' stroke-width='1.6'><path d='M4 5h16v11H9l-4 3.5V16H4z'/><path d='M8 9h8M8 12h5'/></svg>",
     mail: "<svg viewBox='0 0 24 24' fill='none' stroke='#0a72c4' stroke-width='1.6'><rect x='3' y='5' width='18' height='14' rx='2'/><path d='M3.5 6.5l8.5 6 8.5-6'/></svg>",
     cal: "<svg viewBox='0 0 24 24' fill='none' stroke='#c0392b' stroke-width='1.6'><rect x='3' y='4.5' width='18' height='16' rx='2'/><path d='M3 9h18M8 3v3M16 3v3'/><rect x='6.5' y='12' width='3' height='3' rx='.4' fill='#c0392b' stroke='none'/></svg>",
@@ -479,6 +480,7 @@
     { id: 'telnet', name: 'Telnet', iconSvg: ICON.term, cat: 'Network', skill: 'telnet-client', kind: 'native' },
     { id: 'apiclient', name: 'API Client', iconSvg: ICON.api, cat: 'Network', skill: 'api-client', kind: 'native' },
     { id: 'systemtoolkit', name: 'System Toolkit', iconSvg: ICON.sys, cat: 'Utilities', skill: 'system-toolkit', kind: 'native' },
+    { id: 'stockgame', name: 'Stock Game', iconSvg: ICON.stock, cat: 'Utilities', skill: 'stock-game', kind: 'native' },
     { id: 'messages', name: 'Messages', iconSvg: ICON.chat, cat: 'Communication', skill: 'chat-clients', kind: 'native' }
   ];
   var CAT_ORDER = ['System', 'Apps', 'Agents', 'Office', 'Media', 'Network', 'Communication', 'Utilities'];
@@ -492,7 +494,7 @@
   }
   // Of the built-in web apps, only the ones with NO real installed equivalent stay on the desktop
   // (the rest are replaced by launchers to the host's real apps). Canvas = agent output; Messages = channels.
-  var KEEP_NATIVE = { canvas: 1, messages: 1, apiclient: 1, systemtoolkit: 1 };
+  var KEEP_NATIVE = { canvas: 1, messages: 1, apiclient: 1, systemtoolkit: 1, stockgame: 1 };
   var hostApps = []; // the machine's real installed apps (from /api/apps), shown as launchers
   function hostIcon(id, name) {
     var hue = hashHue(name || 'a'); var letter = ((name || '?').trim().charAt(0) || '?').toUpperCase();
@@ -560,6 +562,7 @@
       else if (appId === 'telnet') spec = { appId: appId, title: T('Telnet'), iconSvg: ICON.term, w: 720, h: 520, onMount: mountTelnet };
       else if (appId === 'apiclient') spec = { appId: appId, title: T('API Client'), iconSvg: ICON.api, w: 940, h: 660, onMount: mountApiClient };
       else if (appId === 'systemtoolkit') spec = { appId: appId, title: T('System Toolkit'), iconSvg: ICON.sys, w: 720, h: 600, onMount: mountSystemToolkit };
+      else if (appId === 'stockgame') spec = { appId: appId, title: T('Stock Game'), iconSvg: ICON.stock, w: 860, h: 640, onMount: mountStockGame };
       else if (appId === 'messages') spec = { appId: appId, title: T('Messages'), iconSvg: ICON.chat, w: 720, h: 560, onMount: mountMessages };
       else if (appId === 'outlook') spec = { appId: appId, title: T('Outlook'), iconSvg: ICON.mail, w: 860, h: 620, onMount: mountOutlook };
       else if (appId === 'notes') spec = { appId: appId, title: T('Notes'), iconSvg: ICON.notebook, w: 820, h: 600, onMount: mountNotes };
@@ -1904,6 +1907,155 @@
       { label: T('File'), items: [ { label: T('Download'), action: function () { dl.click(); } }, { label: T('Save'), action: function () { saveBtn.click(); } } ] },
       { label: T('Edit'), items: [ { label: T('Edit'), action: function () { editBtn.click(); } } ] }
     ]);
+  }
+
+  // ---------- App: Stock Game ----------
+  // Interactive dashboard for the stock-game engine (real market data, paper trading, self-scoring):
+  // portfolio + live P/L, watchlist with indicators, make-your-own predictions, let the AI play a
+  // round, and the scoreboard. Drives skills-seed/stock-game/stockgame.mjs via POST /api/stockgame.
+  function mountStockGame(body, win) {
+    body.style.padding = '0';
+    function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function money(n) { n = Number(n); return isFinite(n) ? '$' + n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'; }
+    function pct(n) { n = Number(n); return isFinite(n) ? (n >= 0 ? '+' : '') + n.toFixed(2) + '%' : '—'; }
+    function pcol(n) { n = Number(n); return n > 0 ? '#2e9e3f' : n < 0 ? '#e05a5a' : 'inherit'; }
+    function rsiCol(n) { n = Number(n); if (!isFinite(n)) return 'inherit'; return n <= 30 ? '#2e9e3f' : n >= 70 ? '#e05a5a' : 'inherit'; }
+    function sg(op, args) { return api('/api/stockgame', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ op: op, args: args || [] }) }); }
+
+    var root = el('div'); root.style.cssText = 'height:100%;display:flex;flex-direction:column;overflow:hidden';
+    var summ = el('div'); summ.style.cssText = 'display:flex;gap:22px;align-items:flex-end;padding:12px 16px;border-bottom:1px solid rgba(128,128,128,.2);flex-wrap:wrap';
+    var bar = el('div'); bar.style.cssText = 'display:flex;gap:8px;padding:8px 16px;border-bottom:1px solid rgba(128,128,128,.2);flex-wrap:wrap;align-items:center';
+    var pane = el('div'); pane.style.cssText = 'flex:1;overflow:auto;padding:14px 16px';
+    root.appendChild(summ); root.appendChild(bar); root.appendChild(pane); body.appendChild(root);
+
+    var note = el('span', 'hint');
+    var aiBtn = el('button', 'btn', T('AI plays a round'));
+    var evalBtn = el('button', 'btn ghost', T('Evaluate'));
+    var addBtn = el('button', 'btn ghost', T('Add ticker'));
+    var refreshBtn = el('button', 'btn ghost', T('Refresh'));
+    var resetBtn = el('button', 'btn ghost', T('Reset'));
+    bar.appendChild(aiBtn); bar.appendChild(evalBtn); bar.appendChild(addBtn); bar.appendChild(refreshBtn); bar.appendChild(resetBtn); bar.appendChild(note);
+
+    function stat(label, val, color) {
+      var d = el('div'); d.style.cssText = 'display:flex;flex-direction:column;gap:1px';
+      var v = el('div'); v.textContent = val; v.style.cssText = 'font-size:20px;font-weight:700' + (color ? ';color:' + color : '');
+      var l = el('div', 'hint'); l.textContent = label; l.style.fontSize = '11px';
+      d.appendChild(v); d.appendChild(l); return d;
+    }
+    function renderSummary(pf) {
+      summ.innerHTML = '';
+      summ.appendChild(stat(T('Equity'), money(pf.equity)));
+      summ.appendChild(stat(T('Cash'), money(pf.cash)));
+      summ.appendChild(stat(T('Return'), pct(pf.total_return_pct), pcol(pf.total_return_pct)));
+      var s = pf.stats;
+      summ.appendChild(stat(T('Win rate'), s && s.predictions ? (s.win_rate_pct + '% (' + s.predictions + ')') : '—'));
+    }
+    function sectionTitle(t) { var h = el('div'); h.textContent = t; h.style.cssText = 'font-weight:700;font-size:13px;margin:16px 0 6px'; return h; }
+    function badge(txt, bg, fg) { var b = el('span'); b.textContent = txt; b.style.cssText = 'font-size:10.5px;padding:1px 7px;border-radius:10px;background:' + bg + ';color:' + fg; return b; }
+
+    function renderPositions(pf) {
+      pane.appendChild(sectionTitle(T('Your positions')));
+      if (!pf.open_positions || !pf.open_positions.length) { pane.appendChild(el('div', 'hint', T('No open positions. Predict from the watchlist below, or let the AI play a round.'))); return; }
+      pf.open_positions.forEach(function (p) {
+        var row = el('div'); row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid rgba(128,128,128,.12);flex-wrap:wrap';
+        var tk = el('div'); tk.innerHTML = '<b>' + esc(p.ticker) + '</b>'; tk.style.width = '58px';
+        var dir = badge(p.direction === 'down' ? 'SHORT' : 'BUY', p.direction === 'down' ? 'rgba(224,90,90,.18)' : 'rgba(46,158,63,.18)', p.direction === 'down' ? '#e05a5a' : '#2e9e3f');
+        var mid = el('div'); mid.style.cssText = 'flex:1;min-width:180px;font-size:12px';
+        mid.innerHTML = esc(p.shares) + ' sh · ' + money(p.entry) + ' → ' + (p.price != null ? money(p.price) : '…') + (p.target ? ' · 🎯 ' + money(p.target) : '') + '<div class="hint" style="font-size:11px;margin-top:2px">' + esc(p.rationale || '') + '</div>';
+        var pl = el('div'); pl.textContent = p.unreal_pct != null ? pct(p.unreal_pct) : '—'; pl.style.cssText = 'width:70px;text-align:right;font-weight:700;color:' + pcol(p.unreal_pct);
+        var age = el('div', 'hint'); age.textContent = p.daysHeld + '/' + p.horizonDays + 'd'; age.style.width = '54px';
+        var sell = el('button', 'btn ghost mini', T('Close'));
+        sell.onclick = function () { note.textContent = T('Working...'); sg('sell', [p.ticker]).then(function () { load(); }); };
+        row.appendChild(tk); row.appendChild(dir); row.appendChild(mid);
+        if (p.matured) row.appendChild(badge('matured', 'rgba(180,140,0,.2)', '#b8860b'));
+        row.appendChild(pl); row.appendChild(age); row.appendChild(sell);
+        pane.appendChild(row);
+      });
+    }
+
+    function predictForm(qrow, afterEl) {
+      var f = el('div'); f.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:8px;margin:4px 0;background:rgba(128,128,128,.06);border-radius:6px';
+      var dirSel = el('select', 'inp'); dirSel.style.width = 'auto'; ['up', 'down'].forEach(function (o) { var op = el('option'); op.value = o; op.textContent = o === 'up' ? 'BUY (up)' : 'SHORT (down)'; dirSel.appendChild(op); });
+      var sh = el('input', 'inp'); sh.placeholder = 'shares'; sh.style.width = '70px'; sh.value = qrow.price ? (Math.round((100 / qrow.price) * 100) / 100) : '';
+      var tg = el('input', 'inp'); tg.placeholder = 'target $'; tg.style.width = '80px';
+      var hz = el('input', 'inp'); hz.placeholder = 'days'; hz.style.width = '60px'; hz.value = '10';
+      var why = el('input', 'inp'); why.placeholder = 'why (optional)'; why.style.flex = '1'; why.style.minWidth = '120px';
+      var go = el('button', 'btn', T('Predict'));
+      var msg = el('span', 'hint');
+      go.onclick = function () {
+        var s = parseFloat(sh.value); if (!(s > 0)) { msg.textContent = 'shares?'; return; }
+        var args = [qrow.ticker, String(s), '--dir', dirSel.value, '--horizon', String(parseInt(hz.value, 10) || 10), '--confidence', '50'];
+        if (tg.value) { args.push('--target', String(parseFloat(tg.value))); }
+        if (why.value) { args.push('--why', why.value); }
+        go.disabled = true; msg.textContent = '…';
+        sg('buy', args).then(function (d) { if (d && d.ok) { load(); } else { go.disabled = false; msg.textContent = (d && d.error) || 'failed'; } });
+      };
+      f.appendChild(dirSel); f.appendChild(sh); f.appendChild(tg); f.appendChild(hz); f.appendChild(why); f.appendChild(go); f.appendChild(msg);
+      afterEl.appendChild(f);
+    }
+
+    function renderWatchlist(q) {
+      pane.appendChild(sectionTitle(T('Watchlist') + ' · ' + T('real prices')));
+      (q.quotes || []).forEach(function (r) {
+        var wrap = el('div');
+        var row = el('div'); row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px solid rgba(128,128,128,.12);font-size:12px';
+        if (r.error) { row.innerHTML = '<b style="width:58px">' + esc(r.ticker) + '</b><span class="hint">' + esc(r.error) + '</span>'; wrap.appendChild(row); pane.appendChild(wrap); return; }
+        var tk = el('div'); tk.innerHTML = '<b>' + esc(r.ticker) + '</b>'; tk.style.width = '58px'; tk.title = r.name || '';
+        var pr = el('div'); pr.textContent = money(r.price); pr.style.width = '78px';
+        var ch = el('div'); ch.textContent = pct(r.day_change_pct); ch.style.cssText = 'width:66px;color:' + pcol(r.day_change_pct);
+        var rsi = el('div'); rsi.innerHTML = '<span class="hint">RSI</span> <b style="color:' + rsiCol(r.rsi14) + '">' + (r.rsi14 != null ? r.rsi14 : '—') + '</b>'; rsi.style.width = '74px';
+        var mom = el('div', 'hint'); mom.textContent = '1m ' + pct(r.mom_1m); mom.style.width = '86px';
+        var spacer = el('div'); spacer.style.flex = '1';
+        var predBtn = el('button', 'btn ghost mini', T('Predict'));
+        predBtn.onclick = function () { if (wrap._form) { wrap._form.remove(); wrap._form = null; } else { var holder = el('div'); wrap.appendChild(holder); wrap._form = holder; predictForm(r, holder); } };
+        row.appendChild(tk); row.appendChild(pr); row.appendChild(ch); row.appendChild(rsi); row.appendChild(mom); row.appendChild(spacer); row.appendChild(predBtn);
+        wrap.appendChild(row); pane.appendChild(wrap);
+      });
+    }
+
+    function renderTrack(tr) {
+      pane.appendChild(sectionTitle(T('Track record')));
+      var s = tr.stats;
+      if (!s || !s.predictions) { pane.appendChild(el('div', 'hint', T('No settled predictions yet — outcomes appear here once a horizon elapses (or you Close a position).'))); return; }
+      var line = el('div'); line.style.cssText = 'font-size:12.5px;margin-bottom:6px';
+      line.innerHTML = '<b>' + s.win_rate_pct + '%</b> win rate over ' + s.predictions + ' · avg ' + pct(s.avg_return_pct) + ' · realized ' + money(s.realized_pnl_usd);
+      pane.appendChild(line);
+      (tr.recent || []).slice().reverse().forEach(function (c) {
+        var r = el('div'); r.style.cssText = 'display:flex;gap:10px;font-size:12px;padding:3px 4px;border-bottom:1px solid rgba(128,128,128,.1)';
+        r.innerHTML = '<b style="width:58px">' + esc(c.ticker) + '</b><span style="width:60px">' + (c.dir === 'down' ? 'SHORT' : 'BUY') + '</span><span style="flex:1">' + money(c.entry) + ' → ' + money(c.exit) + '</span><b style="width:70px;text-align:right;color:' + pcol(c.pnlPct) + '">' + pct(c.pnlPct) + '</b><span style="width:44px;text-align:right">' + (c.win ? '✅' : '❌') + '</span>';
+        pane.appendChild(r);
+      });
+    }
+
+    function load() {
+      pane.innerHTML = ''; pane.appendChild(el('div', 'hint', T('Loading real market data...')));
+      Promise.all([sg('portfolio'), sg('track'), sg('quote')]).then(function (r) {
+        var pf = r[0] || {}, tr = r[1] || {}, q = r[2] || {};
+        renderSummary(pf);
+        pane.innerHTML = '';
+        renderPositions(pf); renderWatchlist(q); renderTrack(tr);
+        pane.appendChild(el('div', 'hint', '⚠ ' + T('Simulation / game — not financial advice.'))).style.cssText = 'margin-top:16px;font-size:11px';
+      }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'hint', T('Could not load the game.'))); });
+    }
+
+    refreshBtn.onclick = load;
+    evalBtn.onclick = function () { note.textContent = T('Settling matured predictions...'); sg('evaluate').then(function (d) { note.textContent = d && d.closed_now ? (d.closed_now.length + ' settled') : ''; load(); }); };
+    addBtn.onclick = function () { var t = prompt(T('Add ticker to the watchlist (e.g. TSLA):')); if (!t) return; sg('watchlist', ['add', t.trim().toUpperCase()]).then(load); };
+    resetBtn.onclick = function () { if (!confirm(T('Reset the game back to $1,000 and clear all positions and history?'))) return; sg('reset', ['1000']).then(load); };
+    aiBtn.onclick = function () {
+      aiBtn.disabled = true; note.textContent = T('The AI is analyzing and placing paper trades (~1 min)…');
+      api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'run', name: 'stock-game' }) })
+        .then(function (d) { aiBtn.disabled = false; note.textContent = (d && d.error) ? String(d.error).slice(0, 120) : T('Round complete.'); load(); })
+        .catch(function () { aiBtn.disabled = false; note.textContent = T('Unreachable'); });
+    };
+    load();
+    win.setMenus([{ label: T('Game'), items: [
+      { label: T('AI plays a round'), action: function () { aiBtn.click(); } },
+      { label: T('Evaluate'), action: function () { evalBtn.click(); } },
+      { label: T('Refresh'), action: load },
+      '---',
+      { label: T('Reset'), action: function () { resetBtn.click(); } }
+    ] }]);
   }
 
   // ---------- App: System Toolkit ----------
