@@ -18,6 +18,7 @@ import type { SessionIndex } from './sessionIndex.js';
 import type { UsageTracker } from './usage.js';
 import type { SkillsManager } from '../skills/manager.js';
 import { buildLocalTools, localSearchAvailable, type LocalToolset } from './localTools.js';
+import { compressText } from './toolOutput.js';
 import { effectiveName } from './displayName.js';
 import { pickFreeProvider, freeProviderPool, providerById, recordProviderUse, configuredProviders, type ProviderDef } from './providers.js';
 import type { AgentStore } from './agents.js';
@@ -1222,7 +1223,9 @@ export class Engine {
               /* malformed args */
             }
             const out = await o.tools.exec(tc.function.name, args);
-            messages.push({ role: 'tool', tool_call_id: tc.id, content: out.slice(0, 8000) });
+            // TokenJuice: cap oversized output (keeps head+tail, full text saved to disk)
+            // instead of a blunt head-only slice.
+            messages.push({ role: 'tool', tool_call_id: tc.id, content: compressText(out, { toolName: tc.function.name }) });
           }
           continue;
         }
@@ -1365,6 +1368,9 @@ export class Engine {
   /** Plan the pre-Claude tiers to attempt + whether Claude is the final fallback. */
   private planRoute(req: RunRequest): { tiers: string[]; claude: boolean } {
     const { config } = this.deps;
+    // Privacy Mode: local model only — no cloud provider, no Claude, ever. Overrides everything
+    // (explicit routes, escalation, agent chains, vision). If no local model is set, nothing runs.
+    if (config.privacyMode) return { tiers: config.localModel ? ['local'] : [], claude: false };
     const chain = config.routeChain;
     const claudeIn = chain.includes('claude');
     // An agent with canElevate may fall back to Claude even on a fixed tier / chain without it.
@@ -1417,6 +1423,10 @@ export class Engine {
 
   private async runInner(req: RunRequest): Promise<RunResult> {
     const { config, sessions } = this.deps;
+    // Privacy Mode with no local model: refuse rather than silently leaking to the cloud.
+    if (config.privacyMode && !config.localModel) {
+      return { reply: 'Privacy Mode is on - all inference is kept on-device only, but no local model is configured. Set a local model (Settings > Local model, e.g. an Ollama model) or turn Privacy Mode off.', sessionId: '', costUsd: 0, isError: true, via: 'Privacy Mode' };
+    }
 
     // Local-first routing: answer eligible turns with the on-device model so the
     // Claude subscription isn't touched at all. Auto-mode escalates to Claude when

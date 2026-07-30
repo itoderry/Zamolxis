@@ -15,6 +15,7 @@ import type { TabsManager } from '../core/tabs.js';
 import type { UsageTracker } from '../core/usage.js';
 import type { SkillsManager } from '../skills/manager.js';
 import type { MemoryManager } from '../core/memory.js';
+import { MemoryVault } from '../core/memoryVault.js';
 import type { AgentStore, AgentDef } from '../core/agents.js';
 import { packSetup, type PackParts } from '../core/pack.js';
 import { extractDocText } from '../core/extract.js';
@@ -22,6 +23,7 @@ import { outlookMailData, outlookPimData, outlookOpen } from '../core/outlookLoc
 import { agentPrecheck } from '../core/agentPrecheck.js';
 import { onenoteData, sqlQueryData, browserHistoryData, sqlConnections, sqlAddConnection, sqlRemoveConnection } from '../core/localApps.js';
 import { getCanvas } from '../core/canvas.js';
+import { listPlans, getPlan, setPlanStatus, updateStep, deletePlan } from '../core/plans.js';
 import { listApps, rescanApps, launchHostApp, appIconPng } from '../core/appscan.js';
 import { notifsSince } from '../core/notifications.js';
 import { getWatchers, setWatchers } from '../core/watchers.js';
@@ -235,6 +237,47 @@ export class WebChannel implements Channel {
   // Live SSH/SFTP sessions for the SFTP Client app, keyed by an opaque id (idle-reaped).
   private readonly sftpSessions = new Map<string, { conn: { end(): void }; sftp: Record<string, (...a: unknown[]) => unknown>; last: number }>();
 
+  private _vault?: MemoryVault;
+  /** Lazily built Obsidian-style memory vault (null when no memory manager is wired). */
+  private vault(): MemoryVault | null {
+    if (!this.memory) return null;
+    if (!this._vault) {
+      this._vault = new MemoryVault(this.config.dataDir, this.memory, () =>
+        (this.agentStore?.list() || []).map((a) => a.name),
+      );
+    }
+    return this._vault;
+  }
+
+  /** Execute an approved plan's steps in order, writing status + results back live. */
+  private async runPlan(id: string): Promise<void> {
+    const plan = getPlan(id);
+    if (!plan || !this.runPlanStep) return;
+    const convKey = plan.conversationKey || `plan:${id}`;
+    setPlanStatus(id, 'running', 'Running...');
+    for (const step of plan.steps) {
+      const cur = getPlan(id);
+      if (!cur || cur.status === 'rejected') return; // user cancelled mid-run
+      updateStep(id, step.n, { status: 'running' });
+      try {
+        const prompt =
+          `You are executing step ${step.n} of ${plan.steps.length} in an approved plan titled "${plan.title}".\n` +
+          `Overall goal: ${plan.goal || '(none stated)'}\n` +
+          `This step: ${step.title}\n` +
+          `Instruction: ${step.detail}\n\n` +
+          `Do exactly this step now and report the result concisely.`;
+        const r = await this.runPlanStep(prompt, convKey);
+        updateStep(id, step.n, { status: r.isError ? 'error' : 'done', result: r.reply });
+        if (r.isError) { setPlanStatus(id, 'done', `Stopped at step ${step.n} (the step reported an error).`); return; }
+      } catch (err) {
+        updateStep(id, step.n, { status: 'error', result: String(err) });
+        setPlanStatus(id, 'done', `Stopped at step ${step.n} (exception).`);
+        return;
+      }
+    }
+    setPlanStatus(id, 'done', 'All steps completed.');
+  }
+
   constructor(
     private readonly config: ZamolxisConfig,
     private readonly settings: SettingsManager,
@@ -287,6 +330,8 @@ export class WebChannel implements Channel {
     private readonly sendToChannel?: (channel: string, chatId: string, text: string) => Promise<{ ok: boolean; error?: string }>,
     /** Per-agent published "last result" pages, served at /<agent-name>. */
     private readonly agentPages?: { get: (name: string) => { text: string; ts: number; via?: string } | undefined },
+    /** Run one approved workflow step as an engine turn (Workflow Canvas). */
+    private readonly runPlanStep?: (text: string, conversationKey: string) => Promise<{ reply: string; isError?: boolean }>,
   ) {
     const { bind, authToken } = config.web;
     if (!LOOPBACK.includes(bind) && !authToken) {
@@ -1066,6 +1111,85 @@ $out | ConvertTo-Json -Compress`, 40000));
           if (data == null) return this.json(res, 200, { ok: false, error: ((r.stderr || r.stdout || '').trim().slice(0, 400)) || 'no output from engine' });
           return this.json(res, 200, data);
         } catch (err) { return this.json(res, 400, { error: String(err) }); }
+      });
+      return;
+    }
+    // Memory Vault — the Obsidian-style browsable view of everything the assistant remembers.
+    // The desktop app lists/reads notes; "add" writes a memory entry; "open" reveals the folder.
+    if (url.pathname === '/api/vault' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      const vault = this.vault();
+      if (!vault) return this.json(res, 200, { ok: false, error: 'memory not available' });
+      let body = ''; req.on('data', (c) => { body += c; if (body.length > 200_000) req.destroy(); });
+      req.on('end', () => {
+        try {
+          const o = JSON.parse(body || '{}') as { action?: string; rel?: string; text?: string; scope?: string };
+          switch (o.action) {
+            case 'list': {
+              vault.sync();
+              return this.json(res, 200, { ok: true, dir: vault.dir, uri: vault.obsidianUri(), notes: vault.list() });
+            }
+            case 'read': {
+              const content = vault.read(String(o.rel || ''));
+              if (content == null) return this.json(res, 200, { ok: false, error: 'not found' });
+              return this.json(res, 200, { ok: true, rel: o.rel, content });
+            }
+            case 'resolve': {
+              return this.json(res, 200, { ok: true, rel: vault.resolve(String(o.rel || '')) });
+            }
+            case 'add': {
+              const r = vault.addNote(String(o.text || ''), o.scope === 'profile' ? 'profile' : 'memory');
+              return this.json(res, 200, { ok: r.ok, message: r.message });
+            }
+            case 'open': {
+              let opened = false;
+              try {
+                const cmd = process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+                spawnSync(cmd, [vault.dir], { windowsHide: true, timeout: 5000 });
+                opened = true;
+              } catch { opened = false; }
+              return this.json(res, 200, { ok: true, opened, dir: vault.dir, uri: vault.obsidianUri() });
+            }
+            default:
+              return this.json(res, 400, { ok: false, error: 'unknown action' });
+          }
+        } catch (err) { return this.json(res, 400, { ok: false, error: String(err) }); }
+      });
+      return;
+    }
+    // Workflow Canvas — the agent proposes multi-step plans; the user reviews and approves here,
+    // then the steps run in order through the engine with live per-step status/results.
+    if (url.pathname === '/api/plans' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      let body = ''; req.on('data', (c) => { body += c; if (body.length > 100_000) req.destroy(); });
+      req.on('end', () => {
+        try {
+          const o = JSON.parse(body || '{}') as { action?: string; id?: string };
+          switch (o.action) {
+            case 'list':
+              return this.json(res, 200, { ok: true, plans: listPlans() });
+            case 'get': {
+              const p = getPlan(String(o.id || ''));
+              return this.json(res, 200, p ? { ok: true, plan: p } : { ok: false, error: 'not found' });
+            }
+            case 'reject':
+              setPlanStatus(String(o.id || ''), 'rejected', 'Rejected by user.');
+              return this.json(res, 200, { ok: true });
+            case 'delete':
+              return this.json(res, 200, { ok: deletePlan(String(o.id || '')) });
+            case 'approve': {
+              const p = getPlan(String(o.id || ''));
+              if (!p) return this.json(res, 200, { ok: false, error: 'not found' });
+              if (p.status !== 'proposed') return this.json(res, 200, { ok: false, error: `plan is ${p.status}` });
+              if (!this.runPlanStep) return this.json(res, 200, { ok: false, error: 'execution not available' });
+              // Kick off async; the UI polls 'get' to watch progress.
+              void this.runPlan(p.id);
+              return this.json(res, 200, { ok: true, running: true });
+            }
+            default:
+              return this.json(res, 400, { ok: false, error: 'unknown action' });
+          }
+        } catch (err) { return this.json(res, 400, { ok: false, error: String(err) }); }
       });
       return;
     }

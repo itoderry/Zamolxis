@@ -2,6 +2,7 @@ import { logger } from '../logger.js';
 import { outlookAvailable, outlookMail, outlookPim } from './outlookLocal.js';
 import { onenoteAvailable, onenoteRead, sqlQuery, browserHistory, archiveAvailable, archiveTool, openInExcel } from './localApps.js';
 import { setCanvas, setCanvasTable } from './canvas.js';
+import { proposePlan } from './plans.js';
 import { browserControl } from './browser.js';
 import { openInWord, openInPowerpoint, openApp, scanDocument, itunes, systemStatus, steamGames, steamAvailable, stickyNotes, stickyAvailable, autohotkey, ahkAvailable } from './nativeApps.js';
 
@@ -537,11 +538,46 @@ export function buildLocalTools(): LocalToolset {
     }
   }
 
+  defs.push({
+    type: 'function',
+    function: {
+      name: 'propose_plan',
+      description:
+        'Propose a multi-step plan for the user to REVIEW and APPROVE before anything runs. Use for any request needing several actions, especially slow, costly, or side-effecting ones. Do NOT execute; lay out the steps and stop. The plan appears in the user\'s Workflow Canvas; on approval each step runs in order.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Short name for the plan' },
+          goal: { type: 'string', description: 'What approving this accomplishes' },
+          steps: {
+            type: 'array',
+            description: 'Ordered steps',
+            items: {
+              type: 'object',
+              properties: {
+                title: { type: 'string' },
+                detail: { type: 'string', description: 'Precise, self-contained instruction to execute for this step' },
+              },
+              required: ['title'],
+            },
+          },
+        },
+        required: ['title', 'steps'],
+      },
+    },
+  });
+  names.push('propose_plan');
+
   return {
     defs,
     names,
     async exec(name, args) {
       logger.info({ tool: name }, 'local tool exec');
+      if (name === 'propose_plan') {
+        const steps = Array.isArray(args.steps) ? (args.steps as Array<{ title?: string; detail?: string }>) : [];
+        const plan = proposePlan({ title: String(args.title ?? 'Untitled plan'), goal: String(args.goal ?? ''), steps: steps.map((s) => ({ title: String(s?.title ?? ''), detail: String(s?.detail ?? s?.title ?? '') })) });
+        return `Proposed a ${plan.steps.length}-step plan "${plan.title}" (id ${plan.id}). Awaiting your approval in the Workflow Canvas - nothing has run yet.`;
+      }
       if (name === 'http_get') return httpGet(args);
       if (name === 'web_search') return runWebSearch(String(args.query ?? ''));
       if (name === 'read_url') {

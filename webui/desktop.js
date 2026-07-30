@@ -29,6 +29,8 @@
     api: "<svg viewBox='0 0 24 24' fill='none' stroke='#e0772b' stroke-width='1.6'><rect x='3' y='4' width='18' height='16' rx='2'/><path d='M8.5 9.5L6 12l2.5 2.5M15.5 9.5L18 12l-2.5 2.5M13 8l-2 8' stroke-linecap='round' stroke-linejoin='round'/></svg>",
     sys: "<svg viewBox='0 0 24 24' fill='none' stroke='#9b8cff' stroke-width='1.6'><circle cx='12' cy='12' r='3.2'/><path d='M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5 5l2.1 2.1M16.9 16.9 19 19M19 5l-2.1 2.1M7.1 16.9 5 19'/></svg>",
     stock: "<svg viewBox='0 0 24 24' fill='none' stroke='#2e9e3f' stroke-width='1.7'><path d='M3 17l5-5 3 3 7-8' stroke-linecap='round' stroke-linejoin='round'/><path d='M15 4h5v5' stroke-linecap='round' stroke-linejoin='round'/></svg>",
+    vault: "<svg viewBox='0 0 24 24' fill='none' stroke='#7b5cff' stroke-width='1.6'><circle cx='7' cy='6' r='2'/><circle cx='17' cy='9' r='2'/><circle cx='10' cy='18' r='2'/><path d='M8.6 7l6.6 1.5M15.6 10.6l-4.8 5.6M8.2 16.6l1-8' stroke-linecap='round'/></svg>",
+    plan: "<svg viewBox='0 0 24 24' fill='none' stroke='#e08a2b' stroke-width='1.6'><rect x='4' y='3' width='16' height='18' rx='2'/><path d='M8 8l1.2 1.2L11.5 7M8 14l1.2 1.2L11.5 13M14 8h3M14 14h3' stroke-linecap='round' stroke-linejoin='round'/></svg>",
     chat: "<svg viewBox='0 0 24 24' fill='none' stroke='#0a8acb' stroke-width='1.6'><path d='M4 5h16v11H9l-4 3.5V16H4z'/><path d='M8 9h8M8 12h5'/></svg>",
     mail: "<svg viewBox='0 0 24 24' fill='none' stroke='#0a72c4' stroke-width='1.6'><rect x='3' y='5' width='18' height='14' rx='2'/><path d='M3.5 6.5l8.5 6 8.5-6'/></svg>",
     cal: "<svg viewBox='0 0 24 24' fill='none' stroke='#c0392b' stroke-width='1.6'><rect x='3' y='4.5' width='18' height='16' rx='2'/><path d='M3 9h18M8 3v3M16 3v3'/><rect x='6.5' y='12' width='3' height='3' rx='.4' fill='#c0392b' stroke='none'/></svg>",
@@ -481,6 +483,8 @@
     { id: 'apiclient', name: 'API Client', iconSvg: ICON.api, cat: 'Network', skill: 'api-client', kind: 'native' },
     { id: 'systemtoolkit', name: 'System Toolkit', iconSvg: ICON.sys, cat: 'Utilities', skill: 'system-toolkit', kind: 'native' },
     { id: 'stockgame', name: 'Stock Game', iconSvg: ICON.stock, cat: 'Utilities', skill: 'stock-game', kind: 'native' },
+    { id: 'vault', name: 'Memory Vault', iconSvg: ICON.vault, cat: 'System', skill: '', kind: 'native' },
+    { id: 'workflow', name: 'Workflow Canvas', iconSvg: ICON.plan, cat: 'System', skill: '', kind: 'native' },
     { id: 'messages', name: 'Messages', iconSvg: ICON.chat, cat: 'Communication', skill: 'chat-clients', kind: 'native' }
   ];
   var CAT_ORDER = ['System', 'Apps', 'Agents', 'Office', 'Media', 'Network', 'Communication', 'Utilities'];
@@ -494,7 +498,7 @@
   }
   // Of the built-in web apps, only the ones with NO real installed equivalent stay on the desktop
   // (the rest are replaced by launchers to the host's real apps). Canvas = agent output; Messages = channels.
-  var KEEP_NATIVE = { canvas: 1, messages: 1, apiclient: 1, systemtoolkit: 1, stockgame: 1 };
+  var KEEP_NATIVE = { canvas: 1, messages: 1, apiclient: 1, systemtoolkit: 1, stockgame: 1, vault: 1, workflow: 1 };
   var hostApps = []; // the machine's real installed apps (from /api/apps), shown as launchers
   function hostIcon(id, name) {
     var hue = hashHue(name || 'a'); var letter = ((name || '?').trim().charAt(0) || '?').toUpperCase();
@@ -563,6 +567,8 @@
       else if (appId === 'apiclient') spec = { appId: appId, title: T('API Client'), iconSvg: ICON.api, w: 940, h: 660, onMount: mountApiClient };
       else if (appId === 'systemtoolkit') spec = { appId: appId, title: T('System Toolkit'), iconSvg: ICON.sys, w: 720, h: 600, onMount: mountSystemToolkit };
       else if (appId === 'stockgame') spec = { appId: appId, title: T('Stock Game'), iconSvg: ICON.stock, w: 860, h: 640, onMount: mountStockGame };
+      else if (appId === 'vault') spec = { appId: appId, title: T('Memory Vault'), iconSvg: ICON.vault, w: 900, h: 640, onMount: mountVault };
+      else if (appId === 'workflow') spec = { appId: appId, title: T('Workflow Canvas'), iconSvg: ICON.plan, w: 900, h: 660, onMount: mountWorkflow };
       else if (appId === 'messages') spec = { appId: appId, title: T('Messages'), iconSvg: ICON.chat, w: 720, h: 560, onMount: mountMessages };
       else if (appId === 'outlook') spec = { appId: appId, title: T('Outlook'), iconSvg: ICON.mail, w: 860, h: 620, onMount: mountOutlook };
       else if (appId === 'notes') spec = { appId: appId, title: T('Notes'), iconSvg: ICON.notebook, w: 820, h: 600, onMount: mountNotes };
@@ -866,8 +872,11 @@
       var turns = inp(live.maxTurns); turns.type = 'number';
       var conc = inp(live.maxConcurrent); conc.type = 'number';
       var tmo = inp(live.turnTimeoutSeconds); tmo.type = 'number'; tmo.min = '10';
+      var juice = inp(live.toolOutputCap == null ? 12000 : live.toolOutputCap); juice.type = 'number'; juice.min = '0';
       var routing = el('button', 'switch' + (live.localRouting !== 'off' ? ' on' : ''), "<span class='knob'></span>");
       routing.addEventListener('click', function () { routing.classList.toggle('on'); });
+      var privacy = el('button', 'switch' + (live.privacyMode ? ' on' : ''), "<span class='knob'></span>");
+      privacy.addEventListener('click', function () { privacy.classList.toggle('on'); });
       var sys = el('textarea', 'inp'); sys.style.cssText = 'width:100%;height:80px'; sys.value = live.systemPromptAppend || '';
 
       pane.appendChild(el('div', 'hint', T('Each model can be a Claude variant, Local, or any authenticated free provider. Model = answers your chats · Fast = simple turns · Smartest = hard turns / final fallback. "Claude (default)" keeps Claude as the rescue tier.')));
@@ -880,12 +889,14 @@
       var row = el('div', 'row2'); var c1 = el('div'); c1.style.flex = '1'; c1.appendChild(fld(T('Max turns'), turns)); var c2 = el('div'); c2.style.flex = '1'; c2.appendChild(fld(T('Max concurrent'), conc)); row.appendChild(c1); row.appendChild(c2); pane.appendChild(row);
       pane.appendChild(fld(T('Turn timeout (seconds)'), tmo, T('How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.')));
       var rrow = el('div'); rrow.style.cssText = 'display:flex;align-items:center;gap:8px'; rrow.appendChild(routing); rrow.appendChild(el('span', 'hint', T('Local-model routing (auto / off)'))); pane.appendChild(fld(T('Routing'), rrow));
+      var prow = el('div'); prow.style.cssText = 'display:flex;align-items:center;gap:8px'; prow.appendChild(privacy); prow.appendChild(el('span', 'hint', T('Force ALL inference to your local model - no cloud provider or Claude ever. Needs a local model set (below/Local model tab).'))); pane.appendChild(fld('🔒 ' + T('Privacy Mode'), prow));
+      pane.appendChild(fld('🧃 ' + T('Tool output cap (chars)'), juice, T('TokenJuice: cap a single tool result before it reaches the model. Oversized output keeps head+tail and the full text is saved to ~/.zamolxis/tooljuice/. 0 = no cap.')));
       pane.appendChild(fld(T('System prompt append'), sys));
       var status = el('span', 'hint'); var save = el('button', 'btn', T('Save'));
       var sr = el('div', 'save-row'); sr.appendChild(save); sr.appendChild(status); pane.appendChild(sr);
       save.addEventListener('click', function () {
         save.disabled = true; status.textContent = T('Saving...');
-        postSettings({ live: { agentName: name.value.trim(), timezone: tz.value.trim(), model: model.value, fastModel: fast.value, smartModel: smart.value, permissionMode: perm.value, maxTurns: Number(turns.value) || undefined, maxConcurrent: Number(conc.value) || undefined, turnTimeoutSeconds: Number(tmo.value) || undefined, localRouting: routing.classList.contains('on') ? 'auto' : 'off', systemPromptAppend: sys.value } })
+        postSettings({ live: { agentName: name.value.trim(), timezone: tz.value.trim(), model: model.value, fastModel: fast.value, smartModel: smart.value, permissionMode: perm.value, maxTurns: Number(turns.value) || undefined, maxConcurrent: Number(conc.value) || undefined, turnTimeoutSeconds: Number(tmo.value) || undefined, localRouting: routing.classList.contains('on') ? 'auto' : 'off', privacyMode: privacy.classList.contains('on'), toolOutputCap: juice.value === '' ? undefined : (Number(juice.value) >= 0 ? Math.floor(Number(juice.value)) : undefined), systemPromptAppend: sys.value } })
           .then(function (r) { save.disabled = false; status.textContent = T('Saved.') + (r && r.restartRequired ? T(' Some changes need a restart (System tab).') : ''); })
           .catch(function () { save.disabled = false; status.textContent = T('Failed.'); });
       });
@@ -2073,6 +2084,222 @@
     ] }]);
   }
 
+  // ---------- App: Memory Vault ----------
+  // An Obsidian-style browser over everything Zamolxis remembers. The backend materializes the
+  // curated memory (USER.md / MEMORY.md / per-agent notes / SOUL / LAWS / LEARNINGS) into a
+  // wiki-linked vault folder; this app lists the notes, renders them with clickable [[links]],
+  // lets you add a note (writes a real memory entry), and can open the folder / Obsidian.
+  function mountVault(body, win) {
+    body.style.padding = '0';
+    function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function vx(action, extra) { var o = { action: action }; if (extra) for (var k in extra) o[k] = extra[k]; return api('/api/vault', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(o) }); }
+
+    var root = el('div'); root.style.cssText = 'height:100%;display:flex;flex-direction:column;overflow:hidden';
+    var bar = el('div'); bar.style.cssText = 'display:flex;gap:8px;padding:8px 12px;border-bottom:1px solid rgba(128,128,128,.2);align-items:center;flex-wrap:wrap';
+    var split = el('div'); split.style.cssText = 'flex:1;display:flex;overflow:hidden';
+    var side = el('div'); side.style.cssText = 'width:250px;min-width:250px;overflow:auto;border-right:1px solid rgba(128,128,128,.2);padding:8px 6px';
+    var view = el('div'); view.style.cssText = 'flex:1;overflow:auto;padding:16px 20px;line-height:1.5';
+    split.appendChild(side); split.appendChild(view);
+    root.appendChild(bar); root.appendChild(split); body.appendChild(root);
+
+    var refreshBtn = el('button', 'btn ghost', T('Refresh'));
+    var addBtn = el('button', 'btn ghost', '+ ' + T('Add note'));
+    var openBtn = el('button', 'btn ghost', T('Open folder'));
+    var obsBtn = el('button', 'btn ghost', T('Open in Obsidian'));
+    var note = el('span', 'hint');
+    bar.appendChild(refreshBtn); bar.appendChild(addBtn); bar.appendChild(openBtn); bar.appendChild(obsBtn); bar.appendChild(note);
+
+    var notes = [], vdir = '', vuri = '';
+
+    // Minimal markdown render with clickable [[wiki-links]]. Frontmatter is dimmed.
+    function render(md) {
+      view.innerHTML = '';
+      var lines = String(md || '').split('\n');
+      var i = 0, inFm = false;
+      var ul = null;
+      function flushUl() { if (ul) { view.appendChild(ul); ul = null; } }
+      for (; i < lines.length; i++) {
+        var ln = lines[i];
+        if (i === 0 && ln.trim() === '---') { inFm = true; continue; }
+        if (inFm) { if (ln.trim() === '---') { inFm = false; } continue; }
+        if (ln.trim() === '---') { flushUl(); var hr = el('div'); hr.style.cssText = 'border-top:1px solid rgba(128,128,128,.25);margin:10px 0'; view.appendChild(hr); continue; }
+        var hm = ln.match(/^(#{1,4})\s+(.*)$/);
+        if (hm) { flushUl(); var lvl = hm[1].length; var h = el('div'); h.style.cssText = 'font-weight:700;margin:8px 0 4px;font-size:' + (lvl <= 1 ? 20 : lvl === 2 ? 16 : 14) + 'px'; inline(h, hm[2]); view.appendChild(h); continue; }
+        var bm = ln.match(/^\s*[-*]\s+(.*)$/);
+        if (bm) { if (!ul) { ul = el('div'); ul.style.cssText = 'display:flex;flex-direction:column;gap:3px;margin:2px 0 6px'; } var li = el('div'); li.style.cssText = 'display:flex;gap:6px'; var dot = el('span'); dot.textContent = '•'; dot.style.opacity = '.5'; var sp = el('span'); inline(sp, bm[1]); li.appendChild(dot); li.appendChild(sp); ul.appendChild(li); continue; }
+        flushUl();
+        if (ln.trim() === '') { var br = el('div'); br.style.height = '6px'; view.appendChild(br); continue; }
+        var p = el('div'); inline(p, ln); view.appendChild(p);
+      }
+      flushUl();
+    }
+    // Render inline: [[Title|alias]] / [[Title]] -> click-through; [text](url) -> link; **bold**.
+    function inline(host, s) {
+      var re = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*/g;
+      var last = 0, m;
+      while ((m = re.exec(s))) {
+        if (m.index > last) host.appendChild(document.createTextNode(s.slice(last, m.index)));
+        if (m[1] != null) {
+          var title = m[1].trim(), alias = (m[2] || m[1]).trim();
+          var a = el('a'); a.textContent = alias; a.href = 'javascript:void 0'; a.style.cssText = 'color:var(--accent,#7b5cff);cursor:pointer;text-decoration:none';
+          (function (tt) { a.addEventListener('click', function (e) { e.preventDefault(); openTitle(tt); }); })(title);
+          host.appendChild(a);
+        } else if (m[3] != null) {
+          var lk = el('a'); lk.textContent = m[3]; lk.href = m[4]; lk.target = '_blank'; lk.style.color = 'var(--accent,#7b5cff)';
+          host.appendChild(lk);
+        } else if (m[5] != null) {
+          var b = el('strong'); b.textContent = m[5]; host.appendChild(b);
+        }
+        last = re.lastIndex;
+      }
+      if (last < s.length) host.appendChild(document.createTextNode(s.slice(last)));
+    }
+
+    function openTitle(title) { vx('resolve', { rel: title }).then(function (r) { if (r && r.rel) openRel(r.rel); else note.textContent = T('No note') + ': ' + title; }); }
+    function openRel(rel) {
+      Array.prototype.forEach.call(side.querySelectorAll('a.vn'), function (a) { a.style.background = a.getAttribute('data-rel') === rel ? 'rgba(123,92,255,.15)' : ''; });
+      vx('read', { rel: rel }).then(function (r) { if (r && r.ok) render(r.content); else view.textContent = T('Could not open note.'); });
+    }
+    function renderList() {
+      side.innerHTML = '';
+      var bySec = {};
+      notes.forEach(function (n) { (bySec[n.section] = bySec[n.section] || []).push(n); });
+      ['Home', 'Profile', 'Memory', 'Agents', 'System'].forEach(function (sec) {
+        var arr = bySec[sec]; if (!arr || !arr.length) return;
+        if (sec !== 'Home') { var hd = el('div', 'hint'); hd.textContent = sec.toUpperCase(); hd.style.cssText = 'font-size:10px;letter-spacing:.5px;margin:8px 4px 2px;opacity:.6'; side.appendChild(hd); }
+        arr.forEach(function (n) {
+          var a = el('a', 'vn'); a.textContent = n.title; a.setAttribute('data-rel', n.rel); a.href = 'javascript:void 0';
+          a.style.cssText = 'display:block;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:13px;text-decoration:none;color:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+          a.addEventListener('click', function (e) { e.preventDefault(); openRel(n.rel); });
+          side.appendChild(a);
+        });
+      });
+    }
+    function load() {
+      note.textContent = T('Loading...');
+      vx('list').then(function (r) {
+        if (!r || !r.ok) { note.textContent = (r && r.error) || T('Failed.'); return; }
+        notes = r.notes || []; vdir = r.dir || ''; vuri = r.uri || '';
+        note.textContent = notes.length + ' ' + T('notes') + ' · ' + vdir;
+        renderList();
+        openRel('Home.md');
+      }).catch(function () { note.textContent = T('Failed.'); });
+    }
+
+    refreshBtn.addEventListener('click', load);
+    addBtn.addEventListener('click', function () {
+      var txt = window.prompt(T('New memory note (added to the assistant\'s working memory):'));
+      if (txt == null || !txt.trim()) return;
+      vx('add', { text: txt.trim(), scope: 'memory' }).then(function (r) { note.textContent = (r && r.message) || ''; load(); });
+    });
+    openBtn.addEventListener('click', function () { vx('open').then(function (r) { note.textContent = r && r.opened ? T('Opened folder.') : (r && r.dir) || ''; }); });
+    obsBtn.addEventListener('click', function () { if (vuri) { try { window.location.href = vuri; } catch (e) {} note.textContent = T('Launching Obsidian...'); } });
+
+    load();
+  }
+
+  // ---------- App: Workflow Canvas ----------
+  // Human-in-the-loop plan approval. The agent proposes multi-step plans (propose_plan tool);
+  // this app lists them, shows the steps, and lets the user Approve or Reject. On approval the
+  // backend runs each step through the engine; the app polls and shows live status + results.
+  function mountWorkflow(body, win) {
+    body.style.padding = '0';
+    function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function wf(action, extra) { var o = { action: action }; if (extra) for (var k in extra) o[k] = extra[k]; return api('/api/plans', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(o) }); }
+
+    var PSTATUS = { proposed: ['#e08a2b', 'Awaiting approval'], approved: ['#0a8acb', 'Approved'], running: ['#0a8acb', 'Running'], done: ['#2e9e3f', 'Done'], rejected: ['#8a8a8a', 'Rejected'] };
+    var SSTATUS = { pending: ['#8a8a8a', '○'], running: ['#0a8acb', '◔'], done: ['#2e9e3f', '✓'], error: ['#e05a5a', '✗'], skipped: ['#8a8a8a', '–'] };
+
+    var root = el('div'); root.style.cssText = 'height:100%;display:flex;flex-direction:column;overflow:hidden';
+    var bar = el('div'); bar.style.cssText = 'display:flex;gap:8px;padding:8px 12px;border-bottom:1px solid rgba(128,128,128,.2);align-items:center;flex-wrap:wrap';
+    var split = el('div'); split.style.cssText = 'flex:1;display:flex;overflow:hidden';
+    var side = el('div'); side.style.cssText = 'width:260px;min-width:260px;overflow:auto;border-right:1px solid rgba(128,128,128,.2);padding:8px 6px';
+    var view = el('div'); view.style.cssText = 'flex:1;overflow:auto;padding:16px 20px';
+    split.appendChild(side); split.appendChild(view);
+    root.appendChild(bar); root.appendChild(split); body.appendChild(root);
+
+    var refreshBtn = el('button', 'btn ghost', T('Refresh'));
+    var note = el('span', 'hint');
+    bar.appendChild(refreshBtn); bar.appendChild(note);
+
+    var plans = [], selId = null, pollTimer = null;
+
+    function badge(statusKey, map) {
+      var m = map[statusKey] || ['#8a8a8a', statusKey];
+      var b = el('span'); b.textContent = m[1] || statusKey; b.style.cssText = 'display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:600;color:#fff;background:' + m[0];
+      return b;
+    }
+    function renderList() {
+      side.innerHTML = '';
+      if (!plans.length) { var e = el('div', 'hint'); e.textContent = T('No plans yet. When the assistant proposes a multi-step plan it will appear here for approval.'); e.style.padding = '8px'; side.appendChild(e); return; }
+      plans.forEach(function (p) {
+        var row = el('div'); row.style.cssText = 'padding:8px;border-radius:8px;cursor:pointer;margin-bottom:4px;' + (p.id === selId ? 'background:rgba(224,138,43,.14)' : '');
+        var t = el('div'); t.textContent = p.title; t.style.cssText = 'font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+        var meta = el('div'); meta.style.cssText = 'display:flex;gap:6px;align-items:center;margin-top:3px';
+        meta.appendChild(badge(p.status, PSTATUS));
+        var cnt = el('span', 'hint'); cnt.textContent = p.steps.length + ' ' + T('steps'); cnt.style.fontSize = '11px'; meta.appendChild(cnt);
+        row.appendChild(t); row.appendChild(meta);
+        row.addEventListener('click', function () { selId = p.id; renderList(); renderDetail(); });
+        side.appendChild(row);
+      });
+    }
+    function renderDetail() {
+      view.innerHTML = '';
+      var p = plans.filter(function (x) { return x.id === selId; })[0];
+      if (!p) { var e = el('div', 'hint'); e.textContent = T('Select a plan.'); view.appendChild(e); return; }
+      var h = el('div'); h.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px';
+      var ti = el('div'); ti.textContent = p.title; ti.style.cssText = 'font-size:18px;font-weight:700'; h.appendChild(ti); h.appendChild(badge(p.status, PSTATUS));
+      view.appendChild(h);
+      if (p.goal) { var g = el('div'); g.textContent = p.goal; g.style.cssText = 'color:var(--mut,#888);margin-bottom:10px'; view.appendChild(g); }
+      if (p.note) { var nt = el('div', 'hint'); nt.textContent = p.note; nt.style.marginBottom = '10px'; view.appendChild(nt); }
+
+      if (p.status === 'proposed') {
+        var actions = el('div'); actions.style.cssText = 'display:flex;gap:8px;margin-bottom:12px';
+        var appr = el('button', 'btn', '✓ ' + T('Approve & run'));
+        var rej = el('button', 'btn ghost', '✕ ' + T('Reject'));
+        appr.addEventListener('click', function () { appr.disabled = true; wf('approve', { id: p.id }).then(function (r) { if (r && r.ok) { note.textContent = T('Approved - running...'); startPoll(); load(); } else { appr.disabled = false; note.textContent = (r && r.error) || T('Failed.'); } }); });
+        rej.addEventListener('click', function () { wf('reject', { id: p.id }).then(function () { load(); }); });
+        actions.appendChild(appr); actions.appendChild(rej); view.appendChild(actions);
+      }
+
+      var list = el('div'); list.style.cssText = 'display:flex;flex-direction:column;gap:8px';
+      p.steps.forEach(function (s) {
+        var card = el('div'); card.style.cssText = 'border:1px solid rgba(128,128,128,.22);border-radius:8px;padding:9px 11px';
+        var head = el('div'); head.style.cssText = 'display:flex;align-items:center;gap:8px';
+        var ic = el('span'); var sm = SSTATUS[s.status] || SSTATUS.pending; ic.textContent = sm[1]; ic.style.cssText = 'color:' + sm[0] + ';font-weight:700;width:16px;text-align:center';
+        var st = el('span'); st.textContent = s.n + '. ' + s.title; st.style.fontWeight = '600';
+        head.appendChild(ic); head.appendChild(st); card.appendChild(head);
+        if (s.detail && s.detail !== s.title) { var d = el('div', 'hint'); d.textContent = s.detail; d.style.cssText = 'margin:4px 0 0 24px;font-size:12px'; card.appendChild(d); }
+        if (s.result) { var rz = el('div'); rz.textContent = s.result; rz.style.cssText = 'margin:6px 0 0 24px;padding:7px 9px;background:rgba(128,128,128,.1);border-radius:6px;font-size:12.5px;white-space:pre-wrap;line-height:1.45'; card.appendChild(rz); }
+        list.appendChild(card);
+      });
+      view.appendChild(list);
+    }
+    function anyRunning() { return plans.some(function (p) { return p.status === 'running' || p.status === 'approved'; }); }
+    function startPoll() {
+      if (pollTimer) return;
+      pollTimer = setInterval(function () {
+        if (win && win.closed) { stopPoll(); return; }
+        load(true);
+      }, 1500);
+    }
+    function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+    function load(quiet) {
+      if (!quiet) note.textContent = T('Loading...');
+      wf('list').then(function (r) {
+        if (!r || !r.ok) { note.textContent = (r && r.error) || T('Failed.'); return; }
+        plans = r.plans || [];
+        if (!selId && plans.length) selId = plans[0].id;
+        if (!quiet) note.textContent = plans.length + ' ' + T('plans');
+        renderList(); renderDetail();
+        if (anyRunning()) startPoll(); else stopPoll();
+      }).catch(function () { note.textContent = T('Failed.'); });
+    }
+
+    refreshBtn.addEventListener('click', function () { load(); });
+    load();
+  }
+
   // ---------- App: System Toolkit ----------
   // A Swiss-army manager for the host machine: a health Overview, disk Cleanup, Startup
   // programs, running Processes (with End task), and a Windows Registry cruft scanner that
@@ -3046,6 +3273,19 @@
       ['#tray-status', '#tray-status-top'].forEach(function (s) { var t = $(s); if (t) { t.classList.add('ok'); t.title = 'Backend connected'; } });
     }).catch(function () { ['#tray-status', '#tray-status-top'].forEach(function (s) { var t = $(s); if (t) t.classList.remove('ok'); }); });
   }
+  // Privacy Mode indicator: a 🔒 in the top bar + taskbar tray whenever local-only inference is on.
+  function refreshPrivacyBadge() {
+    api('/api/settings').then(function (s) {
+      var on = !!(s && s.live && s.live.privacyMode);
+      [['#topbar-right', 'privacy-badge-top'], ['#taskbar-tray', 'privacy-badge']].forEach(function (pair) {
+        var host = document.querySelector(pair[0]); if (!host) return;
+        var b = document.getElementById(pair[1]);
+        if (on && !b) { b = el('span'); b.id = pair[1]; b.textContent = '🔒'; b.title = T('Privacy Mode: inference is local-only (no cloud, no Claude)'); b.style.cssText = 'font-size:13px;cursor:default'; host.insertBefore(b, host.firstChild); }
+        else if (b) { b.style.display = on ? '' : 'none'; }
+      });
+    }).catch(function () {});
+  }
+  refreshPrivacyBadge(); setInterval(refreshPrivacyBadge, 20000);
 
   $('#start-btn').addEventListener('click', function (e) { e.stopPropagation(); toggleStart(); });
   $('#start-search-input').addEventListener('input', function () { renderStart(this.value); });

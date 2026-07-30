@@ -4,6 +4,7 @@ import type { ZamolxisConfig } from '../config.js';
 import type { SandboxManager, BackendName } from '../sandbox/backends.js';
 import type { MemoryManager } from './memory.js';
 import { searchProviderName } from './localTools.js';
+import { setToolOutputCap } from './toolOutput.js';
 import { configuredProviders } from './providers.js';
 import { claudeModels } from './claudeModels.js';
 import { logger } from '../logger.js';
@@ -57,6 +58,8 @@ interface PersistedSettings {
   systemPromptAppend?: string;
   sandboxBackend?: string;
   localRouting?: 'off' | 'auto';
+  privacyMode?: boolean;
+  toolOutputCap?: number;
   localModel?: string;
   localContext?: number;
   localKeepAlive?: string;
@@ -130,6 +133,8 @@ export class SettingsManager {
         localKeepAlive: this.config.localKeepAlive ?? '',
         localTemp: this.config.localTemp ?? null,
         localRouting: this.config.localRouting,
+        privacyMode: !!this.config.privacyMode,
+        toolOutputCap: this.config.toolOutputCap ?? 12000,
         routeChain: this.config.routeChain,
         lawsEnabled: this.config.lawsEnabled,
         agentRestore: this.config.agentRestore,
@@ -220,6 +225,13 @@ export class SettingsManager {
     if (live.localRouting === 'off' || live.localRouting === 'auto') {
       this.config.localRouting = live.localRouting;
       p.localRouting = live.localRouting;
+    }
+    if (typeof live.privacyMode === 'boolean') {
+      this.config.privacyMode = live.privacyMode; p.privacyMode = live.privacyMode;
+    }
+    if (typeof live.toolOutputCap === 'number' && live.toolOutputCap >= 0) {
+      const cap = Math.floor(live.toolOutputCap);
+      this.config.toolOutputCap = cap; p.toolOutputCap = cap; setToolOutputCap(cap);
     }
     // Local model selection — applies LIVE (the engine reads config.localModel per turn). Setting a
     // model also ENABLES the local tier even if none was configured at boot (keeps the URL or default).

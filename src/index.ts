@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { loadConfig, applyPersistedSettings, type ZamolxisConfig } from './config.js';
 import { logger } from './logger.js';
+import { setToolOutputCap } from './core/toolOutput.js';
 import { checkAuth, oauthExpiry } from './core/auth.js';
 import { SessionStore } from './core/session.js';
 import { AgentStore } from './core/agents.js';
@@ -88,6 +89,7 @@ async function main(): Promise<void> {
   process.on('uncaughtException', (err) => logger.error({ err: String(err) }, 'uncaughtException'));
 
   const config = loadConfig();
+  setToolOutputCap(config.toolOutputCap ?? 12000); // TokenJuice: sync tool-output cap from config
   if (process.argv.includes('--doctor') || process.argv.includes('--check')) doctor(config);
   initProviders(config.dataDir); // free-cloud provider rotation: daily usage tracking
   initClaudeModels(config.dataDir); // live Claude model list from the API (cached; falls back offline)
@@ -249,7 +251,8 @@ async function main(): Promise<void> {
         () => manager.connectedChannels(),
         (name) => manager.channelMessages(name),
         (name, chatId, text) => manager.sendToChannel(name, chatId, text),
-        agentPages)],
+        agentPages,
+        (text, conversationKey) => engine.run({ conversationKey, text }).then((r) => ({ reply: r.reply, isError: r.isError })))],
     ];
     for (const [enabled, make] of factories) {
       if (!enabled) continue;

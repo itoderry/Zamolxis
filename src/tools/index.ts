@@ -1,7 +1,15 @@
 import path from 'node:path';
 import { z } from 'zod';
-import { tool, createSdkMcpServer, type McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
+import { tool as sdkTool, createSdkMcpServer, type McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
+import { compressToolResult } from '../core/toolOutput.js';
 import { packSetup } from '../core/pack.js';
+
+// TokenJuice: wrap every tool so oversized text output is capped/compressed before the
+// model sees it (full output is preserved on disk). Shadowing the SDK `tool` here means
+// all 50+ call sites below get compression with no per-tool change.
+const tool = ((name: string, description: string, inputSchema: unknown, handler: (...a: unknown[]) => unknown) =>
+  sdkTool(name as never, description as never, inputSchema as never, (async (...a: unknown[]) =>
+    compressToolResult(name, await handler(...a))) as never)) as unknown as typeof sdkTool;
 import type { Scheduler } from '../scheduler/scheduler.js';
 import type { SkillsManager } from '../skills/manager.js';
 import type { SandboxManager, BackendName } from '../sandbox/backends.js';
@@ -17,6 +25,7 @@ import { outlookMail, outlookPim } from '../core/outlookLocal.js';
 import { onenoteRead, sqlQuery, browserHistory, archiveTool, openInExcel } from '../core/localApps.js';
 import { openInWord, openInPowerpoint, openApp, scanDocument, itunes, systemStatus, steamGames, stickyNotes, autohotkey } from '../core/nativeApps.js';
 import { setCanvas, setCanvasTable } from '../core/canvas.js';
+import { proposePlan } from '../core/plans.js';
 import { browserControl } from '../core/browser.js';
 import { createJiraIssue, searchJira, getJiraIssue, whoAssigned, jiraConfigured, JIRA_SETUP_INSTRUCTIONS, getJiraIssuesByKeys } from './jira.js';
 import { addWatchedUrl, removeWatchedUrl, checkAllUrls, listWatchedUrls } from '../core/urlwatch.js';
@@ -747,6 +756,38 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
     async (args) => { const v = setCanvasTable(args.columns, args.rows as unknown as string[][], args.title); return text(`Table (${(args.rows || []).length} rows) shown on the Canvas (v${v}) — sortable.`); },
   );
 
+  const proposePlanTool = tool(
+    'propose_plan',
+    'Propose a multi-step plan for the user to REVIEW and APPROVE before anything runs. Use this whenever a request needs several distinct actions — especially anything slow, costly, or with side effects (sending, publishing, buying, deleting, bulk edits, long research). Do NOT start executing; lay out the steps and stop. The plan appears in the user\'s Workflow Canvas; on approval each step runs in order and its result is shown. Each step\'s `detail` is the exact instruction that will be executed for that step, so write it as a clear, self-contained task.',
+    {
+      title: z.string().describe('Short name for the overall plan'),
+      goal: z.string().optional().describe('One or two sentences: what approving this plan will accomplish'),
+      steps: z
+        .array(
+          z.object({
+            title: z.string().describe('Short label for this step'),
+            detail: z.string().describe('The precise instruction to execute for this step (self-contained)'),
+          }),
+        )
+        .describe('Ordered steps; each runs only after the user approves the whole plan'),
+    },
+    async (args) => {
+      const plan = proposePlan({
+        title: args.title,
+        goal: args.goal,
+        steps: args.steps,
+        conversationKey: ctx.conversationKey,
+        channel: ctx.channel,
+        chatId: ctx.chatId,
+      });
+      return text(
+        `Proposed a ${plan.steps.length}-step plan "${plan.title}" (id ${plan.id}). ` +
+          `It is awaiting your approval in the Workflow Canvas — nothing has run yet. ` +
+          `Open Workflow Canvas to review the steps and Approve or Reject.`,
+      );
+    },
+  );
+
   const openInExcelTool = tool(
     'open_in_excel',
     'Put tabular data into a REAL .xlsx and open it in the user\'s Excel. Pass columns + rows (+ optional title); the file is saved under the data dir and Excel opens it — full sorting/filtering/formulas. Or pass file to open an existing spreadsheet. PREFER this for query results and any table the user will work with.',
@@ -843,6 +884,7 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
         haBuildMap,
         showCanvas,
         showTable,
+        proposePlanTool,
         openInExcelTool,
         wordTool,
         pptTool,
