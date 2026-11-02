@@ -22,12 +22,13 @@ import type { SkillsManager } from '../skills/manager.js';
 import { buildLocalTools, localSearchAvailable, type LocalToolset } from './localTools.js';
 import { compressText } from './toolOutput.js';
 import { effectiveName } from './displayName.js';
-import { pickFreeProvider, freeProviderPool, providerById, recordProviderUse, configuredProviders, type ProviderDef } from './providers.js';
+import { pickFreeProvider, freeProviderPool, providerById, recordProviderUse, configuredProviders, providerBaseUrl, providerKey, providerModel, providerConfigured, markProviderFailure, markProviderOk, autoCorrectModel, type ProviderDef } from './providers.js';
 import type { AgentStore } from './agents.js';
 import { BanStore, isSmartestModel } from './bans.js';
 import { PermissionStore, summarizeToolInput, type PermissionPrompter, type PromptAnswer } from './permissions.js';
 import { haConfigured, fetchHaInventory } from '../tools/homeassistant.js';
 import type { CodeHost, DelegateTaskSpec, DelegateContext, RunPath } from './code/orchestrator.js';
+import { loadCodeModel } from './code/localCodeModel.js';
 
 /** The delegation orchestrator as the engine sees it (late-bound; see src/core/code/orchestrator.ts). */
 export interface Delegator {
@@ -102,6 +103,22 @@ const DELEGATE_TOOL_DEFS: unknown[] = [
   },
 ];
 export const DELEGATE_TOOL_NAMES = ['delegate_task', 'claude_code', 'claude_cli'];
+/** The Claude tier's name for load_code_model (the permission store keys on it for both tiers). */
+const LOAD_CODE_MODEL_MCP = 'mcp__zamolxis__load_code_model';
+
+/** OpenAI-format definition of load_code_model (pull a coding model into Ollama), injected with
+ *  the delegation tools. */
+const LOAD_CODE_MODEL_DEF: unknown = {
+  type: 'function',
+  function: {
+    name: 'load_code_model',
+    description: "Download a coding model into the local Ollama (the hardware-based recommendation, e.g. qwen3-coder:30b, or the named model), wait for the download, then make it the local model for delegated code jobs. WARNING: this downloads many GB (about 5-20 GB) and takes a while. Call it ONLY after the user explicitly agreed to download it in this conversation (for example after you proposed a better coding model and they said yes). It checks the disk first and refuses when Ollama's models folder lacks space, explaining how to move it.",
+    parameters: {
+      type: 'object',
+      properties: { model: { type: 'string', description: 'Ollama model name (default: the recommended coding model for this machine)' } },
+    },
+  },
+};
 
 export interface RunRequest {
   /** Stable per-conversation key, e.g. "telegram:12345". */
@@ -568,6 +585,12 @@ export class Engine implements CodeHost {
     if (remembered === 'deny') return { behavior: 'deny', message: `Tool ${toolName} is denied by a remembered permission (revoke it in Settings → Permissions).` };
 
     const prompter = this.permissionPrompters.get(ctx.channel);
+    // A multi-GB model download is never auto-allowed just because nobody can be asked (scheduled
+    // agents, channels without prompts): it needs a "yes" in a chat that can show the prompt, or a
+    // remembered grant, or a permission mode that skips asking.
+    if (!prompter && toolName === LOAD_CODE_MODEL_MCP) {
+      return { behavior: 'deny', message: 'Downloading a model needs your confirmation in the web chat (this conversation cannot show permission prompts).' };
+    }
     if (!prompter) {
       logger.info({ tool: toolName, channel: ctx.channel, key: ctx.conversationKey }, 'permission auto-allowed (no interactive prompter on this channel)');
       return { behavior: 'allow', updatedInput: input };
@@ -646,6 +669,20 @@ export class Engine implements CodeHost {
     }
   }
 
+  /** load_code_model from the local / free-provider tool loop: pull + select a coding model. */
+  private async execLoadCodeModel(args: Record<string, unknown>, ctx: DelegateContext): Promise<string> {
+    const model = typeof args.model === 'string' && args.model.trim() ? args.model.trim() : undefined;
+    // Same permission gate as the Claude tier's MCP tool (a multi-GB download needs the user's OK).
+    const perm = await this.decideToolUse(LOAD_CODE_MODEL_MCP, model ? { model } : {}, ctx);
+    if (perm.behavior !== 'allow') return `Not loading the model: ${perm.message || 'permission denied'}.`;
+    try {
+      const r = await loadCodeModel(this.deps.config, { model, onProgress: ctx.onProgress ? (line) => ctx.onProgress!(`(load_code_model: ${line})\n`) : undefined });
+      return r.message;
+    } catch (err) {
+      return `Loading the model failed: ${String(err)}`;
+    }
+  }
+
   /** Per-conversation serialization tail: chains same-key runs so they can't race. */
   private readonly tails = new Map<string, Promise<unknown>>();
   /** Last turn per conversation (in-memory) so "wrong"/"escalate" can redo it on the smart model. */
@@ -675,7 +712,7 @@ export class Engine implements CodeHost {
     const { config } = this.deps;
     const list: Array<{ token: string; name: string; label: string; score: number }> = [];
     if (config.localModel) list.push({ token: 'local', name: config.localModel.model, label: 'Local', score: modelSmartScore(config.localModel.model) });
-    for (const p of configuredProviders()) list.push({ token: p.id, name: p.model, label: p.label, score: modelSmartScore(p.model) });
+    for (const p of configuredProviders()) list.push({ token: p.id, name: providerModel(p), label: p.label, score: modelSmartScore(providerModel(p)) });
     list.push({ token: 'claude', name: config.smartModel || config.model || 'claude opus', label: 'Claude', score: 1 });
     list.sort((a, b) => a.score - b.score);
     return list.map(({ token, name, label }) => ({ token, name, label }));
@@ -867,7 +904,7 @@ export class Engine implements CodeHost {
       return { ok: true };
     }
     const p = providerById(tok);
-    if (p) return process.env[p.envKey] ? { ok: true } : { ok: false, reason: `the ${p.label} API key is missing (AI Providers)` };
+    if (p) return providerConfigured(p) ? { ok: true } : { ok: false, reason: `the ${p.label} API key (or a required value) is missing (AI Providers)` };
     return { ok: true }; // unknown free-form model — let the run resolve it
   }
 
@@ -1304,9 +1341,10 @@ export class Engine implements CodeHost {
     if (this.delegator && dctx) {
       const baseExec = tools.exec;
       tools = {
-        names: [...tools.names, ...DELEGATE_TOOL_NAMES],
-        defs: [...tools.defs, ...DELEGATE_TOOL_DEFS],
-        exec: (name: string, args: Record<string, unknown>) => (DELEGATE_TOOL_NAMES.includes(name) ? this.execDelegateTool(name, args, dctx) : baseExec(name, args)),
+        names: [...tools.names, ...DELEGATE_TOOL_NAMES, 'load_code_model'],
+        defs: [...tools.defs, ...DELEGATE_TOOL_DEFS, LOAD_CODE_MODEL_DEF],
+        exec: (name: string, args: Record<string, unknown>) =>
+          DELEGATE_TOOL_NAMES.includes(name) ? this.execDelegateTool(name, args, dctx) : name === 'load_code_model' ? this.execLoadCodeModel(args, dctx) : baseExec(name, args),
       };
     }
     // Agent tool restriction: expose ONLY the tools this agent is allowed to use.
@@ -1388,6 +1426,9 @@ export class Engine implements CodeHost {
     outTok: number;
     searched: boolean;
     usedTools: string[];
+    /** HTTP status of a failed call (0/undefined = network error or timeout). */
+    status?: number;
+    errorBody?: string;
   }> {
     // System, then the prior conversation (so a model that didn't answer earlier turns still
     // knows what was discussed), then this turn's user message.
@@ -1423,7 +1464,7 @@ export class Engine implements CodeHost {
         if (!res.ok) {
           const body = await res.text().catch(() => '');
           logger.warn({ status: res.status, url: o.url, model: o.model, body: body.slice(0, 400) }, 'tool-model HTTP error');
-          return { failed: true, exhausted: false, finalText: '', inTok, outTok, searched, usedTools: [...usedTools] };
+          return { failed: true, exhausted: false, finalText: '', inTok, outTok, searched, usedTools: [...usedTools], status: res.status, errorBody: body.slice(0, 2000) };
         }
         const data = (await res.json()) as {
           choices?: Array<{ message?: { content?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> } }>;
@@ -1540,18 +1581,39 @@ export class Engine implements CodeHost {
 
   /** Answer with a specific cloud provider (free or paid) via the shared tool loop. */
   private async answerProvider(req: RunRequest, p: ProviderDef, allowEscalate: boolean): Promise<{ escalate: boolean; result?: RunResult }> {
-    const key = process.env[p.envKey];
-    if (!key) return { escalate: true };
+    // keyOptional providers (e.g. OVH) are called anonymously when no key is set.
+    const key = providerKey(p);
+    const base = providerBaseUrl(p);
+    if (!base || !providerConfigured(p)) return { escalate: true };
     const bannedCaps = this.deps.bans?.bannedSkillsFor(p.id) ?? [];
     const abort = new AbortController();
     const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill, delegateCtx: this.delegateCtx(req, abort.signal) });
     const history = req.freshContext ? [] : this.recentHistory(req.conversationKey);
-    const r = await this.toolLoop({ url: `${p.baseUrl}/chat/completions`, model: p.model, apiKey: key, system, userText: req.text, tools, history, temp: req.agentJob ? 0 : undefined, images: p.vision ? req.images : undefined, abort });
-    recordProviderUse(p.id);
-    if (!r.failed) this.deps.usage?.recordEngine({ [`${p.kind}:${p.id}:${p.model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
-    if (!r.failed) logger.info({ provider: p.id, kind: p.kind }, 'cloud provider handled the turn');
+    let model = providerModel(p);
+    const call = (m: string) => this.toolLoop({ url: `${base}/chat/completions`, model: m, apiKey: key, system, userText: req.text, tools, history, temp: req.agentJob ? 0 : undefined, images: p.vision ? req.images : undefined, abort });
+    let r = await call(model);
+    // Health: a failing provider is cooled down so the rotation stops picking it first. A retired
+    // model is replaced automatically (tested), and this request is retried once on the new one,
+    // unless tools already ran (a redo could repeat their side effects).
+    if (r.failed && r.status) {
+      const kind = markProviderFailure(p.id, r.status, r.errorBody, undefined, model);
+      if (kind === 'model-gone' && !r.usedTools.length && !abort.signal.aborted) {
+        const fixed = await autoCorrectModel(p, { failedModel: model });
+        if (fixed && fixed.model !== model && !abort.signal.aborted) {
+          model = fixed.model;
+          r = await call(model); // retried once only: a second failure is returned as is
+          if (r.failed && r.status) markProviderFailure(p.id, r.status, r.errorBody, undefined, model);
+        }
+      }
+    }
+    if (!r.failed) {
+      markProviderOk(p.id);
+      recordProviderUse(p.id); // only successful calls count toward the daily quota
+      this.deps.usage?.recordEngine({ [`${p.kind}:${p.id}:${model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
+      logger.info({ provider: p.id, kind: p.kind }, 'cloud provider handled the turn');
+    }
     const out = this.finishAssistantTurn(req, allowEscalate, r);
-    if (out.result) { out.result.via = `${p.label} (${p.model})`; out.result.modelToken = p.id; }
+    if (out.result) { out.result.via = `${p.label} (${model})`; out.result.modelToken = p.id; }
     return out;
   }
 

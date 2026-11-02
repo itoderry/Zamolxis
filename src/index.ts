@@ -41,6 +41,7 @@ import { AgentPages } from './core/agentPages.js';
 import { BanStore, isSmartestModel } from './core/bans.js';
 import { PermissionStore } from './core/permissions.js';
 import { configuredProviders } from './core/providers.js';
+import { loadCodeModel } from './core/code/localCodeModel.js';
 import { buildToolServers } from './tools/index.js';
 import { Orchestrator } from './core/code/orchestrator.js';
 
@@ -253,7 +254,7 @@ async function main(): Promise<void> {
     const sandbox = new SandboxManager(config.sandbox);
     const settings = new SettingsManager(config, sandbox, config.dataDir, () => manager.runningNames(), memory);
     engine.buildMcpServers = (ctx) =>
-      buildToolServers(ctx, { scheduler, skills, sandbox, memory, sessionIndex, tabs, usage, localModel: config.localModel, dataDir: config.dataDir, skillsDir: config.skillsDir, agentStore, runAgent: (n, t) => engine.runAgent(n, t).then((r) => r.reply), delegate: (tasks, c, force) => orchestrator.delegateText(tasks, c, force), sendAgentMessage: (f, t, x) => engine.sendAgentMessage(f, t, x), compileAgent: (n) => engine.compileAgent(n), buildHaMap: () => engine.buildHaDeviceMap() });
+      buildToolServers(ctx, { scheduler, skills, sandbox, memory, sessionIndex, tabs, usage, localModel: config.localModel, dataDir: config.dataDir, skillsDir: config.skillsDir, agentStore, runAgent: (n, t) => engine.runAgent(n, t).then((r) => r.reply), delegate: (tasks, c, force) => orchestrator.delegateText(tasks, c, force), loadCodeModel: (m, op) => loadCodeModel(config, { model: m, onProgress: op }).then((r) => r.message), sendAgentMessage: (f, t, x) => engine.sendAgentMessage(f, t, x), compileAgent: (n) => engine.compileAgent(n), buildHaMap: () => engine.buildHaDeviceMap() });
     logger.info({ sandbox: sandbox.listConfigured(), default: sandbox.defaultBackend }, 'sandbox ready');
 
     const factories: Array<[boolean, () => Channel]> = [

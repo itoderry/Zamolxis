@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { ZamolxisConfig } from '../../config.js';
 import { engineEnv, credentialsPresent, oauthExpiry } from '../auth.js';
-import { freeProviderPool, providerById, type ProviderDef } from '../providers.js';
+import { freeProviderPool, providerById, providerConfigured, providerModel, type ProviderDef } from '../providers.js';
 
 /**
  * Model backends for delegated Claude Code runs (both the SDK code runner and the headless CLI).
@@ -145,10 +145,10 @@ export function backendEnv(
   if (config.privacyMode) return { error: 'Privacy Mode is on, so cloud providers cannot be used' };
   const p = opts?.providerId ? providerById(opts.providerId) : strongFreeProviders()[0];
   if (!p) return { error: 'no strong free provider is configured with quota left today' };
-  if (!process.env[p.envKey]) return { error: `the ${p.label} key is missing` };
+  if (!providerConfigured(p)) return { error: `the ${p.label} key (or a required value such as an account id) is missing` };
   const base = proxyBaseUrl(config, p.id);
   if (!base) return { error: 'the free backend needs the web channel listening on a loopback address' };
-  const model = opts?.model && !isClaudeModelName(opts.model) ? opts.model : p.model;
+  const model = opts?.model && !isClaudeModelName(opts.model) ? opts.model : providerModel(p);
   return { backend: 'free', model, env: redirectedEnv(base, PROXY_SECRET, model), label: `${p.label} (${model})`, providerId: p.id };
 }
 
@@ -189,11 +189,15 @@ async function localStatus(config: ZamolxisConfig): Promise<BackendStatus> {
   const has = installed.some((n) => n === model || n === model + ':latest' || (!model.includes(':') && n.startsWith(model + ':')));
   if (!has) return { id: 'local', usable: false, model, installed, reason: `model "${model}" is not installed in Ollama` };
   const ctx = await ollamaContext(root, model);
+  // Recent Ollama (0.40+) loads models with a large default context (131072 was observed for
+  // hermes3:8b), so only warn when a SMALL limit is actually known: the model's maximum, its
+  // num_ctx parameter, or an OLLAMA_CONTEXT_LENGTH set below the minimum.
+  const envCtx = Number(process.env.OLLAMA_CONTEXT_LENGTH) || 0;
   let warning: string | undefined;
   const lowContext = !!((ctx.max && ctx.max < MIN_CODE_CONTEXT) || (ctx.numCtx && ctx.numCtx < MIN_CODE_CONTEXT));
   if (ctx.max && ctx.max < MIN_CODE_CONTEXT) warning = `${model} supports only ${ctx.max} tokens of context; Claude Code needs about ${MIN_CODE_CONTEXT}. Expect failures.`;
   else if (ctx.numCtx && ctx.numCtx < MIN_CODE_CONTEXT) warning = `${model} is set to num_ctx ${ctx.numCtx}; Claude Code needs about ${MIN_CODE_CONTEXT}. Raise it (e.g. OLLAMA_CONTEXT_LENGTH=${MIN_CODE_CONTEXT}).`;
-  else if (!ctx.numCtx) warning = `Ollama may load ${model} with a small default context. If runs fail, start Ollama with OLLAMA_CONTEXT_LENGTH=${MIN_CODE_CONTEXT} or more.`;
+  else if (!ctx.numCtx && envCtx && envCtx < MIN_CODE_CONTEXT) warning = `OLLAMA_CONTEXT_LENGTH is ${envCtx} here; Claude Code needs about ${MIN_CODE_CONTEXT}. If Ollama runs with it, raise it.`;
   return { id: 'local', usable: true, model, installed, warning, lowContext };
 }
 
@@ -210,7 +214,7 @@ export async function availableBackends(config: ZamolxisConfig): Promise<Backend
     const p = strongFreeProviders()[0];
     if (!p) out.push({ id: 'free', usable: false, reason: 'no strong free provider is configured with quota left today' });
     else if (!proxyBaseUrl(config, p.id)) out.push({ id: 'free', usable: false, provider: p.id, reason: 'needs the web channel listening on a loopback address' });
-    else out.push({ id: 'free', usable: true, provider: p.id, model: p.model, warning: 'Free models drive Claude Code less reliably than Claude; best for small jobs.' });
+    else out.push({ id: 'free', usable: true, provider: p.id, model: providerModel(p), warning: 'Free models drive Claude Code less reliably than Claude; best for small jobs.' });
   }
 
   out.push(await localStatus(config));

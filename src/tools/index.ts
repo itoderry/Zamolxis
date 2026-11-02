@@ -66,6 +66,8 @@ export interface ToolDeps {
   runAgent?: (name: string, task?: string) => Promise<string>;
   /** Claude Code delegation orchestrator: runs subtasks and returns the aggregated reply. */
   delegate?: (tasks: DelegateTaskSpec[], ctx: DelegateContext, force?: RunPath) => Promise<string>;
+  /** Pull a coding model into Ollama and make it the code backend's model (see localCodeModel.ts). */
+  loadCodeModel?: (model: string | undefined, onProgress?: (line: string) => void) => Promise<string>;
   /** Deliver a message from an agent to another agent or the user (late-bound to the engine). */
   sendAgentMessage?: (from: string, to: string, text: string) => Promise<string>;
   /** Rebuild the Home Assistant device-map skill via the smart model (late-bound to the engine). */
@@ -478,6 +480,22 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
       model: z.string().optional(),
     },
     async (args) => runDelegate([{ task: args.task, folder: args.folder, backend: args.backend, model: args.model }], 'cli'),
+  );
+
+  const loadCodeModelTool = tool(
+    'load_code_model',
+    "Download a coding model into the local Ollama (the hardware-based recommendation, e.g. qwen3-coder:30b, or the named model), wait for the download, then make it the local model for delegated code jobs. WARNING: this downloads many GB (about 5-20 GB) and takes a while. Call it ONLY after the user explicitly agreed to download it in this conversation (for example after you proposed a better coding model and they said yes). It checks the disk first and refuses when Ollama's models folder lacks space, explaining how to move it.",
+    {
+      model: z.string().max(100).optional().describe('Ollama model name (default: the recommended coding model for this machine)'),
+    },
+    async (args) => {
+      if (!deps.loadCodeModel) return text('Loading a code model is not available in this build.');
+      try {
+        return text(await deps.loadCodeModel(args.model, ctx.onProgress ? (line) => ctx.onProgress!(`(load_code_model: ${line})\n`) : undefined));
+      } catch (e) {
+        return text('Loading the model failed: ' + String(e));
+      }
+    },
   );
 
   const scheduleAgent = tool(
@@ -1063,6 +1081,7 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
         delegateTask,
         claudeCodeTool,
         claudeCliTool,
+        loadCodeModelTool,
         scheduleAgent,
         sendMessage,
         scheduleTask,

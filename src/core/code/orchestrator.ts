@@ -14,6 +14,7 @@ import { logger } from '../../logger.js';
 import { availableBackends, backendEnv, strongFreeProviders, type BackendEnv, type BackendPref, type BackendStatus, type CodeBackend } from './backends.js';
 import { runCodeTask, type DelegateRunResult } from './codeRunner.js';
 import { runCliTask, resolveClaude } from './cliRunner.js';
+import { codeModelAdvice, proposalText } from './localCodeModel.js';
 
 /**
  * The delegation orchestrator: Zamolxis hands jobs to Claude Code as a worker.
@@ -87,6 +88,8 @@ export interface SubtaskResult extends DelegateRunResult {
   escalatedFrom?: string;
   /** Refused before running (folder not allowed, no backend, ...). */
   refused?: boolean;
+  /** A suggestion for the user, e.g. a better local coding model to load. */
+  proposal?: string;
 }
 
 const MAX_SUBTASKS = 8;
@@ -439,7 +442,19 @@ export class Orchestrator {
       }
     }
     ctx.onProgress?.(`(${prefix}: ${r.ok && !r.incomplete ? 'done' : 'finished with problems'} on ${label}, ${fmtDur(r.durationMs)})\n`);
-    return { ...r, index, task: spec.task, path: p, folder, label, escalatedFrom };
+    // A code job chosen to run on the local backend (or forced there, e.g. Privacy Mode) with a weak
+    // coder: suggest a better model the user can load. Never blocks the run.
+    let proposal: string | undefined;
+    if (p === 'code' && benv.backend === 'local') {
+      try {
+        const loc = statuses.find((s) => s.id === 'local');
+        const advice = codeModelAdvice(config, loc?.installed);
+        if (advice.current === benv.model) proposal = proposalText(advice) || undefined;
+      } catch (err) {
+        logger.warn({ err: String(err) }, 'delegate: code model advice failed');
+      }
+    }
+    return { ...r, index, task: spec.task, path: p, folder, label, escalatedFrom, ...(proposal ? { proposal } : {}) };
   }
 
   /** Delegate one or more subtasks (run in parallel) and return the per-subtask results. */
@@ -489,6 +504,7 @@ export function formatResults(results: SubtaskResult[]): string {
     if (r.diffStat) lines.push(`Diff: ${r.diffStat}`);
     const s = (r.summary || '').trim();
     lines.push('', s.length > 6000 ? s.slice(0, 6000) + '\n...(truncated)' : s);
+    if (r.proposal) lines.push('', r.proposal);
     return lines.join('\n');
   };
   if (results.length === 1) return one(results[0]!);

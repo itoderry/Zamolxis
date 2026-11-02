@@ -3,6 +3,7 @@ import { z } from 'zod';
 import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
+import { setProviderModels, setProviderModelsAuto, setKeylessProviders } from './core/providers.js';
 
 /** Extra (read-only) skill roots: explicit via ZAMOLXIS_EXTRA_SKILLS_DIRS (`;`/`,`-separated),
  *  plus auto-detected Hermes installs. Scanned recursively for SKILL.md by the SkillsManager. */
@@ -116,6 +117,13 @@ const ConfigSchema = z.object({
   codeMaxParallel: z.number().int().positive(),
   /** Turn ceiling for one delegated run. */
   codeMaxTurns: z.number().int().positive(),
+  /** Per-provider model overrides (provider id -> model), set in Settings -> Providers or by the
+   *  automatic replacement of a retired free model. Empty = each provider's default model. */
+  providerModels: z.record(z.string(), z.string()),
+  /** Provider ids whose providerModels entry was picked by auto-correction (not by the user). */
+  providerModelsAuto: z.array(z.string()),
+  /** keyOptional providers (e.g. ovh) the user allowed to run WITHOUT a key (anonymous). Opt-in. */
+  keylessProviders: z.array(z.string()),
 
   /** Permission posture for the autonomous agent. */
   permissionMode: z.enum(['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk']),
@@ -236,6 +244,9 @@ export function loadConfig(): ZamolxisConfig {
     codeLocalModel: process.env.ZAMOLXIS_CODE_LOCAL_MODEL || undefined,
     codeMaxParallel: Math.max(1, Number(process.env.ZAMOLXIS_CODE_MAX_PARALLEL ?? 3) || 3),
     codeMaxTurns: Math.max(1, Number(process.env.ZAMOLXIS_CODE_MAX_TURNS ?? 30) || 30),
+    providerModels: {},
+    providerModelsAuto: [],
+    keylessProviders: [],
     // 'default' = interactive: Zamolxis asks before using a resource (like Claude Code) and
     // remembers grants per chat/skill/agent. Set acceptEdits/bypassPermissions to skip asking.
     // Headless runs (scheduled agents, messaging channels) have no prompter and are never blocked.
@@ -350,6 +361,13 @@ export function applyPersistedSettings(config: ZamolxisConfig): void {
       if (typeof s.codeLocalModel === 'string') config.codeLocalModel = s.codeLocalModel.trim() || undefined;
       if (typeof s.codeMaxParallel === 'number' && s.codeMaxParallel >= 1) config.codeMaxParallel = Math.min(16, Math.floor(s.codeMaxParallel));
       if (typeof s.codeMaxTurns === 'number' && s.codeMaxTurns >= 1) config.codeMaxTurns = Math.min(500, Math.floor(s.codeMaxTurns));
+      if (s.providerModels && typeof s.providerModels === 'object') {
+        const pm: Record<string, string> = {};
+        for (const [k, v] of Object.entries(s.providerModels)) if (typeof v === 'string' && v.trim()) pm[k] = v.trim();
+        config.providerModels = pm;
+      }
+      if (Array.isArray(s.providerModelsAuto)) config.providerModelsAuto = s.providerModelsAuto.filter((x: unknown): x is string => typeof x === 'string' && !!config.providerModels[x]);
+      if (Array.isArray(s.keylessProviders)) config.keylessProviders = s.keylessProviders.filter((x: unknown): x is string => typeof x === 'string');
 
       if (s.channels && argvChannels === null) {
         for (const k of Object.keys(config.channels) as Array<keyof typeof config.channels>) {
@@ -381,6 +399,11 @@ export function applyPersistedSettings(config: ZamolxisConfig): void {
   } catch {
     /* malformed settings.json — ignore, use env/defaults */
   }
+
+  // The provider registry reads its model overrides from here (live updates go through settings).
+  setProviderModels(config.providerModels);
+  setProviderModelsAuto(config.providerModelsAuto);
+  setKeylessProviders(config.keylessProviders);
 
   // `--web` (used by `npm run web`) force-enables the browser UI, keeping any
   // other channels configured via settings/env enabled too.

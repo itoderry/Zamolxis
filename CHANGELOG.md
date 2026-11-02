@@ -2,6 +2,37 @@
 
 ## Unreleased (0.3.x)
 
+- **Free provider list refreshed (checked 2 Nov 2026).** Groq now defaults to
+  `openai/gpt-oss-120b`, OpenRouter to `nvidia/nemotron-3.5-super-vl:free` and NVIDIA NIM to
+  `nvidia/nemotron-3-ultra-550b-a55b` (the old Llama 3.3 defaults were retired). Cerebras and
+  SambaNova notes now say free use needs a card / payment method. New free providers:
+  **OVHcloud AI Endpoints** (gpt-oss-120b; can run without a key at about 2 requests/min once you
+  turn on **Use without a key** on its card, setting `keylessProviders`, off by default; an
+  optional token raises the limits), **Z.ai** (GLM-4.7 Flash) and **Cloudflare Workers AI**
+  (gpt-oss-120b, API token + Account ID; the base URL takes `{ENV_NAME}` placeholders). Their
+  credentials are saved from Settings and restored at boot.
+- **Per-provider model override.** Settings → Providers has a **Model** field on every card
+  (setting `providerModels`), so a stale free model can be fixed without a code change.
+- **Provider health and self-correcting models.** A provider that fails with 401/402/403/404/410
+  is cooled down for 6 hours (a 429 for 2 minutes) and skipped by the free rotation; the
+  Providers tab shows a red "failing: HTTP …" tag. Failed calls no longer count toward the daily
+  quota. When the failure says the **model is gone** (retired, renamed, no longer free), Zamolxis
+  lists the provider's models, tests up to 6 candidates (a short answer plus a tool call), switches
+  to the first that passes, saves it like a manual override (remembered as automatic in
+  `providerModelsAuto` until you edit the Model field), notifies you and retries the request
+  once (chat and the Claude Code translator). Free providers only, only for the provider's
+  configured model, at most once per provider per 6 hours (10 minutes after a search cut short by
+  a rate limit) and within 90 seconds. **Re-check**
+  and **Check all** buttons (`POST /api/providers {action:'validate'}`) run the same test on demand.
+- **A better local model for code.** Settings → Code shows a hardware-aware **Recommended for
+  code** card (qwen3-coder:30b with 32 GB+ RAM or 20 GB+ VRAM, else qwen2.5-coder:14b, else
+  qwen2.5-coder:7b) with **Download and use**; before any pull the free space of Ollama's models
+  folder is checked (size + 2 GB), and a full disk is explained (move the folder with
+  `OLLAMA_MODELS`). A code job run on the local backend with a weak coder ends with a short
+  proposal, and the new `load_code_model` tool (all tiers) downloads and selects the model once
+  you agree. The low-context warning no longer claims Ollama "may load a small context" (0.40+
+  loads a large default context); it warns only when a small limit is actually set.
+
 - **Claude Code as a worker (delegation).** New tools `delegate_task`, `claude_code` and
   `claude_cli`, on every tier (Claude, free providers, local) and assignable to scheduled agents.
   A subtask that needs code runs as a Claude Code session (Agent SDK) **inside a project folder**,

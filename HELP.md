@@ -62,7 +62,7 @@ zam help          # this help summary
 
 **Tools menu** (top-right) opens side panels that push the chat aside (they don't cover it); switching tools warns if you have unsaved edits:
 - **Skills** — browse/import/enable the procedures Zamolxis follows and writes.
-- **Providers** — order the routing chain and add provider API keys; Claude login status.
+- **Providers** — order the routing chain and add provider API keys; Claude login status. Each card has a **Model** field (override a stale free model), a **Re-check** button (tests a short answer and a tool call) and a red *failing* tag when a provider keeps erroring (it is skipped for 6 hours, 2 minutes after a rate limit). If a free model is retired, Zamolxis finds and tests a replacement itself and tells you. OVHcloud works without a key.
 - **Local model** — install Ollama, pull/switch models, routing (off/auto), context, keep-alive, temperature, GPU/CPU split, and a per-model **Test** button.
 - **Memory** — LAWS / USER profile / MEMORY / learned facts, and the **Skill bans** editor.
 - **Settings** — engine models, timezone, agent restore, channels, credentials, sandbox.
@@ -112,6 +112,7 @@ Zamolxis can hand jobs to **Claude Code as a worker**. Ask in chat ("delegate: f
 - **Parallel.** Independent parts of a job run as parallel subtasks (default 3 at a time, separate from the chat's own limit); two code jobs on the same folder run one after another.
 - **Allowed folders.** Code jobs run only in the folders listed in **Settings → Code** (default: the work dir) and their subfolders; anything else is refused with a message saying where to add it.
 - **Settings → Code** also sets the default backend, the Ollama model for code jobs (Claude Code needs a large context, about 32k tokens, and good tool use), parallel subtasks and max turns, and shows the detected `claude` CLI, its login state and which backends are usable now. Delegated runs appear in **Agent Activity** with `code` / `cli` badges.
+- **Recommended for code.** The Code tab suggests a coding model that fits your hardware (qwen3-coder:30b with 32 GB+ RAM, qwen2.5-coder:14b or :7b on smaller machines) with **Download and use**. The download is refused when Ollama's models folder lacks the model size + 2 GB; the message explains how to move the folder (set the `OLLAMA_MODELS` user environment variable to a folder on a bigger drive, then restart Ollama). You can also say "load the recommended code model" in chat after a code job proposes it.
 
 ---
 
