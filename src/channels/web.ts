@@ -35,13 +35,14 @@ import { getWatchers, setWatchers } from '../core/watchers.js';
 import { autostartStatus, setAutostart } from '../core/autostart.js';
 import { oauthExpiry } from '../core/auth.js';
 import { effectiveName, tempName } from '../core/displayName.js';
-import { providerStatus } from '../core/providers.js';
+import { providerStatus, validateProvider, validateAllProviders, providerById } from '../core/providers.js';
 import { searchProviderName } from '../core/localTools.js';
 import { cliProviderStatus, hasDocker, runInstall } from '../core/cliProviders.js';
 import { handleAnthropicProxy } from '../core/code/anthropicProxy.js';
 import { PROXY_SECRET, MIN_CODE_CONTEXT, availableBackends, codeLocalModel } from '../core/code/backends.js';
 import { allowedFolders } from '../core/code/orchestrator.js';
 import { resolveClaude, claudeVersion } from '../core/code/cliRunner.js';
+import { detectHardware, startOllamaPull, ollamaPulls, codeModelAdvice, loadCodeModel, checkDisk, CODE_MODEL_CATALOG } from '../core/code/localCodeModel.js';
 import { logger } from '../logger.js';
 
 const LOOPBACK = ['127.0.0.1', 'localhost', '::1'];
@@ -235,8 +236,6 @@ const OLLAMA_CATALOG: Array<{ id: string; need: number; desc: string }> = [
 
 export class WebChannel implements Channel {
   readonly name = 'web';
-  /** In-flight / finished Ollama pulls, surfaced as progress in the Local-model panel. */
-  private readonly ollamaPulls = new Map<string, { status: string; pct: number; done: boolean; error?: string }>();
   /** State of an in-progress "install Ollama" run (null = never started). */
   private ollamaInstall: { running: boolean; done: boolean; error?: string; log: string } | null = null;
   private server?: http.Server;
@@ -581,6 +580,11 @@ ${dutiesPanel}
         try {
           const bin = resolveClaude(url.searchParams.get('refresh') === '1');
           const cli = cliProviderStatus().find((p) => p.id === 'claude-code');
+          const backends = await availableBackends(this.config);
+          const localB = backends.find((b) => b.id === 'local');
+          // Installed list is known only when Ollama answered (a reason like "not reachable" = unknown).
+          const reachable = !!localB && (localB.usable || !!localB.installed);
+          const advice = codeModelAdvice(this.config, reachable ? localB!.installed ?? [] : undefined);
           this.json(res, 200, {
             folders: allowedFolders(this.config),
             configuredFolders: this.config.codeFolders,
@@ -591,13 +595,39 @@ ${dutiesPanel}
             maxTurns: this.config.codeMaxTurns,
             privacyMode: !!this.config.privacyMode,
             minContext: MIN_CODE_CONTEXT,
-            backends: await availableBackends(this.config),
+            backends,
+            codeModel: { ...advice, pull: ollamaPulls.get(advice.recommended) ?? null },
             cli: { found: !!bin, path: bin?.path ?? null, shell: !!bin?.shell, version: bin ? await claudeVersion() : null, loggedIn: !!cli?.loggedIn, loginCmd: 'claude auth login' },
           });
         } catch (err) {
           this.json(res, 500, { error: String(err) });
         }
       })();
+      return;
+    }
+
+    // Settings -> Code "Download and use": pull a coding model (disk-checked) and make it the code
+    // backend's local model. Quick refusals come back directly; a running pull reports progress
+    // through GET /api/code (codeModel.pull).
+    if (url.pathname === '/api/code' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      let body = '';
+      req.on('data', (c) => { body += c; if (body.length > 10_000) req.destroy(); });
+      req.on('end', () => {
+        void (async () => {
+          try {
+            const o = JSON.parse(body || '{}') as { action?: string; model?: string };
+            if (o.action !== 'load-model') return this.json(res, 400, { error: 'unknown action' });
+            const run = loadCodeModel(this.config, { model: typeof o.model === 'string' ? o.model : undefined });
+            const quick = await Promise.race([run, new Promise<null>((r) => setTimeout(() => r(null), 1500))]);
+            if (quick) return this.json(res, quick.ok ? 200 : 400, quick.ok ? { ok: true, model: quick.model, message: quick.message } : { error: quick.message, model: quick.model });
+            void run.then((r) => logger.info({ ok: r.ok, model: r.model }, 'code model load finished'));
+            return this.json(res, 202, { ok: true, started: true });
+          } catch {
+            return this.json(res, 400, { error: 'bad request' });
+          }
+        })();
+      });
       return;
     }
 
@@ -838,6 +868,27 @@ ${dutiesPanel}
             : (localModel ? 'The local model (' + localModel + ') runs on this machine - no cloud' : 'No local model configured (needed for Privacy Mode)'),
         ],
       });
+    }
+    // Re-check a provider (or all configured ones): probe its current model with a text and a tool
+    // call; a retired model is replaced automatically with a tested one.
+    if (url.pathname === '/api/providers' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      let body = '';
+      req.on('data', (c) => { body += c; if (body.length > 10_000) req.destroy(); });
+      req.on('end', () => {
+        void (async () => {
+          try {
+            const o = JSON.parse(body || '{}') as { action?: string; id?: string };
+            if (o.action !== 'validate') return this.json(res, 400, { error: 'unknown action' });
+            if (o.id && !providerById(String(o.id))) return this.json(res, 400, { error: 'unknown provider' });
+            const results = o.id ? [await validateProvider(String(o.id))] : await validateAllProviders();
+            return this.json(res, 200, { results, providers: providerStatus() });
+          } catch (err) {
+            return this.json(res, 500, { error: String(err) });
+          }
+        })();
+      });
+      return;
     }
     if (url.pathname === '/api/providers' && req.method === 'GET') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
@@ -1882,11 +1933,17 @@ $out | ConvertTo-Json -Compress`, 40000));
             if (o.action === 'keepalive') { this.settings.update({ live: { localKeepAlive: String(o.value ?? '') } }); return this.json(res, 200, await this.localStatus()); }
             if (o.action === 'temp') { this.settings.update({ live: { localTemp: o.value === '' || o.value === null ? null : Number(o.value) } }); return this.json(res, 200, await this.localStatus()); }
             if (o.action === 'test' && model) { return this.json(res, 200, await this.testLocalModel(model)); }
-            if (o.action === 'pull' && model) { this.startOllamaPull(model); return this.json(res, 200, await this.localStatus()); }
+            if (o.action === 'pull' && model) {
+              // Disk check first: a catalog model by its listed size, anything else by the 2 GB headroom.
+              const v = checkDisk(model, CODE_MODEL_CATALOG.find((c) => c.id === model)?.sizeGb ?? OLLAMA_CATALOG.find((c) => c.id === model)?.need ?? 0);
+              if (!v.ok) return this.json(res, 400, { error: v.reason });
+              void startOllamaPull(this.ollamaBase(), model);
+              return this.json(res, 200, await this.localStatus());
+            }
             if (o.action === 'delete' && model) {
               if (this.config.localModel?.model === model) return this.json(res, 400, { error: 'That is the active model; switch to another first.' });
               const r = await fetch(this.ollamaBase() + '/api/delete', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: model }) }).catch(() => null);
-              this.ollamaPulls.delete(model);
+              ollamaPulls.delete(model);
               return this.json(res, 200, { ok: !!(r && r.ok), ...(await this.localStatus()) });
             }
             if (o.action === 'install-ollama') { this.startOllamaInstall(); return this.json(res, 200, await this.localStatus()); }
@@ -2139,7 +2196,7 @@ $out | ConvertTo-Json -Compress`, 40000));
     }
     const has = (id: string): boolean => installed.some((m) => m.name === id || m.name === id + ':latest' || m.name.startsWith(id + ':'));
     // Hardware-aware catalog: flag each model fits / tight / big for THIS machine, and recommend one.
-    const hw = this.detectHardware();
+    const hw = detectHardware();
     const fitOf = (need: number): string => (need <= hw.effCapGB ? 'fits' : need <= Math.ceil(hw.effCapGB * 1.4) ? 'tight' : 'big');
     const cat = OLLAMA_CATALOG.map((c) => ({ ...c, installed: has(c.id), fit: fitOf(c.need) }));
     const fits = cat.filter((c) => c.fit === 'fits');
@@ -2158,29 +2215,9 @@ $out | ConvertTo-Json -Compress`, 40000));
       catalog: cat,
       hardware: hw,
       recommended,
-      pulls: Object.fromEntries(this.ollamaPulls),
+      pulls: Object.fromEntries(ollamaPulls),
       install: this.ollamaInstall,
     };
-  }
-
-  private hw?: { ramGB: number; hasGpu: boolean; vramGB: number; effCapGB: number; kind: string };
-  /** Best-effort local hardware probe for the model catalog: RAM (always), NVIDIA VRAM via nvidia-smi,
-   *  Apple-Silicon unified memory. effCapGB = how big a model can comfortably run. Cached per process. */
-  private detectHardware(): { ramGB: number; hasGpu: boolean; vramGB: number; effCapGB: number; kind: string } {
-    if (this.hw) return this.hw;
-    const ramGB = Math.max(1, Math.round(os.totalmem() / 1e9));
-    let hasGpu = false, vramGB = 0, kind = 'cpu';
-    try {
-      const r = spawnSync('nvidia-smi', ['--query-gpu=memory.total', '--format=csv,noheader,nounits'], { encoding: 'utf8', windowsHide: true, timeout: 4000 });
-      if (r.status === 0 && r.stdout) {
-        const mb = Math.max(...r.stdout.trim().split(/\r?\n/).map((l) => parseInt(l, 10)).filter((n) => !Number.isNaN(n)));
-        if (mb > 0) { hasGpu = true; vramGB = Math.round(mb / 1024); kind = 'nvidia'; }
-      }
-    } catch { /* no nvidia-smi */ }
-    if (!hasGpu && process.platform === 'darwin' && os.arch() === 'arm64') { hasGpu = true; vramGB = ramGB; kind = 'apple'; }
-    const effCapGB = kind === 'apple' ? Math.floor(ramGB * 0.7) : hasGpu ? vramGB : Math.floor(ramGB / 2);
-    this.hw = { ramGB, hasGpu, vramGB, effCapGB, kind };
-    return this.hw;
   }
 
   /** Send a tiny prompt to a specific local model and time it (the panel's "Test" button). */
@@ -2201,49 +2238,6 @@ $out | ConvertTo-Json -Compress`, 40000));
     } catch (err) {
       return { ok: false, error: String(err) };
     }
-  }
-
-  /** Background `ollama pull` via the native streaming API; progress lands in `ollamaPulls`. */
-  private startOllamaPull(model: string): void {
-    const cur = this.ollamaPulls.get(model);
-    if (cur && !cur.done) return; // already pulling
-    this.ollamaPulls.set(model, { status: 'starting', pct: 0, done: false });
-    const base = this.ollamaBase();
-    void (async () => {
-      try {
-        const r = await fetch(base + '/api/pull', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: model, stream: true }) });
-        if (!r.ok || !r.body) {
-          this.ollamaPulls.set(model, { status: 'failed', pct: 0, done: true, error: 'HTTP ' + (r ? r.status : '?') });
-          return;
-        }
-        const reader = r.body.getReader();
-        const dec = new TextDecoder();
-        let buf = '';
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += dec.decode(value, { stream: true });
-          let i: number;
-          while ((i = buf.indexOf('\n')) >= 0) {
-            const line = buf.slice(0, i).trim();
-            buf = buf.slice(i + 1);
-            if (!line) continue;
-            try {
-              const o = JSON.parse(line) as { status?: string; total?: number; completed?: number; error?: string };
-              const pct = o.total && o.completed ? Math.round((o.completed / o.total) * 100) : (this.ollamaPulls.get(model)?.pct ?? 0);
-              if (o.error) this.ollamaPulls.set(model, { status: 'failed', pct, done: true, error: o.error });
-              else this.ollamaPulls.set(model, { status: o.status || 'pulling', pct, done: false });
-            } catch {
-              /* skip non-JSON line */
-            }
-          }
-        }
-        const fin = this.ollamaPulls.get(model);
-        if (fin && !fin.error) this.ollamaPulls.set(model, { status: 'success', pct: 100, done: true });
-      } catch (err) {
-        this.ollamaPulls.set(model, { status: 'failed', pct: 0, done: true, error: String(err) });
-      }
-    })();
   }
 
   /** Best-effort background install of Ollama (winget on Windows, the official script on Linux,
@@ -2871,14 +2865,18 @@ function skillAction(action,slug){fetch('/api/skills',{method:'POST',headers:hdr
 el('skillsbtn').onclick=function(){if(closePanels()===false)return;closeTools();loadSkills();el('skillpanel').classList.add('open');pushAside(el('skillpanel'))};
 el('skillclose').onclick=function(){clearPanels()};
 /* ---- AI providers ---- */
-function provRow(p){var lim=(p.kind==='free'&&p.freeDaily&&p.used>=p.freeDaily);
-  var color=!p.configured?C_OFF:(lim?C_BAD:C_OK);var lbl=!p.configured?'no key':(lim?'limit reached':'ready');
+function provRow(p){var lim=(p.kind==='free'&&p.freeDaily&&p.used>=p.freeDaily);var bad=!!(p.configured&&p.cooldownUntil&&p.lastError);
+  var color=!p.configured?C_OFF:((lim||bad)?C_BAD:C_OK);var lbl=esc(!p.configured?'no key':(bad?('failing: '+String(p.lastError).split(':')[0]):(lim?'limit reached':'ready')));
   var s='<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px">';
   s+='<div style="display:flex;align-items:center;gap:8px">'+dotHtml(color,lbl)+'<b style="flex:1;color:'+color+'">'+esc(p.label)+'</b><span style="font-size:11px;color:var(--mut)">id: '+esc(p.id)+'</span><span style="font-size:12px;color:'+color+'">'+lbl+'</span></div>';
   s+='<div style="font-size:12px;color:var(--mut);margin:3px 0">'+esc(p.note)+' · model '+esc(p.model)+(p.kind==="free"?(' · used today '+p.used+'/'+p.freeDaily):'')+'</div>';
+  if(bad)s+='<div style="font-size:12px;color:'+C_BAD+';margin:3px 0">'+esc(p.lastError)+'</div>';
+  if(p.keyOptional)s+='<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin:3px 0"><input type="checkbox" class="provkeyless" data-id="'+esc(p.id)+'"'+(p.keylessEnabled?' checked':'')+' style="width:auto;margin:0">Use without a key</label><div style="font-size:11px;color:var(--mut);margin:0 0 3px">Requests then go to OVHcloud anonymously and are rate-limited (about 2 per minute per model). A key is optional and raises the limits.</div>';
   s+='<a href="'+esc(p.signup)+'" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px">Get a key &#8599;</a>';
-  s+='<input id="prov_'+esc(p.envKey)+'" type="password" autocomplete="new-password" value="'+(p.configured?KEYMASK:'')+'" placeholder="'+(p.configured?"configured - leave to keep":"paste API key")+'" style="margin-top:6px">';
-  if(p.configured)s+='<button class="provrm" data-k="'+esc(p.envKey)+'" style="margin-top:6px;background:transparent;border:1px solid var(--line);color:#e0a55f;border-radius:8px;padding:4px 10px;cursor:pointer;font-size:12px">Remove key</button>';
+  s+='<input id="prov_'+esc(p.envKey)+'" type="password" autocomplete="new-password" value="'+(p.keySet?KEYMASK:'')+'" placeholder="'+(p.keySet?"configured - leave to keep":(p.keyOptional?"optional API key":"paste API key"))+'" style="margin-top:6px">';
+  (p.extraKeys||[]).forEach(function(x){s+='<input id="prov_'+esc(x.env)+'" type="'+(x.secret?'password':'text')+'" autocomplete="off" value="'+esc(x.secret?(x.set?KEYMASK:''):(x.value||''))+'" placeholder="'+esc(x.label)+'" style="margin-top:6px">'});
+  s+='<input class="provmodel" data-id="'+esc(p.id)+'" value="'+esc(p.modelOverride||'')+'" placeholder="model (default '+esc(p.defaultModel||p.model)+')" style="margin-top:6px">';
+  if(p.keySet)s+='<button class="provrm" data-k="'+esc(p.envKey)+'" style="margin-top:6px;background:transparent;border:1px solid var(--line);color:#e0a55f;border-radius:8px;padding:4px 10px;cursor:pointer;font-size:12px">Remove key</button>';
   return s+'</div>'}
 function renderProviders(d){var provs=d.providers||[];var h='';
   h+='<div style="font-size:12px;color:var(--mut);margin-bottom:8px">Routing order: each tier is tried in turn; if it can\\'t cope it hands off to the next. Drop "claude" to run only on local/free/paid models. To USE a provider, add its id to the chain.</div>';
@@ -2928,7 +2926,9 @@ function renderProviders(d){var provs=d.providers||[];var h='';
   Array.prototype.forEach.call(el('provview').querySelectorAll('.provrm'),function(b){b.onclick=function(){var k=b.getAttribute('data-k');if(!confirm('Remove this provider key? It will be de-configured and dropped from the model list.'))return;b.disabled=true;b.textContent='Removing...';fetch('/api/settings',{method:'POST',headers:hdrs(),body:JSON.stringify({clearCredentials:[k]})}).then(function(r){return r.json()}).then(function(){showToast('Key removed.');setTimeout(hideToast,2000);loadProviders()}).catch(function(){b.disabled=false;b.textContent='Remove key'})}})}
 function loadProviders(){fetch('/api/providers',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d)renderProviders(d)})}
 function saveProviders(){panelDirty=false;var creds={};Array.prototype.forEach.call(document.querySelectorAll('[id^="prov_"]'),function(n){if(n.id==='prov_chain')return;if(n.value&&n.value!==KEYMASK)creds[n.id.slice(5)]=n.value});
-  fetch('/api/settings',{method:'POST',headers:hdrs(),body:JSON.stringify({live:{routeChain:el('prov_chain').value},credentials:creds})}).then(function(r){return r.json()}).then(function(s){
+  var pm={};Array.prototype.forEach.call(document.querySelectorAll('.provmodel'),function(n){pm[n.getAttribute('data-id')]=n.value.trim()});
+  var kl=[];Array.prototype.forEach.call(document.querySelectorAll('.provkeyless'),function(n){if(n.checked)kl.push(n.getAttribute('data-id'))});
+  fetch('/api/settings',{method:'POST',headers:hdrs(),body:JSON.stringify({live:{routeChain:el('prov_chain').value,providerModels:pm,keylessProviders:kl},credentials:creds})}).then(function(r){return r.json()}).then(function(s){
     if(s&&s.restartRequired){awaitingReload=true;el('provpanel').classList.remove('open');showToast('Saved. Applying and reconnecting...')}else{showToast('Saved.');loadProviders();loadRail();setTimeout(hideToast,2000)}}).catch(function(){})}
 el('provbtn').onclick=function(){if(closePanels()===false)return;closeTools();loadProviders();el('provpanel').classList.add('open');pushAside(el('provpanel'))};
 el('provclose').onclick=function(){clearPanels()};

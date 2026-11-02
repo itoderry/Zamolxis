@@ -1,6 +1,6 @@
 import type http from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { providerById, recordProviderUse } from '../providers.js';
+import { providerById, recordProviderUse, providerBaseUrl, providerKey, providerModel, providerConfigured, markProviderFailure, markProviderOk, autoCorrectModel, currentModelFor } from '../providers.js';
 import { logger } from '../../logger.js';
 
 /**
@@ -303,7 +303,8 @@ function secretOk(req: http.IncomingMessage, secret: string): boolean {
 export interface ProxyProvider {
   baseUrl: string;
   model: string;
-  apiKey: string;
+  /** Sent as a Bearer token when present (keyless providers are called anonymously). */
+  apiKey?: string;
 }
 
 export interface ProxyOptions {
@@ -318,9 +319,9 @@ export interface ProxyOptions {
 
 function defaultResolve(id: string): ProxyProvider | null {
   const p = providerById(id);
-  if (!p) return null;
-  const key = process.env[p.envKey];
-  return key ? { baseUrl: p.baseUrl, model: p.model, apiKey: key } : null;
+  if (!p || !providerConfigured(p)) return null;
+  const baseUrl = providerBaseUrl(p);
+  return baseUrl ? { baseUrl, model: providerModel(p), apiKey: providerKey(p) } : null;
 }
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
@@ -381,8 +382,11 @@ export async function handleAnthropicProxy(req: http.IncomingMessage, res: http.
 
     const provider = (opts.resolveProvider ?? defaultResolve)(providerId);
     if (!provider) return sendError(res, 401, `Provider "${providerId}" is unknown or has no API key configured.`);
-    const model = looksClaude(body.model) ? provider.model : body.model!;
-    const oaBody = toOpenAIRequest(body, model);
+    // Built-in providers get health tracking and retired-model replacement; a custom resolver
+    // (tests, embedding) is used as given.
+    const builtIn = !opts.resolveProvider;
+    const builtInDef = builtIn ? providerById(providerId) : undefined;
+    let model = looksClaude(body.model) ? provider.model : builtIn ? currentModelFor(providerId, body.model!) : body.model!;
     // Stop the provider call on timeout AND when Claude Code hangs up (run stopped / killed), so a
     // dead worker doesn't keep spending the provider's quota.
     const upstreamAc = new AbortController();
@@ -391,14 +395,33 @@ export async function handleAnthropicProxy(req: http.IncomingMessage, res: http.
     res.on('close', () => {
       if (!res.writableFinished) upstreamAc.abort();
     });
-    let upstream: Response;
-    try {
-      upstream = await fetch(`${provider.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+    const callUpstream = (m: string): Promise<Response> =>
+      fetch(`${provider.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', Authorization: `Bearer ${provider.apiKey}` },
-        body: JSON.stringify(oaBody),
+        headers: { 'content-type': 'application/json', ...(provider.apiKey ? { Authorization: `Bearer ${provider.apiKey}` } : {}) },
+        body: JSON.stringify(toOpenAIRequest(body, m)),
         signal: upstreamAc.signal,
       });
+    let upstream: Response;
+    try {
+      upstream = await callUpstream(model);
+      if (!upstream.ok && builtInDef) {
+        const t = await upstream.text().catch(() => '');
+        const kind = markProviderFailure(providerId, upstream.status, t, undefined, model);
+        // A retired model: find a tested replacement and retry this request once on it. Only for
+        // the provider's configured model: a model the worker asked for by name is left alone.
+        const fixed = kind === 'model-gone' ? await autoCorrectModel(builtInDef, { failedModel: model }) : null;
+        if (fixed && fixed.model !== model && !upstreamAc.signal.aborted) {
+          logger.info({ provider: providerId, from: model, to: fixed.model }, 'translator: retrying on the replacement model');
+          model = fixed.model;
+          upstream = await callUpstream(model);
+          if (!upstream.ok) {
+            const t2 = await upstream.text().catch(() => '');
+            markProviderFailure(providerId, upstream.status, t2, undefined, model);
+            upstream = new Response(t2, { status: upstream.status });
+          }
+        } else upstream = new Response(t, { status: upstream.status });
+      }
     } catch (err) {
       clearTimeout(upstreamTimer);
       if (res.destroyed) return;
@@ -406,6 +429,7 @@ export async function handleAnthropicProxy(req: http.IncomingMessage, res: http.
       return sendError(res, 529, `Provider ${providerId} is unreachable: ${String(err)}`);
     }
     if (!upstream.ok) {
+      clearTimeout(upstreamTimer);
       const t = await upstream.text().catch(() => '');
       logger.warn({ provider: providerId, status: upstream.status, body: t.slice(0, 300) }, 'translator: provider error');
       return sendError(res, upstream.status, `Provider ${providerId} returned HTTP ${upstream.status}: ${t.slice(0, 500)}`);
@@ -420,6 +444,7 @@ export async function handleAnthropicProxy(req: http.IncomingMessage, res: http.
     }
     if (!data.choices?.length) return sendError(res, 502, `Provider ${providerId} returned no choices.`);
     (opts.recordUse ?? recordProviderUse)(providerId);
+    if (builtInDef) markProviderOk(providerId);
     const msg = fromOpenAIResponse(data, model);
     if (body.stream) {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });

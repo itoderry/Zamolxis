@@ -49,6 +49,15 @@ Do not delegate quick answers you can give yourself, or anything the user only w
   cannot finish is retried once on Claude. **Privacy Mode keeps every run on the local model.**
 - `model` optionally overrides the model for the chosen backend.
 
+## Local coding model
+
+When a code job ran on the local backend with a weak coder, its result ends with a **Tip** naming
+a better coding model (name, download size, why it fits). Pass the tip on. Only if the user then
+clearly agrees, call `load_code_model` (no argument = the recommended model): it downloads many
+GB, waits, and makes it the local model for code jobs. If it refuses because the disk is full,
+relay its explanation (move Ollama's models folder with `OLLAMA_MODELS`); never change
+environment variables or move files yourself.
+
 ## After it returns
 
 Report each subtask's outcome to the user: done / incomplete / failed / refused, the files

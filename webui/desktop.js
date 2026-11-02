@@ -1045,6 +1045,61 @@
       }
       pane.appendChild(fld(T('Local model for code jobs'), lm, T('Ollama model used by the local backend. Blank = the chat local model. Claude Code needs a large context (about 32k tokens) and good tool use.')));
 
+      // Recommended coding model for this machine (hardware-aware), with a disk-checked download.
+      var cm = d.codeModel;
+      if (cm && cm.recommended) {
+        var rc = el('div', 'prov');
+        var rtop = el('div', 'top');
+        var rn = el('span', 'name'); rn.textContent = cm.recommended; rtop.appendChild(rn);
+        var good = !cm.propose;
+        var rtag = el('span', 'tag ' + (good ? 'ok' : 'free')); rtag.textContent = good ? T('current model is fine') : (cm.installedCoder ? T('installed') : (T('about') + ' ' + cm.sizeGb + ' GB')); rtop.appendChild(rtag);
+        rc.appendChild(rtop);
+        var rw = el('div', 'hint'); rw.textContent = cm.desc + ' ' + T('Why it fits') + ': ' + cm.why + '. ' + T('Context') + ': ' + Math.round(cm.context / 1024) + 'k (' + T('Claude Code needs at least') + ' ' + Math.round(cm.minContext / 1024) + 'k).'; rc.appendChild(rw);
+        if (cm.reasonNotGood) { var rr = el('div', 'hint'); rr.style.color = '#d97a2b'; rr.textContent = T('Current') + ' (' + (cm.current || T('none')) + '): ' + cm.reasonNotGood + '.'; rc.appendChild(rr); }
+        var rd = el('div', 'hint'); rd.textContent = T('Ollama models folder') + ': ' + (cm.modelsDir || '?') + (cm.freeGb != null ? (' · ' + cm.freeGb + ' GB ' + T('free')) : ''); rc.appendChild(rd);
+        var bar = el('div'); bar.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap';
+        var rst = el('div', 'hint'); rst.style.marginTop = '4px';
+        if (cm.installedCoder && cm.installedCoder !== cm.current) {
+          var useB = el('button', 'btn'); useB.textContent = T('Use') + ' ' + cm.installedCoder;
+          useB.addEventListener('click', function () {
+            useB.disabled = true;
+            postSettings({ live: { codeLocalModel: cm.installedCoder } }).then(function () { pane.innerHTML = ''; tabCode(pane); }).catch(function () { useB.disabled = false; rst.textContent = T('Failed.'); });
+          });
+          bar.appendChild(useB);
+        }
+        if (!good && !cm.installedCoder) {
+          var dlB = el('button', 'btn', T('Download and use'));
+          if (!cm.canPull) { dlB.disabled = true; dlB.title = cm.blockReason || ''; }
+          bar.appendChild(dlB);
+          var poll = null;
+          var showPull = function (pl) { if (pl) rst.textContent = (pl.error ? (T('Failed') + ': ' + pl.error) : (pl.status + (pl.pct ? ' ' + pl.pct + '%' : ''))); };
+          var watch = function () {
+            if (poll) return;
+            poll = setInterval(function () {
+              if (!rc.isConnected) { clearInterval(poll); return; }
+              api('/api/code').then(function (x) {
+                var pl = x && x.codeModel && x.codeModel.pull; showPull(pl);
+                if (!pl || pl.done) { clearInterval(poll); poll = null; if (pl && !pl.error) setTimeout(function () { pane.innerHTML = ''; tabCode(pane); }, 800); }
+              }).catch(function () {});
+            }, 2000);
+          };
+          if (cm.pull && !cm.pull.done) { dlB.disabled = true; showPull(cm.pull); watch(); }
+          dlB.addEventListener('click', function () {
+            if (!confirm(T('Download') + ' ' + cm.recommended + ' (' + T('about') + ' ' + cm.sizeGb + ' GB) ' + T('into Ollama and use it for code jobs?'))) return;
+            dlB.disabled = true; rst.textContent = T('Starting download...');
+            api('/api/code', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'load-model', model: cm.recommended }) }).then(function (r) {
+              if (r && r.error) { dlB.disabled = false; rst.textContent = r.error; return; }
+              if (r && r.started) { watch(); return; }
+              rst.textContent = (r && r.message) || T('Done.'); setTimeout(function () { pane.innerHTML = ''; tabCode(pane); }, 800);
+            }).catch(function () { dlB.disabled = false; rst.textContent = T('Failed.'); });
+          });
+        }
+        rc.appendChild(bar);
+        if (!good && !cm.installedCoder && cm.blockReason) { var rb = el('div', 'hint'); rb.style.color = '#e07a5f'; rb.textContent = cm.blockReason; rc.appendChild(rb); }
+        rc.appendChild(rst);
+        pane.appendChild(fld(T('Recommended for code'), rc, T('A coding model that fits this machine. You can also ask the chat to load it.')));
+      }
+
       var par = inp(live.codeMaxParallel || 3); par.type = 'number'; par.min = '1'; par.max = '16';
       var turns = inp(live.codeMaxTurns || 30); turns.type = 'number'; turns.min = '1';
       var row = el('div', 'row2'); var c1 = el('div'); c1.style.flex = '1'; c1.appendChild(fld(T('Parallel subtasks'), par)); var c2 = el('div'); c2.style.flex = '1'; c2.appendChild(fld(T('Max turns per job'), turns)); row.appendChild(c1); row.appendChild(c2); pane.appendChild(row);
@@ -1061,6 +1116,8 @@
     }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', T('Could not load the Code settings.'))); });
   }
 
+  // Last Re-check result per provider id (kept across re-renders of the Providers tab).
+  var PROV_CHECK = {};
   function tabProviders(pane) {
     pane.appendChild(el('div', 'hint', T('Loading providers...')));
     // We need both the provider registry (/api/providers) and the credential set-state
@@ -1104,33 +1161,125 @@
         pane.appendChild(card);
       })();
 
+      // Re-check: probe each configured provider's model (text + tool call); a retired model is
+      // replaced automatically. Results land on the cards (green ok, blue switched, red failing).
+      var checkRes = PROV_CHECK;
+      var CHECK_TXT = { 'key-invalid': 'key invalid', 'payment-required': 'payment required', 'rate-limited': 'rate-limited', 'not-configured': 'not configured', failing: 'failing' };
+      function showCheck(box, r) {
+        box.innerHTML = ''; if (!r) return;
+        var tag = el('span', 'tag ' + (r.status === 'ok' ? 'ok' : r.status === 'model-fixed' ? 'free' : 'bad'));
+        tag.textContent = r.status === 'ok' ? (T('ok') + (r.tools ? '' : ', ' + T('no tool call'))) : r.status === 'model-fixed' ? (T('switched to') + ' ' + r.model) : T(CHECK_TXT[r.status] || 'failing');
+        box.appendChild(tag);
+        var info = el('span', 'hint'); info.style.marginLeft = '6px';
+        info.textContent = [r.model && r.status !== 'model-fixed' ? r.model : '', r.previousModel ? (T('was') + ' ' + r.previousModel) : '', r.ms ? (r.ms + ' ms') : '', r.error || ''].filter(Boolean).join(' · ');
+        box.appendChild(info);
+      }
+      var checkBoxes = {};
+      function runCheck(id, btn) {
+        var ids = id ? [id] : Object.keys(checkBoxes);
+        ids.forEach(function (k) { if (checkBoxes[k]) { checkBoxes[k].innerHTML = ''; checkBoxes[k].appendChild(el('span', 'hint', T('Checking...'))); } });
+        if (btn) btn.disabled = true;
+        api('/api/providers', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(id ? { action: 'validate', id: id } : { action: 'validate' }) }).then(function (r) {
+          if (btn) btn.disabled = false;
+          if (!r || !r.results) { ids.forEach(function (k) { if (checkBoxes[k]) checkBoxes[k].textContent = (r && r.error) || T('Failed.'); }); return; }
+          var fixed = false;
+          r.results.forEach(function (x) { checkRes[x.id] = x; if (x.status === 'model-fixed') fixed = true; if (checkBoxes[x.id]) showCheck(checkBoxes[x.id], x); });
+          if (fixed) tabProviders(pane); // show the new model on the card
+        }).catch(function () { if (btn) btn.disabled = false; ids.forEach(function (k) { if (checkBoxes[k]) checkBoxes[k].textContent = T('Failed.'); }); });
+      }
+      var chkRow = el('div'); chkRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin:6px 0 10px';
+      var chkAll = el('button', 'btn ghost', T('Check all'));
+      chkAll.addEventListener('click', function () { runCheck(null, chkAll); });
+      chkRow.appendChild(chkAll); chkRow.appendChild(el('span', 'hint', T('Tests each configured provider with a short answer and a tool call; a retired free model is replaced with a tested one.')));
+      pane.appendChild(chkRow);
+
       (d.providers || []).forEach(function (p) {
         var card = el('div', 'prov');
         var top = el('div', 'top');
         top.appendChild(el('span', 'name', p.label || p.id));
         top.appendChild(el('span', 'tag ' + (p.kind === 'paid' ? 'paid' : 'free'), p.kind || 'free'));
-        if (p.configured) top.appendChild(el('span', 'tag ok', T('configured')));
+        if (p.configured) top.appendChild(el('span', 'tag ok', p.keyOptional && !p.keySet ? T('works without a key') : T('configured')));
+        if (p.configured && p.cooldownUntil && p.lastError) {
+          var ft = el('span', 'tag bad'); ft.textContent = T('failing') + ': ' + String(p.lastError).slice(0, 80); ft.title = p.lastError; top.appendChild(ft);
+        }
         card.appendChild(top);
-        card.appendChild(el('div', 'hint', (p.model || '') + (p.note ? (' — ' + p.note) : '') + (typeof p.used === 'number' ? (' · used ' + p.used + (p.freeDaily ? ('/' + p.freeDaily) : '')) : '')));
+        var ht = el('div', 'hint'); ht.textContent = (p.model || '') + (p.note ? (' — ' + p.note) : '') + (typeof p.used === 'number' ? (' · used ' + p.used + (p.freeDaily ? ('/' + p.freeDaily) : '')) : ''); card.appendChild(ht);
+        if (p.configured) {
+          var cbox = el('div'); cbox.style.cssText = 'margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap';
+          checkBoxes[p.id] = cbox; showCheck(cbox, checkRes[p.id]);
+          var rc = el('button', 'btn ghost', T('Re-check')); rc.style.cssText = 'margin-top:6px;margin-right:8px';
+          rc.addEventListener('click', function () { runCheck(p.id, rc); });
+          var crow = el('div'); crow.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap';
+          crow.appendChild(rc); crow.appendChild(cbox); card.appendChild(crow);
+        }
+        // Where to get a key (parity with the classic Providers panel).
+        if (p.signup && /^https?:\/\//i.test(p.signup)) {
+          var gk = el('a', 'prov-key'); gk.href = p.signup; gk.target = '_blank'; gk.rel = 'noopener';
+          gk.textContent = T('Get a key') + ' ↗';
+          card.appendChild(gk);
+        }
+        // Keyless use is opt-in: without a key the provider stays off until this is switched on.
+        if (p.keyOptional) {
+          var klRow = el('div'); klRow.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px';
+          var klTog = el('button', 'switch' + (p.keylessEnabled ? ' on' : ''), "<span class='knob'></span>"); var klNote = el('span', 'hint');
+          klRow.appendChild(klTog); klRow.appendChild(el('span', 'hint', T('Use without a key'))); klRow.appendChild(klNote);
+          card.appendChild(klRow);
+          card.appendChild(el('div', 'hint', T('Requests then go to OVHcloud anonymously and are rate-limited (about 2 per minute per model). A key is optional and raises the limits.')));
+          klTog.addEventListener('click', function () {
+            var on = !klTog.classList.contains('on');
+            var ids = (d.providers || []).filter(function (q) { return q.keyOptional && q.keylessEnabled && q.id !== p.id; }).map(function (q) { return q.id; });
+            if (on) ids.push(p.id);
+            klTog.disabled = true; klNote.textContent = '...';
+            postSettings({ live: { keylessProviders: ids } }).then(function () { klTog.disabled = false; delete PROV_CHECK[p.id]; tabProviders(pane); }).catch(function () { klTog.disabled = false; klNote.textContent = T('Failed.'); });
+          });
+        }
         if (p.envKey) {
           var krow = el('div'); krow.style.cssText = 'display:flex;gap:8px;margin-top:8px';
           var key = el('input', 'inp'); key.type = 'password'; key.style.flex = '1';
-          key.placeholder = p.configured ? T('•••• set — paste to replace, or Save empty to remove') : T('Paste API key');
+          key.placeholder = p.keySet ? T('•••• set — paste to replace, or Save empty to remove') : (p.keyOptional ? T('Optional API key') : T('Paste API key'));
           var sv = el('button', 'btn', T('Save')); var st = el('div', 'hint'); st.style.marginTop = '4px';
           krow.appendChild(key); krow.appendChild(sv);
           function clearKey() {
             sv.disabled = true; st.textContent = T('Removing...');
             postSettings({ clearCredentials: [p.envKey] }).then(function () { st.textContent = T('Removed.'); tabProviders(pane); }).catch(function () { sv.disabled = false; st.textContent = T('Failed.'); });
           }
-          if (p.configured) { var rm = el('button', 'btn ghost', T('Remove')); rm.addEventListener('click', clearKey); krow.appendChild(rm); }
+          if (p.keySet) { var rm = el('button', 'btn ghost', T('Remove')); rm.addEventListener('click', clearKey); krow.appendChild(rm); }
           card.appendChild(krow); card.appendChild(st);
           sv.addEventListener('click', function () {
             var v = key.value.trim();
-            if (!v) { if (p.configured) clearKey(); else st.textContent = T('Enter a key.'); return; }
+            if (!v) { if (p.keySet) clearKey(); else st.textContent = T('Enter a key.'); return; }
             sv.disabled = true; st.textContent = T('Saving...'); var cred = {}; cred[p.envKey] = v;
             postSettings({ credentials: cred }).then(function () { sv.disabled = false; key.value = ''; st.textContent = T('Saved.'); tabProviders(pane); }).catch(function () { sv.disabled = false; st.textContent = T('Failed.'); });
           });
         }
+        // Extra required values (e.g. the Cloudflare Account ID used in the endpoint URL).
+        (p.extraKeys || []).forEach(function (x) {
+          var xrow = el('div'); xrow.style.cssText = 'display:flex;gap:8px;margin-top:8px;align-items:center';
+          var xl = el('span', 'hint'); xl.style.minWidth = '90px'; xl.textContent = x.label; xrow.appendChild(xl);
+          var xi = el('input', 'inp'); xi.type = x.secret ? 'password' : 'text'; xi.style.flex = '1';
+          xi.value = x.secret ? '' : (x.value || ''); xi.placeholder = x.secret && x.set ? T('•••• set — paste to replace') : x.label;
+          var xs = el('button', 'btn', T('Save')); var xst = el('div', 'hint');
+          xrow.appendChild(xi); xrow.appendChild(xs); card.appendChild(xrow); card.appendChild(xst);
+          xs.addEventListener('click', function () {
+            var v = xi.value.trim();
+            xs.disabled = true; xst.textContent = T('Saving...');
+            var req = v ? (function () { var c = {}; c[x.env] = v; return { credentials: c }; })() : { clearCredentials: [x.env] };
+            postSettings(req).then(function () { xs.disabled = false; xst.textContent = T('Saved.'); tabProviders(pane); }).catch(function () { xs.disabled = false; xst.textContent = T('Failed.'); });
+          });
+        });
+        // Model override: free models keep changing, so a stale default can be fixed here.
+        var mrow = el('div'); mrow.style.cssText = 'display:flex;gap:8px;margin-top:8px;align-items:center';
+        var ml = el('span', 'hint'); ml.style.minWidth = '90px'; ml.textContent = T('Model'); mrow.appendChild(ml);
+        var mi = el('input', 'inp'); mi.style.flex = '1'; mi.value = p.modelOverride || ''; mi.placeholder = p.defaultModel || p.model || '';
+        var ms = el('button', 'btn', T('Save')); var mst = el('div', 'hint');
+        if (p.modelAuto) mst.textContent = T('Picked automatically after the previous model was retired.');
+        mrow.appendChild(mi); mrow.appendChild(ms); card.appendChild(mrow); card.appendChild(mst);
+        ms.addEventListener('click', function () {
+          var v = mi.value.trim();
+          if (v && !/^[\w.:/@+-]{1,200}$/.test(v)) { mst.textContent = T('Unusual model name.'); return; }
+          ms.disabled = true; mst.textContent = T('Saving...'); var pm = {}; pm[p.id] = v;
+          postSettings({ live: { providerModels: pm } }).then(function () { ms.disabled = false; mst.textContent = v ? T('Saved.') : T('Back to the default model.'); delete PROV_CHECK[p.id]; tabProviders(pane); }).catch(function () { ms.disabled = false; mst.textContent = T('Failed.'); });
+        });
         pane.appendChild(card);
       });
     }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', T('Could not load providers.'))); });

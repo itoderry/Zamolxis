@@ -5,8 +5,9 @@ import type { SandboxManager, BackendName } from '../sandbox/backends.js';
 import type { MemoryManager } from './memory.js';
 import { searchProviderName } from './localTools.js';
 import { setToolOutputCap } from './toolOutput.js';
-import { configuredProviders } from './providers.js';
+import { configuredProviders, providerById, setProviderModels, setProviderModelsAuto, setKeylessProviders, setProviderModelPersister, resetProviderHealthForEnv, MODEL_NAME_RE } from './providers.js';
 import { claudeModels } from './claudeModels.js';
+import { setCodeModelPersister } from './code/localCodeModel.js';
 import { logger } from '../logger.js';
 
 const PERMISSION_MODES = ['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk'] as const;
@@ -46,6 +47,10 @@ const CRED_FIELDS: Array<{ key: string; label: string; group: string; secret: bo
   { key: 'NVIDIA_API_KEY', label: 'NVIDIA NIM key (free cloud tier — build.nvidia.com)', group: 'providers', secret: true },
   { key: 'SAMBANOVA_API_KEY', label: 'SambaNova key (free fast cloud tier)', group: 'providers', secret: true },
   { key: 'OLLAMA_API_KEY', label: 'Ollama Cloud key (free hosted tier — ollama.com/settings/keys)', group: 'providers', secret: true },
+  { key: 'OVH_AI_ENDPOINTS_ACCESS_TOKEN', label: 'OVHcloud AI Endpoints token (optional: works without one, a token raises the limits)', group: 'providers', secret: true },
+  { key: 'ZAI_API_KEY', label: 'Z.ai key (free GLM Flash tier)', group: 'providers', secret: true },
+  { key: 'CLOUDFLARE_API_TOKEN', label: 'Cloudflare API token (Workers AI permission; free daily Neurons)', group: 'providers', secret: true },
+  { key: 'CLOUDFLARE_ACCOUNT_ID', label: 'Cloudflare Account ID (for Workers AI)', group: 'providers', secret: false },
   { key: 'PERPLEXITY_API_KEY', label: 'Perplexity Sonar key (PAID: search-grounded; not a free tier)', group: 'providers', secret: true },
   // Jira Cloud (Settings → Integrations → Jira): used by the jira_* tools, Jira Sentinel and Jira Watcher.
   { key: 'JIRA_BASE_URL', label: 'Jira base URL (https://your-domain.atlassian.net)', group: 'jira', secret: false },
@@ -84,6 +89,9 @@ interface PersistedSettings {
   codeLocalModel?: string;
   codeMaxParallel?: number;
   codeMaxTurns?: number;
+  providerModels?: Record<string, string>;
+  providerModelsAuto?: string[];
+  keylessProviders?: string[];
   channels?: Partial<Record<(typeof CHANNELS)[number], boolean>>;
   web?: { port?: number; bind?: string; authToken?: string };
   sandbox?: { dockerImage?: string; dockerContainer?: string; sshHost?: string; sshUser?: string; sshPort?: number; sshIdentity?: string };
@@ -112,6 +120,16 @@ export class SettingsManager {
   ) {
     this.file = path.join(dataDir, 'settings.json');
     this.persisted = this.load();
+    // A retired free model replaced automatically is saved like a manual override, and remembered
+    // as automatic (providerModelsAuto) so a later notification does not call it the user's choice.
+    setProviderModelPersister((id, model) => {
+      this.applyProviderModels({ [id]: model }, true);
+      this.persist();
+    });
+    // A coding model loaded from Settings -> Code or by the load_code_model tool.
+    setCodeModelPersister((model) => {
+      this.update({ live: { codeLocalModel: model } });
+    });
   }
 
   private load(): PersistedSettings {
@@ -158,6 +176,9 @@ export class SettingsManager {
         codeLocalModel: this.config.codeLocalModel ?? '',
         codeMaxParallel: this.config.codeMaxParallel,
         codeMaxTurns: this.config.codeMaxTurns,
+        providerModels: { ...this.config.providerModels },
+        providerModelsAuto: [...this.config.providerModelsAuto],
+        keylessProviders: [...this.config.keylessProviders],
       },
       // Restart-required sections reflect the PERSISTED intent overlaid on the live
       // config, so a saved change stays shown even before the reload takes effect.
@@ -333,6 +354,18 @@ export class SettingsManager {
       p.codeMaxTurns = this.config.codeMaxTurns;
     }
 
+    // Per-provider model overrides: a partial map merged into the current one; '' clears an entry.
+    if (live.providerModels && typeof live.providerModels === 'object' && !Array.isArray(live.providerModels)) {
+      this.applyProviderModels(live.providerModels as Record<string, unknown>, false);
+    }
+    // keyOptional providers allowed to run without a key (opt-in; the full list replaces the old).
+    if (Array.isArray(live.keylessProviders)) {
+      const ids = [...new Set(live.keylessProviders.filter((x): x is string => typeof x === 'string' && !!providerById(x)?.keyOptional))];
+      this.config.keylessProviders = ids;
+      p.keylessProviders = ids;
+      setKeylessProviders(ids);
+    }
+
     // ── identity: curated SOUL.md / USER.md (live; written to their own files) ──
     if (patch.identity && typeof patch.identity === 'object' && this.memory) {
       const id = patch.identity as Record<string, unknown>;
@@ -384,6 +417,7 @@ export class SettingsManager {
         // for CLAUDE_CODE_OAUTH_TOKEN especially: the engine reads process.env per turn, so the
         // subscription token works on the very next message (no .env editing, no restart).
         process.env[f.key] = v;
+        resetProviderHealthForEnv(f.key); // a new key gets a fresh chance
       }
     }
     // Explicit credential removal (e.g. clearing a provider's key in the Providers panel): drop it
@@ -396,6 +430,7 @@ export class SettingsManager {
         if (typeof key !== 'string') continue;
         delete p.credentials[key];
         delete process.env[key];
+        resetProviderHealthForEnv(key);
       }
     }
 
@@ -403,6 +438,34 @@ export class SettingsManager {
     const restartRequired = restartSig() !== before;
     logger.info({ restartRequired }, 'settings updated via web');
     return { snapshot: this.snapshot(), restartRequired };
+  }
+
+  /** Merge per-provider model overrides. `auto` = set by auto-correction: the ids are recorded in
+   *  providerModelsAuto. A user edit that changes (or clears) an entry drops its automatic mark; a
+   *  re-save of the same value keeps it. */
+  private applyProviderModels(patch: Record<string, unknown>, auto: boolean): void {
+    const p = this.persisted;
+    const next = { ...this.config.providerModels };
+    const autoIds = new Set(this.config.providerModelsAuto);
+    for (const [id, v] of Object.entries(patch)) {
+      if (!providerById(id) || typeof v !== 'string') continue;
+      const m = v.trim();
+      if (!m) {
+        delete next[id];
+        autoIds.delete(id);
+      } else if (MODEL_NAME_RE.test(m)) {
+        if (auto) autoIds.add(id);
+        else if (next[id] !== m) autoIds.delete(id);
+        next[id] = m;
+      }
+    }
+    for (const id of [...autoIds]) if (!next[id]) autoIds.delete(id);
+    this.config.providerModels = next;
+    this.config.providerModelsAuto = [...autoIds];
+    p.providerModels = next;
+    p.providerModelsAuto = [...autoIds];
+    setProviderModels(next);
+    setProviderModelsAuto(this.config.providerModelsAuto);
   }
 
   private persist(): void {
