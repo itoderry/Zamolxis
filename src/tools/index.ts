@@ -32,6 +32,7 @@ import { addWatchedUrl, removeWatchedUrl, checkAllUrls, listWatchedUrls } from '
 import { addWatchedIssue, removeWatchedIssue, checkWatchedIssues, listWatchedIssues } from '../core/jirawatch.js';
 import { getWatchers, setWatchers } from '../core/watchers.js';
 import { fetchXchangeRates, xchangeTable } from '../core/xchange.js';
+import { butlerAvailable, scanApps, scanNetwork, scanSystem, driverReport, scanDuplicates, latestHealthReport, healthTaskInstalled, installHealthTask, runHealthTaskNow, readButlerConfig, writeButlerConfig } from '../core/butler.js';
 import type { AgentStore } from '../core/agents.js';
 
 /** Live conversation context, captured per agent turn so tools deliver to the right place. */
@@ -876,11 +877,97 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
     },
   );
 
+  // ── John the Butler: PC-maintenance scans, driven by the (rebranded) native engine. Each scan is
+  //    deterministic - the engine writes JSON, we parse it - so the model only picks the scan and
+  //    phrases the result. Read-only scans run with NO UAC prompt (butler-scan.exe). ──
+  const cap = (o: unknown, n = 6000) => { const s = JSON.stringify(o); return s.length > n ? s.slice(0, n) + ' …[truncated]' : s; };
+  const pcCheck = (d: Record<string, unknown>) => (d && d.error) ? String(d.error) : null;
+  const pcHealthTool = tool(
+    'pc_health',
+    'System-health check for John the Butler: security posture, disk health, startup items, and alerts. Uses the silent weekly report if set up (complete, incl. deep disk S.M.A.R.T.); otherwise a live standard-user scan (no prompt; deep disk S.M.A.R.T. may be limited). For drivers use pc_drivers. Use for "how healthy is my PC", the auto maintenance pass.',
+    {},
+    async () => {
+      if (!butlerAvailable()) return text('The Butler engine is only available on this Windows machine.');
+      const latest = latestHealthReport();
+      if (latest) {
+        const ageH = Math.round((Date.now() - latest.when) / 3.6e6);
+        return text(`System health from the silent weekly scan (${ageH}h old):\n${cap(latest.report)}`);
+      }
+      // No cached report yet: run the live standard-user system-health scan (no prompt) -
+      // security posture, startup, alerts, disk health as far as a standard user can read it.
+      const sys = await scanSystem();
+      const err = pcCheck(sys);
+      if (err) return text(err);
+      return text(`Live system-health scan:\n${cap(sys.data ?? sys)}`);
+    },
+  );
+  const pcAppsTool = tool(
+    'pc_apps',
+    'Inventory installed apps (name, publisher, version, size) so John can flag large / unused programs. Read-only, no prompt.',
+    {},
+    async () => {
+      const d = await scanApps(); const err = pcCheck(d); if (err) return text(err);
+      const apps = (((d.data as Record<string, unknown>)?.apps) as Array<Record<string, unknown>>) || [];
+      const top = apps.slice().sort((a, b) => (Number(b.sizeKb) || 0) - (Number(a.sizeKb) || 0)).slice(0, 25);
+      const totalMb = Math.round(apps.reduce((s, a) => s + (Number(a.sizeKb) || 0), 0) / 1024);
+      return text(`${apps.length} installed apps, ~${totalMb} MB total. Largest 25:\n${cap(top)}`);
+    },
+  );
+  const pcNetworkTool = tool(
+    'pc_network',
+    'Scan the local network (devices on your subnet, vendors, open services). Read-only, no prompt.',
+    {},
+    async () => { const d = await scanNetwork(); const err = pcCheck(d); return text(err || `Network scan:\n${cap(d.data ?? d)}`); },
+  );
+  const pcDriversTool = tool(
+    'pc_drivers',
+    'Scan device drivers - problem devices and available updates (Microsoft Update Catalog comparison). Read-only, no prompt. Returns the driver report as text; call out anything marked "UPDATE AVAILABLE".',
+    {},
+    async () => { const d = await driverReport(); return text(d.ok ? `Driver report:\n${cap(d.text, 6000)}` : (d.error || 'Driver scan failed.')); },
+  );
+  const pcDuplicatesTool = tool(
+    'pc_duplicates',
+    'Find duplicate pictures/files under a folder (content hash). Reports groups + reclaimable space; does NOT delete. Read-only, no prompt.',
+    { folder: z.string().describe('Folder to scan, e.g. C:\\Users\\me\\Pictures') },
+    async (args) => { if (!args.folder) return text('Provide a folder to scan.'); const d = await scanDuplicates(args.folder); const err = pcCheck(d); return text(err || `Duplicate scan of ${args.folder}:\n${cap(d.data ?? d)}`); },
+  );
+  const pcConfigTool = tool(
+    'pc_config',
+    'Read or update John the Butler\'s autonomous duties: which maintenance areas (drivers, apps, network, system, cleanup, duplicates) he handles automatically on his weekly round, and whether he may APPLY safe fixes (applyFixes, off by default = report only). action="get" returns the settings; action="set" merges given fields. The user normally sets these on John\'s dashboard; call get at the start of a round to know what to do.',
+    { action: z.enum(['get', 'set']), duties: z.record(z.string(), z.boolean()).optional().describe('e.g. {"drivers":true,"cleanup":false}'), applyFixes: z.boolean().optional(), duplicatesFolder: z.string().optional() },
+    async (args) => {
+      if (args.action === 'set') {
+        const c = writeButlerConfig(deps.dataDir, { duties: args.duties as Record<string, boolean> | undefined, applyFixes: args.applyFixes, duplicatesFolder: args.duplicatesFolder });
+        return text('Updated. Current duties: ' + JSON.stringify(c));
+      }
+      return text(JSON.stringify(readButlerConfig(deps.dataDir)));
+    },
+  );
+  const pcMaintainTool = tool(
+    'pc_maintain',
+    'Set up or run John\'s SILENT automatic maintenance: a weekly, admin-level health scan via a Windows scheduled task (one-time admin approval, then prompt-free forever). action="setup" installs it, "run" runs it now and returns the fresh report, "status" reports whether it is installed.',
+    { action: z.enum(['setup', 'run', 'status']), day: z.string().optional().describe('setup: weekday MON..SUN (default SUN)'), hour: z.number().optional().describe('setup: hour 0-23 (default 12)') },
+    async (args) => {
+      if (!butlerAvailable()) return text('The Butler engine is only available on this Windows machine.');
+      if (args.action === 'status') return text(healthTaskInstalled() ? 'Automatic maintenance IS set up (silent weekly health scan).' : 'Automatic maintenance is not set up yet. Ask me to set it up (a one-time admin approval).');
+      if (args.action === 'setup') return text(installHealthTask({ day: args.day, hour: args.hour }).message);
+      const r = await runHealthTaskNow();
+      return text(r.report ? `${r.message}\n${cap(r.report)}` : r.message);
+    },
+  );
+
   return {
     zamolxis: createSdkMcpServer({
       name: 'zamolxis',
       version: '0.1.0',
       tools: [
+        pcHealthTool,
+        pcAppsTool,
+        pcNetworkTool,
+        pcDriversTool,
+        pcDuplicatesTool,
+        pcConfigTool,
+        pcMaintainTool,
         haBuildMap,
         showCanvas,
         showTable,

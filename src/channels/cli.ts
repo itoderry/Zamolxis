@@ -55,6 +55,21 @@ export class CliChannel implements Channel {
     this.prompt();
   }
 
+  /**
+   * Engine prompter: ask in the terminal whether a tool may run.
+   * y = allow once · a = always allow (remembered) · n = deny once · d = always deny.
+   */
+  promptPermission(ask: { id: string; toolName: string; detail: string; persistScope: string }): Promise<'allow' | 'allow-always' | 'deny' | 'deny-always' | null> {
+    if (this.closed || !this.rl) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const q = `\npermission › ${ask.toolName}${ask.detail ? ` (${ask.detail})` : ''}\n  [y] allow once  [a] always allow (${ask.persistScope})  [n] deny  [d] always deny: `;
+      this.rl!.question(q, (line) => {
+        const c = (line || '').trim().toLowerCase();
+        resolve(c === 'a' ? 'allow-always' : c === 'y' || c === 'yes' ? 'allow' : c === 'd' ? 'deny-always' : 'deny');
+      });
+    });
+  }
+
   async stop(): Promise<void> {
     this.closed = true;
     this.rl?.close();

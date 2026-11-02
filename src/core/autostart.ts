@@ -22,7 +22,9 @@ export function autostartStatus(): { supported: boolean; enabled: boolean; note:
     return { supported: false, enabled: false, note: 'Start-on-login is currently supported on Windows only.' };
   }
   try {
-    const out = execFileSync('reg', ['query', RUN_KEY, '/v', VALUE], { encoding: 'utf8' });
+    // stderr is dropped: when the value is absent `reg query` prints "unable to find the specified
+    // registry key" to the parent's stderr (execFileSync inherits stderr unless told otherwise).
+    const out = execFileSync('reg', ['query', RUN_KEY, '/v', VALUE], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
     return { supported: true, enabled: new RegExp(VALUE, 'i').test(out), note: 'Zamolxis starts when you log in.' };
   } catch {
     // `reg query` exits non-zero when the value is absent.

@@ -10,6 +10,10 @@
 //   zamolxis cli                 foreground, interactive CLI only
 //   zamolxis doctor              readiness check
 //   zamolxis uninstall           stop + remove service + unlink command (--purge also deletes data)
+//   zamolxis run-agent <name>    run one agent now (what each Windows agent task calls)
+//   zamolxis install-agent-tasks mirror scheduled agents into Windows Task Scheduler (Windows)
+//   zamolxis remove-agent-tasks  delete those tasks; the in-process timer triggers agents again
+//   zamolxis list-agent-tasks    list the agent tasks registered under Task Scheduler \ Zamolxis
 // Any extra args are passed through to the daemon, e.g.  zamolxis run --channels=telegram,web
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -499,6 +503,13 @@ Sign in (subscription, no API key):
 Web UI: http://127.0.0.1:8787  (when ZAMOLXIS_CHANNEL_WEB=true)
 Full guide (web + CLI): HELP.md   |   Overview: DESCRIPTION.md
 
+Scheduled agents:
+  zamolxis run-agent <name>       run one agent now (what each Windows task calls)
+  zamolxis install-agent-tasks    let Windows Task Scheduler trigger your agents (Windows;
+                                  sets ZAMOLXIS_AGENT_TRIGGER=windows and restarts)
+  zamolxis remove-agent-tasks     delete those tasks and hand triggering back to the in-process timer
+  zamolxis list-agent-tasks       list the agent tasks under Task Scheduler \\ Zamolxis
+
 Examples:
   zamolxis start
   zamolxis run --channels=telegram,web
@@ -532,11 +543,77 @@ async function runAgentCmd(name) {
   } catch (e) { console.error('Agent run failed:', e?.message || e); process.exit(1); }
 }
 
+// Update/insert KEY=VALUE in the project .env (used to flip ZAMOLXIS_AGENT_TRIGGER).
+function setEnvVar(key, val) {
+  const envPath = path.join(root, '.env');
+  let txt = ''; try { txt = fs.readFileSync(envPath, 'utf8'); } catch { /* none yet */ }
+  const line = `${key}=${val}`;
+  const re = new RegExp(`^\\s*${key}=.*$`, 'm');
+  txt = re.test(txt) ? txt.replace(re, line) : (txt.replace(/\s*$/, '') + `\n${line}\n`);
+  fs.writeFileSync(envPath, txt);
+}
+
+// The compiled Task Scheduler helpers (src/core/winAgentTasks.ts); needs `npm run build`.
+async function loadWinAgentTasks() {
+  const p = path.join(root, 'dist', 'core', 'winAgentTasks.js');
+  if (!fs.existsSync(p)) { console.error(`Build first: run 'npm run build' (missing ${p})`); process.exit(1); }
+  return import(new URL('../dist/core/winAgentTasks.js', import.meta.url));
+}
+
+// `zamolxis install-agent-tasks` — mirror every scheduled agent into the Windows Task Scheduler
+// (folder 'Zamolxis') so the OS triggers them, each task running `zamolxis run-agent <name>`;
+// flips ZAMOLXIS_AGENT_TRIGGER=windows and restarts so the in-process timer stops double-firing.
+// Untranslatable crons stay on the in-process timer. `remove-agent-tasks` reverses it.
+async function installAgentTasksCmd() {
+  if (process.platform !== 'win32') { console.error('install-agent-tasks is Windows-only.'); process.exit(1); }
+  const base = `http://127.0.0.1:${webPort()}`;
+  const up = async () => { try { const r = await fetch(base + '/api/status', { headers: authHeaders() }); return r.ok || r.status === 401; } catch { return false; } };
+  if (!(await up())) { console.log('Starting Zamolxis to read its schedules...'); start([]); for (let i = 0; i < 60 && !(await up()); i++) await sleep(500); }
+  let scheds = [];
+  try {
+    const r = await fetch(base + '/api/agents', { method: 'POST', headers: { 'content-type': 'application/json', ...authHeaders() }, body: JSON.stringify({ action: 'schedules' }) });
+    const d = await r.json(); scheds = (d && d.schedules) || [];
+  } catch (e) { console.error('Could not read schedules:', e?.message || e); process.exit(1); }
+  const mod = await loadWinAgentTasks();
+  const res = mod.syncAgentTasks(scheds, process.execPath, fileURLToPath(import.meta.url));
+  console.log(`Installed ${res.installed.length} Windows task(s): ${res.installed.join(', ') || '(none)'}`);
+  if (res.skipped.length) console.log(`Left on the in-process timer (cron not translatable): ${res.skipped.join(', ')}`);
+  if (res.removed.length) console.log(`Removed stale task(s): ${res.removed.join(', ')}`);
+  setEnvVar('ZAMOLXIS_AGENT_TRIGGER', 'windows');
+  console.log('Set ZAMOLXIS_AGENT_TRIGGER=windows; restarting so the in-process timer hands agent triggers to Windows...');
+  await stop(); await sleep(600); start([]);
+  console.log('Done. See Task Scheduler Library \\ Zamolxis. Each task runs `zamolxis run-agent <name>`.');
+}
+async function removeAgentTasksCmd() {
+  if (process.platform !== 'win32') { console.error('remove-agent-tasks is Windows-only.'); process.exit(1); }
+  const mod = await loadWinAgentTasks();
+  const removed = mod.removeAllAgentTasks();
+  console.log(`Removed ${removed.length} Windows task(s): ${removed.join(', ') || '(none)'}`);
+  setEnvVar('ZAMOLXIS_AGENT_TRIGGER', 'internal');
+  console.log('Set ZAMOLXIS_AGENT_TRIGGER=internal; restarting so the in-process timer resumes agent triggers...');
+  await stop(); await sleep(600); start([]);
+}
+async function listAgentTasksCmd() {
+  if (process.platform !== 'win32') { console.error('list-agent-tasks is Windows-only.'); process.exit(1); }
+  const mod = await loadWinAgentTasks();
+  const names = mod.listAgentTasks();
+  console.log(names.length ? `Agent tasks in Task Scheduler \\ Zamolxis (${names.length}):\n  ${names.join('\n  ')}` : 'No agent tasks in Task Scheduler \\ Zamolxis.');
+}
+
 const cmd = process.argv[2];
 const extra = process.argv.slice(3);
 switch (cmd) {
   case 'run-agent':
     await runAgentCmd(extra[0]);
+    break;
+  case 'install-agent-tasks':
+    await installAgentTasksCmd();
+    break;
+  case 'remove-agent-tasks':
+    await removeAgentTasksCmd();
+    break;
+  case 'list-agent-tasks':
+    await listAgentTasksCmd();
     break;
   case 'run':
     runForeground(extra.length ? extra : ['--web']);

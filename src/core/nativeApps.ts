@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { run, openWithOs, dataDir } from './localApps.js';
+import { run, openWithOs, docsDir } from './localApps.js';
 
 /**
  * Bridges to more installed apps (all read-only or user-initiated, both model tiers):
@@ -18,8 +18,7 @@ import { run, openWithOs, dataDir } from './localApps.js';
  */
 
 const WIN = process.platform === 'win32';
-function exportsDir(): string { const d = path.join(dataDir() || os.tmpdir(), 'exports'); fs.mkdirSync(d, { recursive: true }); return d; }
-function stampFile(name: string, ext: string): string { return path.join(exportsDir(), (name || 'file').replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 50) + '-' + Date.now() + ext); }
+function stampFile(name: string, ext: string): string { return path.join(docsDir(), (name || 'file').replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 50) + '-' + Date.now() + ext); }
 function escHtml(s: string): string { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function runPs(script: string, env: Record<string, string>, timeout = 50_000): Promise<{ out: string; err: string; code: number | null }> {
   return run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], env, timeout);

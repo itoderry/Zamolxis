@@ -5,7 +5,7 @@ description: Follow specific Jira issues (even ones not assigned to you) and get
 
 # Watch Jira tasks
 
-Beyond the issues assigned to you (Jira Sentinel), you can **follow any Jira issue** you have a stake in — a dependency, a blocker, a colleague's ticket — and Giskard alerts you when it changes. A background watcher (jiraTasks, default every 10 min, toggle in Settings → System → Proactive) polls the followed issues; the **Jira Watcher** pre-made agent reports the changes.
+Beyond the issues assigned to you (Jira Sentinel), you can **follow any Jira issue** you have a stake in — a dependency, a blocker, a colleague's ticket — and Zamolxis alerts you when it changes. A background watcher (jiraTasks, default every 10 min, toggle in Settings → System → Proactive) polls the followed issues; the **Jira Watcher** pre-made agent reports the changes.
 
 Manage the list from chat with the `jira_watch` tool:
 
@@ -16,7 +16,7 @@ Manage the list from chat with the `jira_watch` tool:
 
 A change is reported when the issue's **status** moves, its **assignee** changes, or it's otherwise **updated** (a new comment or edit advances the timestamp). Each alert includes the browse link so you can click straight to the ticket.
 
-Requires Jira to be connected (see the connect-jira skill, or Settings → Credentials → JIRA_*). If it isn't, `jira_watch` returns the setup steps.
+Requires Jira to be connected (see the connect-jira skill, or Settings → Integrations → Jira). If it isn't, `jira_watch` returns the setup steps.
 
 ## How to respond
 

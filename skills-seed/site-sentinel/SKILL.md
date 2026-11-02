@@ -5,7 +5,7 @@ description: Watch a list of URLs and alert when one stops loading correctly (an
 
 # Site Sentinel
 
-Giskard keeps a list of URLs and checks them in the background on an interval (default **every 60 minutes**, configurable 1–1440). A URL is **loading correctly** when it answers 2xx/3xx within 20 seconds — and, when a `mustContain` text was set, the page body contains it. You get a toast alert when a site goes **down** and another when it **recovers**; healthy checks stay silent.
+Zamolxis keeps a list of URLs and checks them in the background on an interval (default **every 60 minutes**, configurable 1–1440). A URL is **loading correctly** when it answers 2xx/3xx within 20 seconds — and, when a `mustContain` text was set, the page body contains it. You get a toast alert when a site goes **down** and another when it **recovers**; healthy checks stay silent.
 
 Everything is managed from chat with the `url_watch` tool:
 
@@ -22,4 +22,4 @@ Everything is managed from chat with the `url_watch` tool:
 - "stop monitoring the blog" → `action="remove" url="blog"`; if ambiguous, the tool lists the matches — ask the user which one.
 - "check every 30 minutes" → `action="interval" minutes=30`.
 
-The watcher toggle and interval also live in **Settings → System → Proactive** ("Watch site health"). The list persists in `~/.giskard/urlwatch.json`.
+The watcher toggle and interval also live in **Settings → System → Proactive** ("Watch site health"). The list persists in `~/.zamolxis/urlwatch.json`.

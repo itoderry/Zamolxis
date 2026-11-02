@@ -214,7 +214,10 @@ export function loadConfig(): ZamolxisConfig {
     routeChain: process.env.ZAMOLXIS_ROUTE_CHAIN
       ? process.env.ZAMOLXIS_ROUTE_CHAIN.split(',').map((s) => s.trim()).filter(Boolean)
       : ['freecloud', 'local', 'claude'],
-    permissionMode: (process.env.ZAMOLXIS_PERMISSION_MODE as ZamolxisConfig['permissionMode']) || 'acceptEdits',
+    // 'default' = interactive: Zamolxis asks before using a resource (like Claude Code) and
+    // remembers grants per chat/skill/agent. Set acceptEdits/bypassPermissions to skip asking.
+    // Headless runs (scheduled agents, messaging channels) have no prompter and are never blocked.
+    permissionMode: (process.env.ZAMOLXIS_PERMISSION_MODE as ZamolxisConfig['permissionMode']) || 'default',
     allowedTools: process.env.ZAMOLXIS_ALLOWED_TOOLS
       ? process.env.ZAMOLXIS_ALLOWED_TOOLS.split(',').map((s) => s.trim()).filter(Boolean)
       : undefined,
@@ -224,7 +227,10 @@ export function loadConfig(): ZamolxisConfig {
     maxConcurrent: Number(process.env.ZAMOLXIS_MAX_CONCURRENT ?? 2),
     systemPromptAppend: process.env.ZAMOLXIS_SYSTEM_APPEND || undefined,
     maxTurns: Number(process.env.ZAMOLXIS_MAX_TURNS ?? 40),
-    turnTimeoutMs: Number(process.env.ZAMOLXIS_TURN_TIMEOUT_SECONDS ?? 300) * 1000,
+    // Wall-clock guard per message. Generous by default so long autonomous turns
+    // (deep web research, multi-tool chains, building a document) aren't cut short;
+    // a genuinely hung turn is still aborted so it can't jam the queue forever.
+    turnTimeoutMs: Number(process.env.ZAMOLXIS_TURN_TIMEOUT_SECONDS ?? 1800) * 1000,
     sandbox: {
       backend: (process.env.ZAMOLXIS_SANDBOX_BACKEND as 'local' | 'docker' | 'ssh' | 'modal') || 'local',
       docker: process.env.ZAMOLXIS_DOCKER_IMAGE

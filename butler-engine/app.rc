@@ -1,0 +1,6 @@
+// App icon. ID 1 = the icon Explorer/taskbar uses by default.
+1 ICON "Butler.ico"
+// Embeds the web UI (ui.html) as an RCDATA resource. ID must match IDR_UIHTML.
+101 RCDATA "ui.html"
+// IEEE OUI database (OUI<TAB>vendor lines). ID must match IDR_OUIDB.
+102 RCDATA "ouidb.txt"

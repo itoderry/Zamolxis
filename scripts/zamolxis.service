@@ -11,6 +11,20 @@
 #
 # System service: place in /etc/systemd/system/ and set User= to your account
 # (NOT root/LocalSystem, or the engine won't find your Claude credentials).
+#
+# Enhanced security - run under a SEPARATE low-privilege account so the always-on agent
+# (which can run shell commands) is sandboxed away from your own files:
+#   sudo useradd -r -m -s /usr/sbin/nologin zamolxis      # dedicated service user
+#   # as that user, give it its own Claude token: run `claude setup-token` and put
+#   # CLAUDE_CODE_OAUTH_TOKEN=... in the Zamolxis .env; point ZAMOLXIS_DATA_DIR at a dir it owns.
+#   # then set User=zamolxis below, plus the hardening lines, and install to /etc/systemd/system/.
+# Optional systemd hardening for that case (uncomment in [Service]):
+#   User=zamolxis
+#   NoNewPrivileges=true
+#   ProtectSystem=strict
+#   ProtectHome=true
+#   PrivateTmp=true
+#   ReadWritePaths=/path/to/ZamolxisData
 
 [Unit]
 Description=Zamolxis agent daemon

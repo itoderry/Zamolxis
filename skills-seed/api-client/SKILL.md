@@ -5,7 +5,7 @@ description: A built-in Postman-style HTTP client. Build and send requests (any 
 
 # API Client
 
-Giskard ships with an **API Client** — a Postman-style tool for talking to HTTP
+Zamolxis ships with an **API Client** — a Postman-style tool for talking to HTTP
 APIs. It lives in the desktop UI (Network category) and also backs this skill, so
 you can drive it from chat or point the user at the app.
 
@@ -29,7 +29,7 @@ you can drive it from chat or point the user at the app.
 ## How requests are sent
 
 The browser can't call arbitrary hosts directly (CORS, restricted headers), so the
-request goes through Giskard's own server-side proxy at `POST /api/http`, which
+request goes through Zamolxis's own server-side proxy at `POST /api/http`, which
 performs the call and returns `{ ok, status, statusText, headers, body, ms, size,
 truncated, contentType }`. Requests time out after 30s; response bodies over ~2 MB
 are truncated (the viewer marks this). Only `http`/`https` URLs are allowed.

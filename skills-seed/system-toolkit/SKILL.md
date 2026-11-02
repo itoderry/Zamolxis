@@ -5,7 +5,7 @@ description: A Swiss-army system manager for the host machine — health overvie
 
 # System Toolkit
 
-A built-in "Swiss knife" for looking after the machine Giskard runs on (Windows
+A built-in "Swiss knife" for looking after the machine Zamolxis runs on (Windows
 first-class; Overview and Processes also work on macOS/Linux). It's the **System
 Toolkit** desktop app, backed by the `POST /api/system` endpoint.
 
@@ -23,7 +23,7 @@ Toolkit** desktop app, backed by the `POST /api/system` endpoint.
 - **Registry cleaner** (Windows) — a heuristic scan for leftover *uninstall* entries
   whose install folder is gone and *startup* entries whose target .exe is missing.
   (`reg-scan`.) Always **back up first** (`reg-backup` exports the affected hives to
-  timestamped `.reg` files under `~/.giskard/reg-backups/`), then remove the ones you
+  timestamped `.reg` files under `~/.zamolxis/reg-backups/`), then remove the ones you
   pick (`reg-clean` with `confirm:true`). Deletion is gated to the Uninstall/Run roots
   only, so a stray request can't touch the rest of the registry.
 

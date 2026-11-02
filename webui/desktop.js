@@ -26,6 +26,7 @@
     calc: "<svg viewBox='0 0 24 24' fill='none' stroke='#555' stroke-width='1.6'><rect x='5' y='3' width='14' height='18' rx='2'/><rect x='7.5' y='5.5' width='9' height='3.5' rx='.6'/><path d='M8.5 13h0M12 13h0M15.5 13h0M8.5 16.5h0M12 16.5h0M15.5 16.5h0' stroke-linecap='round' stroke-width='2.2'/></svg>",
     term: "<svg viewBox='0 0 24 24' fill='none' stroke='#2c8f6f' stroke-width='1.6'><rect x='3' y='4' width='18' height='16' rx='2'/><path d='M7 9l3 3-3 3M12.5 15h4'/></svg>",
     net: "<svg viewBox='0 0 24 24' fill='none' stroke='#5566cc' stroke-width='1.6'><circle cx='12' cy='12' r='9'/><path d='M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18'/></svg>",
+    ftp: "<svg viewBox='0 0 24 24' fill='none' stroke='#3aa66b' stroke-width='1.6'><path d='M7 20V5M7 5l-3 3M7 5l3 3'/><path d='M17 4v15M17 19l3-3M17 19l-3-3'/></svg>",
     api: "<svg viewBox='0 0 24 24' fill='none' stroke='#e0772b' stroke-width='1.6'><rect x='3' y='4' width='18' height='16' rx='2'/><path d='M8.5 9.5L6 12l2.5 2.5M15.5 9.5L18 12l-2.5 2.5M13 8l-2 8' stroke-linecap='round' stroke-linejoin='round'/></svg>",
     sys: "<svg viewBox='0 0 24 24' fill='none' stroke='#9b8cff' stroke-width='1.6'><circle cx='12' cy='12' r='3.2'/><path d='M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5 5l2.1 2.1M16.9 16.9 19 19M19 5l-2.1 2.1M7.1 16.9 5 19'/></svg>",
     stock: "<svg viewBox='0 0 24 24' fill='none' stroke='#2e9e3f' stroke-width='1.7'><path d='M3 17l5-5 3 3 7-8' stroke-linecap='round' stroke-linejoin='round'/><path d='M15 4h5v5' stroke-linecap='round' stroke-linejoin='round'/></svg>",
@@ -38,7 +39,10 @@
     notebook: "<svg viewBox='0 0 24 24' fill='none' stroke='#8e44ad' stroke-width='1.6'><rect x='5' y='3' width='14' height='18' rx='2'/><path d='M9 3v18M12 8h4M12 12h4'/></svg>",
     db: "<svg viewBox='0 0 24 24' fill='none' stroke='#2c7a4b' stroke-width='1.6'><ellipse cx='12' cy='5.5' rx='7' ry='2.5'/><path d='M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5'/></svg>",
     hist: "<svg viewBox='0 0 24 24' fill='none' stroke='#d18b1f' stroke-width='1.6'><path d='M3.5 12a8.5 8.5 0 1 1 2.6 6.1'/><path d='M3.5 18v-4h4'/><path d='M12 8v4l3 2'/></svg>",
-    canvas: "<svg viewBox='0 0 24 24' fill='none' stroke='#0a8a7a' stroke-width='1.6'><rect x='3' y='4' width='18' height='14' rx='2'/><path d='M3 14l5-4 4 3 4-4 5 4M12 20v1.5M9 21.5h6'/></svg>"
+    canvas: "<svg viewBox='0 0 24 24' fill='none' stroke='#0a8a7a' stroke-width='1.6'><rect x='3' y='4' width='18' height='14' rx='2'/><path d='M3 14l5-4 4 3 4-4 5 4M12 20v1.5M9 21.5h6'/></svg>",
+    chart: "<svg viewBox='0 0 24 24' fill='none' stroke='#3a7bd5' stroke-width='1.6' stroke-linecap='round'><path d='M4 3v16.5A1.5 1.5 0 0 0 5.5 21H21'/><rect x='7' y='11' width='2.8' height='6' rx='.5' fill='#3a7bd5' stroke='none'/><rect x='12' y='7' width='2.8' height='10' rx='.5' fill='#6aa0e8' stroke='none'/><rect x='17' y='13' width='2.8' height='4' rx='.5' fill='#3a7bd5' stroke='none'/></svg>",
+    bolt: "<svg viewBox='0 0 24 24' fill='#f5b301' stroke='#d99400' stroke-width='1' stroke-linejoin='round'><path d='M13 2 4 14h6l-1 8 9-12h-6z'/></svg>",
+    shield: "<svg viewBox='0 0 24 24' fill='none' stroke='#2e9e6b' stroke-width='1.6' stroke-linejoin='round'><path d='M12 2.5l7 3v6c0 4.5-3 8-7 10-4-2-7-5.5-7-10v-6z'/><path d='M8.8 12l2.2 2.2 4.2-4.4'/></svg>"
   };
 
   // Per-agent app icon: a colored rounded tile with the agent's initial (deterministic from the name).
@@ -57,6 +61,16 @@
   function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
   function api(path, opts) { return fetch(path, opts).then(function (r) { return r.json(); }); }
   function uuid() { return (crypto && crypto.randomUUID) ? crypto.randomUUID() : 'c' + Date.now() + Math.random().toString(16).slice(2); }
+  // Escape HTML, then turn http(s):// and root-relative /api/ URLs into clickable links.
+  // Used for bot replies so Outlook-open, Jira browse, and watched-site links are clickable.
+  function escapeHtml(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function linkifyHtml(s) {
+    return escapeHtml(s).replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)\]}'"]|\/api\/[^\s<]+[^\s<.,;:!?)\]}'"])/g, function (u) {
+      return '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>';
+    });
+  }
+  // Set a message node's content: bot text is linkified (HTML), user text stays literal.
+  function setMsgBody(node, text, cls) { if (cls === 'bot') node.innerHTML = linkifyHtml(text); else node.textContent = text; }
   var AGENT_NAME = (document.title || 'Zamolxis').trim() || 'Zamolxis';
 
   // ---------- OS theme ----------
@@ -66,7 +80,7 @@
     if (p.indexOf('linux') !== -1 || p.indexOf('ubuntu') !== -1 || p.indexOf('x11') !== -1) return 'ubuntu';
     return 'win';
   }
-  // One desktop OS view (Giskard's scheme): a single built-in style, with the Classic text
+  // One desktop OS view (Zamolxis's scheme): a single built-in style, with the Classic text
   // UI still available. Any legacy saved value (auto/mac/ubuntu/win) resolves to the one style.
   function themeChoice() { return 'win'; }
   function applyTheme() {
@@ -87,16 +101,20 @@
     fr: { 'Send': 'Envoyer', 'Route': 'Routage', 'Save': 'Enregistrer', 'Close': 'Fermer', 'Remove': 'Retirer', 'Delete': 'Supprimer', 'Import': 'Importer', 'Minimize': 'Réduire', 'Maximize': 'Agrandir', 'Appearance': 'Apparence', 'Engine': 'Moteur', 'Providers': 'Fournisseurs', 'Skills': 'Compétences', 'System': 'Système', 'Help': 'Aide', 'Desktop style': 'Style du bureau', 'Appearance mode': "Mode d'apparence", 'Language': 'Langue', 'Auto': 'Auto', 'Light': 'Clair', 'Dark': 'Sombre', 'All apps': 'Toutes les apps', 'Search apps': 'Rechercher des apps', 'No apps match.': 'Aucune app ne correspond.', 'Message': 'Message à', 'New Agent': 'Nouvel agent', 'Settings': 'Paramètres', 'Attach files': 'Joindre des fichiers', 'You': 'Vous', 'connecting...': 'connexion...', 'connected': 'connecté', 'reconnecting': 'reconnexion', 'error': 'erreur', 'thinking...': 'réflexion...', 'uploading...': 'téléversement...', 'Loading...': 'Chargement...', 'Choose the interface language. Default is English; untranslated labels stay in English.': "Choisissez la langue de l'interface. La valeur par défaut est l'anglais ; les libellés non traduits restent en anglais.", 'Auto follows your OS (detected: {os}). Override below.': 'Auto suit votre SE (détecté : {os}). Modifiable ci-dessous.', '"Classic" opens the previous stable Zamolxis interface (the last stable version), kept as a fourth option.': '« Classic » ouvre l’ancienne interface stable de Zamolxis (la dernière version stable), conservée comme quatrième option.', 'Auto follows your system light/dark preference (now: {mode}).': 'Auto suit la préférence claire/sombre du système (actuel : {mode}).', 'Each model can be a Claude variant, Local, or any authenticated free provider. Model = answers your chats · Fast = simple turns · Smartest = hard turns / final fallback. "Claude (default)" keeps Claude as the rescue tier.': 'Chaque modèle peut être une variante de Claude, Local ou tout fournisseur gratuit authentifié. Modèle = répond à vos discussions · Rapide = tours simples · Plus intelligent = tours difficiles / dernier recours. « Claude (par défaut) » garde Claude comme niveau de secours.', 'Model (answers your chats)': 'Modèle (répond à vos discussions)', 'Fast model (simple turns)': 'Modèle rapide (tours simples)', 'Smartest model (hard turns / final fallback)': 'Modèle le plus intelligent (tours difficiles / dernier recours)', 'Assistant name': "Nom de l'assistant", 'Permission mode': 'Mode de permission', 'Max turns': 'Tours max', 'Max concurrent': 'Concurrence max', 'Turn timeout (seconds)': 'Délai par tour (secondes)', 'How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.': "Durée maximale d'un tour avant son arrêt. Ex. 3600 = 1 heure, 14400 = 4 heures. Appliqué immédiatement.", 'Local-model routing (auto / off)': 'Routage du modèle local (auto / désactivé)', 'Routing': 'Routage', 'System prompt append': 'Ajout au prompt système', 'Saving...': 'Enregistrement...', 'Saved.': 'Enregistré.', ' Some changes need a restart (System tab).': ' Certains changements nécessitent un redémarrage (onglet Système).', 'Failed.': 'Échec.', 'Could not load settings.': 'Impossible de charger les paramètres.', 'Auto (smartest decides)': 'Auto (le plus intelligent décide)', 'Free cloud (rotates free providers)': 'Cloud gratuit (alterne les fournisseurs gratuits)', 'Claude (subscription)': 'Claude (abonnement)', 'Loading providers...': 'Chargement des fournisseurs...', 'Saving a key persists it; it takes effect after a restart (System tab).': 'Enregistrer une clé la conserve ; elle prend effet après un redémarrage (onglet Système).', 'configured': 'configuré', '•••• set — paste to replace, or Save empty to remove': '•••• définie — collez pour remplacer, ou Enregistrez vide pour retirer', 'Paste API key': 'Collez la clé API', 'Removing...': 'Suppression...', 'Removed.': 'Retiré.', 'Enter a key.': 'Saisissez une clé.', 'Could not load providers.': 'Impossible de charger les fournisseurs.', 'Loading skills...': 'Chargement des compétences...', 'No skills match.': 'Aucune compétence ne correspond.', 'Could not load skills.': 'Impossible de charger les compétences.', 'Search {n} skills': 'Rechercher dans {n} compétences', 'Version': 'Version', 'Primary model': 'Modèle principal', 'Fast model': 'Modèle rapide', 'Local model': 'Modèle local', 'Tokens (session)': 'Tokens (session)', '(none)': '(aucun)', 'Updates': 'Mises à jour', 'Update available — {n} new commit(s) on {branch}': 'Mise à jour disponible — {n} nouveau(x) commit(s) sur {branch}', 'Up to date on {branch}.': 'À jour sur {branch}.', 'Check for updates': 'Vérifier les mises à jour', 'Upgrade': 'Mettre à jour', 'Upgrade now ({n})': 'Mettre à jour ({n})', 'Checking...': 'Vérification...', 'Check failed.': 'Échec de la vérification.', 'Upgrade Zamolxis now? It will pull the latest, rebuild, and restart (about a minute).': 'Mettre à jour Zamolxis maintenant ? Il récupérera la dernière version, recompilera et redémarrera (environ une minute).', 'Upgrading — pulling, building, restarting...': 'Mise à jour — récupération, compilation, redémarrage...', 'Updated — reloading...': 'Mis à jour — rechargement...', 'Still working... reload manually in a bit.': 'Toujours en cours... rechargez manuellement dans un instant.', 'Upgrade failed to start.': 'Le démarrage de la mise à jour a échoué.', 'Maintenance': 'Maintenance', 'Restart Zamolxis': 'Redémarrer Zamolxis', 'Open classic UI': "Ouvrir l'interface classique", 'Restarting...': 'Redémarrage...', 'Could not load status.': "Impossible de charger l'état.", 'Agent name': "Nom de l'agent", 'Instructions': 'Instructions', 'This becomes the agent app. It can run with or without a chat window.': "Ceci devient l'app de l'agent. Elle peut fonctionner avec ou sans fenêtre de discussion.", 'Model': 'Modèle', 'Auto, Local, Free cloud, any authenticated provider, or Claude.': 'Auto, Local, Cloud gratuit, tout fournisseur authentifié ou Claude.', 'Create app': "Créer l'app", 'Name is required.': 'Le nom est requis.', 'Creating...': 'Création...', 'Created. Added to the desktop.': 'Créé. Ajouté au bureau.', 'Backend unreachable.': 'Backend inaccessible.', 'e.g. researcher': 'ex. chercheur', 'What should this agent do?': 'Que doit faire cet agent ?', 'Toggle chat window for this app': 'Activer/désactiver la fenêtre de discussion de cette app', 'Chat window': 'Fenêtre de discussion', 'Run job': 'Exécuter la tâche', 'Running...': 'Exécution...', 'Done': 'Terminé', 'Unreachable': 'Inaccessible', 'Ask me to do something, or give me a task.': 'Demandez-moi quelque chose ou confiez-moi une tâche.', '(no reply)': '(pas de réponse)', 'Chat window is off — this agent runs headless: it executes its job on demand or on schedule via the existing agent/skill mechanism. Turn the chat on above to talk to it directly.': "La fenêtre de discussion est désactivée — cet agent fonctionne sans interface : il exécute sa tâche à la demande ou selon un planning via le mécanisme agents/compétences existant. Activez le chat ci-dessus pour lui parler directement.", 'Recent activity will appear here.': "L'activité récente apparaîtra ici.", 'Model: {m}': 'Modèle : {m}', '(default)': '(par défaut)', 'Help & Guide': 'Aide et guide' },
     de: { 'Send': 'Senden', 'Route': 'Route', 'Save': 'Speichern', 'Close': 'Schließen', 'Remove': 'Entfernen', 'Delete': 'Löschen', 'Import': 'Importieren', 'Minimize': 'Minimieren', 'Maximize': 'Maximieren', 'Appearance': 'Darstellung', 'Engine': 'Engine', 'Providers': 'Anbieter', 'Skills': 'Fähigkeiten', 'System': 'System', 'Help': 'Hilfe', 'Desktop style': 'Desktop-Stil', 'Appearance mode': 'Darstellungsmodus', 'Language': 'Sprache', 'Auto': 'Auto', 'Light': 'Hell', 'Dark': 'Dunkel', 'All apps': 'Alle Apps', 'Search apps': 'Apps suchen', 'No apps match.': 'Keine App passt.', 'Message': 'Nachricht an', 'New Agent': 'Neuer Agent', 'Settings': 'Einstellungen', 'Attach files': 'Dateien anhängen', 'You': 'Du', 'connecting...': 'verbinden...', 'connected': 'verbunden', 'reconnecting': 'neu verbinden', 'error': 'Fehler', 'thinking...': 'denkt nach...', 'uploading...': 'lädt hoch...', 'Loading...': 'Wird geladen...', 'Choose the interface language. Default is English; untranslated labels stay in English.': 'Wählen Sie die Sprache der Oberfläche. Standard ist Englisch; nicht übersetzte Beschriftungen bleiben auf Englisch.', 'Auto follows your OS (detected: {os}). Override below.': 'Auto folgt Ihrem Betriebssystem (erkannt: {os}). Unten änderbar.', '"Classic" opens the previous stable Zamolxis interface (the last stable version), kept as a fourth option.': '„Classic“ öffnet die vorherige stabile Zamolxis-Oberfläche (die letzte stabile Version), als vierte Option erhalten.', 'Auto follows your system light/dark preference (now: {mode}).': 'Auto folgt der Hell-/Dunkel-Einstellung des Systems (jetzt: {mode}).', 'Each model can be a Claude variant, Local, or any authenticated free provider. Model = answers your chats · Fast = simple turns · Smartest = hard turns / final fallback. "Claude (default)" keeps Claude as the rescue tier.': 'Jedes Modell kann eine Claude-Variante, Local oder ein beliebiger authentifizierter kostenloser Anbieter sein. Modell = beantwortet Ihre Chats · Schnell = einfache Schritte · Klügstes = schwierige Schritte / letzte Rückfallebene. „Claude (Standard)“ behält Claude als Rettungsebene.', 'Model (answers your chats)': 'Modell (beantwortet Ihre Chats)', 'Fast model (simple turns)': 'Schnelles Modell (einfache Schritte)', 'Smartest model (hard turns / final fallback)': 'Klügstes Modell (schwierige Schritte / letzte Rückfallebene)', 'Assistant name': 'Name des Assistenten', 'Permission mode': 'Berechtigungsmodus', 'Max turns': 'Max. Schritte', 'Max concurrent': 'Max. gleichzeitig', 'Turn timeout (seconds)': 'Zeitlimit pro Schritt (Sekunden)', 'How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.': 'Wie lange ein einzelner Schritt laufen darf, bevor er gestoppt wird. z. B. 3600 = 1 Stunde, 14400 = 4 Stunden. Sofort wirksam.', 'Local-model routing (auto / off)': 'Lokales Modell-Routing (auto / aus)', 'Routing': 'Routing', 'System prompt append': 'Zusatz zum System-Prompt', 'Saving...': 'Wird gespeichert...', 'Saved.': 'Gespeichert.', ' Some changes need a restart (System tab).': ' Einige Änderungen erfordern einen Neustart (Tab System).', 'Failed.': 'Fehlgeschlagen.', 'Could not load settings.': 'Einstellungen konnten nicht geladen werden.', 'Auto (smartest decides)': 'Auto (Klügstes entscheidet)', 'Free cloud (rotates free providers)': 'Kostenlose Cloud (wechselt kostenlose Anbieter)', 'Claude (subscription)': 'Claude (Abonnement)', 'Loading providers...': 'Anbieter werden geladen...', 'Saving a key persists it; it takes effect after a restart (System tab).': 'Ein gespeicherter Schlüssel bleibt erhalten; wirksam nach einem Neustart (Tab System).', 'configured': 'konfiguriert', '•••• set — paste to replace, or Save empty to remove': '•••• gesetzt — zum Ersetzen einfügen oder leer speichern zum Entfernen', 'Paste API key': 'API-Schlüssel einfügen', 'Removing...': 'Wird entfernt...', 'Removed.': 'Entfernt.', 'Enter a key.': 'Schlüssel eingeben.', 'Could not load providers.': 'Anbieter konnten nicht geladen werden.', 'Loading skills...': 'Fähigkeiten werden geladen...', 'No skills match.': 'Keine Fähigkeit passt.', 'Could not load skills.': 'Fähigkeiten konnten nicht geladen werden.', 'Search {n} skills': '{n} Fähigkeiten durchsuchen', 'Version': 'Version', 'Primary model': 'Primäres Modell', 'Fast model': 'Schnelles Modell', 'Local model': 'Lokales Modell', 'Tokens (session)': 'Tokens (Sitzung)', '(none)': '(keins)', 'Updates': 'Updates', 'Update available — {n} new commit(s) on {branch}': 'Update verfügbar — {n} neue(r) Commit(s) auf {branch}', 'Up to date on {branch}.': 'Aktuell auf {branch}.', 'Check for updates': 'Nach Updates suchen', 'Upgrade': 'Aktualisieren', 'Upgrade now ({n})': 'Jetzt aktualisieren ({n})', 'Checking...': 'Wird geprüft...', 'Check failed.': 'Prüfung fehlgeschlagen.', 'Upgrade Zamolxis now? It will pull the latest, rebuild, and restart (about a minute).': 'Zamolxis jetzt aktualisieren? Es lädt die neueste Version, baut neu und startet neu (etwa eine Minute).', 'Upgrading — pulling, building, restarting...': 'Aktualisierung — laden, bauen, neu starten...', 'Updated — reloading...': 'Aktualisiert — wird neu geladen...', 'Still working... reload manually in a bit.': 'Läuft noch... in Kürze manuell neu laden.', 'Upgrade failed to start.': 'Update konnte nicht gestartet werden.', 'Maintenance': 'Wartung', 'Restart Zamolxis': 'Zamolxis neu starten', 'Open classic UI': 'Klassische Oberfläche öffnen', 'Restarting...': 'Neustart...', 'Could not load status.': 'Status konnte nicht geladen werden.', 'Agent name': 'Name des Agenten', 'Instructions': 'Anweisungen', 'This becomes the agent app. It can run with or without a chat window.': 'Daraus wird die Agent-App. Sie kann mit oder ohne Chatfenster laufen.', 'Model': 'Modell', 'Auto, Local, Free cloud, any authenticated provider, or Claude.': 'Auto, Local, Kostenlose Cloud, beliebiger authentifizierter Anbieter oder Claude.', 'Create app': 'App erstellen', 'Name is required.': 'Name ist erforderlich.', 'Creating...': 'Wird erstellt...', 'Created. Added to the desktop.': 'Erstellt. Zum Desktop hinzugefügt.', 'Backend unreachable.': 'Backend nicht erreichbar.', 'e.g. researcher': 'z. B. Rechercheur', 'What should this agent do?': 'Was soll dieser Agent tun?', 'Toggle chat window for this app': 'Chatfenster für diese App umschalten', 'Chat window': 'Chatfenster', 'Run job': 'Aufgabe ausführen', 'Running...': 'Wird ausgeführt...', 'Done': 'Fertig', 'Unreachable': 'Nicht erreichbar', 'Ask me to do something, or give me a task.': 'Bitte mich um etwas oder gib mir eine Aufgabe.', '(no reply)': '(keine Antwort)', 'Chat window is off — this agent runs headless: it executes its job on demand or on schedule via the existing agent/skill mechanism. Turn the chat on above to talk to it directly.': 'Das Chatfenster ist aus — dieser Agent läuft ohne Oberfläche: Er erledigt seine Aufgabe auf Abruf oder nach Zeitplan über den vorhandenen Agenten-/Fähigkeiten-Mechanismus. Schalten Sie den Chat oben ein, um direkt mit ihm zu sprechen.', 'Recent activity will appear here.': 'Aktuelle Aktivität erscheint hier.', 'Model: {m}': 'Modell: {m}', '(default)': '(Standard)', 'Help & Guide': 'Hilfe und Anleitung' },
     ro: { 'Send': 'Trimite', 'Route': 'Rutare', 'Save': 'Salvează', 'Close': 'Închide', 'Remove': 'Elimină', 'Delete': 'Șterge', 'Import': 'Importă', 'Minimize': 'Minimizează', 'Maximize': 'Maximizează', 'Appearance': 'Aspect', 'Engine': 'Motor', 'Providers': 'Furnizori', 'Skills': 'Abilități', 'System': 'Sistem', 'Help': 'Ajutor', 'Desktop style': 'Stil desktop', 'Appearance mode': 'Mod de aspect', 'Language': 'Limbă', 'Auto': 'Auto', 'Light': 'Luminos', 'Dark': 'Întunecat', 'All apps': 'Toate aplicațiile', 'Search apps': 'Caută aplicații', 'No apps match.': 'Nicio aplicație nu corespunde.', 'Message': 'Mesaj către', 'New Agent': 'Agent nou', 'Settings': 'Setări', 'Attach files': 'Atașează fișiere', 'You': 'Tu', 'connecting...': 'se conectează...', 'connected': 'conectat', 'reconnecting': 'se reconectează', 'error': 'eroare', 'thinking...': 'gândește...', 'uploading...': 'se încarcă...', 'Loading...': 'Se încarcă...', 'Choose the interface language. Default is English; untranslated labels stay in English.': 'Alege limba interfeței. Implicit este engleza; etichetele netraduse rămân în engleză.', 'Auto follows your OS (detected: {os}). Override below.': 'Auto urmează sistemul de operare (detectat: {os}). Modifică mai jos.', '"Classic" opens the previous stable Zamolxis interface (the last stable version), kept as a fourth option.': '„Classic” deschide interfața stabilă anterioară Zamolxis (ultima versiune stabilă), păstrată ca a patra opțiune.', 'Auto follows your system light/dark preference (now: {mode}).': 'Auto urmează preferința luminos/întunecat a sistemului (acum: {mode}).', 'Each model can be a Claude variant, Local, or any authenticated free provider. Model = answers your chats · Fast = simple turns · Smartest = hard turns / final fallback. "Claude (default)" keeps Claude as the rescue tier.': 'Fiecare model poate fi o variantă Claude, Local sau orice furnizor gratuit autentificat. Model = răspunde la conversații · Rapid = ture simple · Cel mai inteligent = ture dificile / rezervă finală. „Claude (implicit)” păstrează Claude ca nivel de salvare.', 'Model (answers your chats)': 'Model (răspunde la conversații)', 'Fast model (simple turns)': 'Model rapid (ture simple)', 'Smartest model (hard turns / final fallback)': 'Cel mai inteligent model (ture dificile / rezervă finală)', 'Assistant name': 'Numele asistentului', 'Permission mode': 'Mod de permisiune', 'Max turns': 'Ture maxime', 'Max concurrent': 'Concurență maximă', 'Turn timeout (seconds)': 'Timp limită pe tură (secunde)', 'How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.': 'Cât poate rula o singură tură înainte de a fi oprită. Ex. 3600 = 1 oră, 14400 = 4 ore. Se aplică imediat.', 'Local-model routing (auto / off)': 'Rutare model local (auto / oprit)', 'Routing': 'Rutare', 'System prompt append': 'Adăugare la promptul de sistem', 'Saving...': 'Se salvează...', 'Saved.': 'Salvat.', ' Some changes need a restart (System tab).': ' Unele modificări necesită repornire (fila Sistem).', 'Failed.': 'Eșuat.', 'Could not load settings.': 'Setările nu au putut fi încărcate.', 'Auto (smartest decides)': 'Auto (decide cel mai inteligent)', 'Free cloud (rotates free providers)': 'Cloud gratuit (rotește furnizorii gratuiți)', 'Claude (subscription)': 'Claude (abonament)', 'Loading providers...': 'Se încarcă furnizorii...', 'Saving a key persists it; it takes effect after a restart (System tab).': 'O cheie salvată este păstrată; intră în vigoare după repornire (fila Sistem).', 'configured': 'configurat', '•••• set — paste to replace, or Save empty to remove': '•••• setată — lipește pentru a înlocui sau Salvează gol pentru a elimina', 'Paste API key': 'Lipește cheia API', 'Removing...': 'Se elimină...', 'Removed.': 'Eliminat.', 'Enter a key.': 'Introdu o cheie.', 'Could not load providers.': 'Furnizorii nu au putut fi încărcați.', 'Loading skills...': 'Se încarcă abilitățile...', 'No skills match.': 'Nicio abilitate nu corespunde.', 'Could not load skills.': 'Abilitățile nu au putut fi încărcate.', 'Search {n} skills': 'Caută în {n} abilități', 'Version': 'Versiune', 'Primary model': 'Model principal', 'Fast model': 'Model rapid', 'Local model': 'Model local', 'Tokens (session)': 'Tokenuri (sesiune)', '(none)': '(niciunul)', 'Updates': 'Actualizări', 'Update available — {n} new commit(s) on {branch}': 'Actualizare disponibilă — {n} commit(uri) noi pe {branch}', 'Up to date on {branch}.': 'La zi pe {branch}.', 'Check for updates': 'Caută actualizări', 'Upgrade': 'Actualizează', 'Upgrade now ({n})': 'Actualizează acum ({n})', 'Checking...': 'Se verifică...', 'Check failed.': 'Verificarea a eșuat.', 'Upgrade Zamolxis now? It will pull the latest, rebuild, and restart (about a minute).': 'Actualizezi Zamolxis acum? Va descărca ultima versiune, va recompila și va reporni (circa un minut).', 'Upgrading — pulling, building, restarting...': 'Se actualizează — descărcare, compilare, repornire...', 'Updated — reloading...': 'Actualizat — se reîncarcă...', 'Still working... reload manually in a bit.': 'Încă lucrează... reîncarcă manual în scurt timp.', 'Upgrade failed to start.': 'Actualizarea nu a putut porni.', 'Maintenance': 'Întreținere', 'Restart Zamolxis': 'Repornește Zamolxis', 'Open classic UI': 'Deschide interfața clasică', 'Restarting...': 'Se repornește...', 'Could not load status.': 'Starea nu a putut fi încărcată.', 'Agent name': 'Numele agentului', 'Instructions': 'Instrucțiuni', 'This becomes the agent app. It can run with or without a chat window.': 'Aceasta devine aplicația agentului. Poate rula cu sau fără fereastră de chat.', 'Model': 'Model', 'Auto, Local, Free cloud, any authenticated provider, or Claude.': 'Auto, Local, Cloud gratuit, orice furnizor autentificat sau Claude.', 'Create app': 'Creează aplicația', 'Name is required.': 'Numele este obligatoriu.', 'Creating...': 'Se creează...', 'Created. Added to the desktop.': 'Creat. Adăugat pe desktop.', 'Backend unreachable.': 'Backend inaccesibil.', 'e.g. researcher': 'ex. cercetător', 'What should this agent do?': 'Ce ar trebui să facă acest agent?', 'Toggle chat window for this app': 'Comută fereastra de chat pentru această aplicație', 'Chat window': 'Fereastră de chat', 'Run job': 'Rulează sarcina', 'Running...': 'Se rulează...', 'Done': 'Gata', 'Unreachable': 'Inaccesibil', 'Ask me to do something, or give me a task.': 'Cere-mi ceva sau dă-mi o sarcină.', '(no reply)': '(niciun răspuns)', 'Chat window is off — this agent runs headless: it executes its job on demand or on schedule via the existing agent/skill mechanism. Turn the chat on above to talk to it directly.': 'Fereastra de chat este oprită — acest agent rulează fără interfață: își execută sarcina la cerere sau programat, prin mecanismul existent de agenți/abilități. Activează chatul de mai sus pentru a vorbi direct cu el.', 'Recent activity will appear here.': 'Activitatea recentă va apărea aici.', 'Model: {m}': 'Model: {m}', '(default)': '(implicit)', 'Help & Guide': 'Ajutor și ghid' },
-    it: { 'Send': 'Invia', 'Route': 'Instradamento', 'Save': 'Salva', 'Close': 'Chiudi', 'Remove': 'Rimuovi', 'Delete': 'Elimina', 'Import': 'Importa', 'Minimize': 'Riduci a icona', 'Maximize': 'Ingrandisci', 'Appearance': 'Aspetto', 'Engine': 'Motore', 'Providers': 'Provider', 'Skills': 'Competenze', 'System': 'Sistema', 'Help': 'Aiuto', 'Desktop style': 'Stile desktop', 'Appearance mode': 'Modalità aspetto', 'Language': 'Lingua', 'Auto': 'Auto', 'Light': 'Chiaro', 'Dark': 'Scuro', 'All apps': 'Tutte le app', 'Search apps': 'Cerca app', 'No apps match.': 'Nessuna app corrisponde.', 'Message': 'Messaggio a', 'New Agent': 'Nuovo agente', 'Settings': 'Impostazioni', 'Attach files': 'Allega file', 'You': 'Tu', 'connecting...': 'connessione...', 'connected': 'connesso', 'reconnecting': 'riconnessione', 'error': 'errore', 'thinking...': 'sto pensando...', 'uploading...': 'caricamento...', 'Loading...': 'Caricamento...', 'Choose the interface language. Default is English; untranslated labels stay in English.': "Scegli la lingua dell'interfaccia. L'impostazione predefinita è l'inglese; le etichette non tradotte restano in inglese.", 'Auto follows your OS (detected: {os}). Override below.': 'Auto segue il tuo SO (rilevato: {os}). Modificabile sotto.', '"Classic" opens the previous stable Zamolxis interface (the last stable version), kept as a fourth option.': "« Classic » apre la precedente interfaccia stabile di Zamolxis (l'ultima versione stabile), mantenuta come quarta opzione.", 'Auto follows your system light/dark preference (now: {mode}).': 'Auto segue la preferenza chiaro/scuro del sistema (ora: {mode}).', 'Each model can be a Claude variant, Local, or any authenticated free provider. Model = answers your chats · Fast = simple turns · Smartest = hard turns / final fallback. "Claude (default)" keeps Claude as the rescue tier.': 'Ogni modello può essere una variante di Claude, Local o qualsiasi provider gratuito autenticato. Modello = risponde alle chat · Veloce = turni semplici · Più intelligente = turni difficili / ripiego finale. « Claude (predefinito) » mantiene Claude come livello di soccorso.', 'Model (answers your chats)': 'Modello (risponde alle chat)', 'Fast model (simple turns)': 'Modello veloce (turni semplici)', 'Smartest model (hard turns / final fallback)': 'Modello più intelligente (turni difficili / ripiego finale)', 'Assistant name': "Nome dell'assistente", 'Permission mode': 'Modalità autorizzazioni', 'Max turns': 'Turni max', 'Max concurrent': 'Concorrenza max', 'Turn timeout (seconds)': 'Timeout per turno (secondi)', 'How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.': 'Per quanto può durare un singolo turno prima di essere fermato. Es. 3600 = 1 ora, 14400 = 4 ore. Applicato subito.', 'Local-model routing (auto / off)': 'Instradamento modello locale (auto / off)', 'Routing': 'Instradamento', 'System prompt append': 'Aggiunta al prompt di sistema', 'Saving...': 'Salvataggio...', 'Saved.': 'Salvato.', ' Some changes need a restart (System tab).': ' Alcune modifiche richiedono un riavvio (scheda Sistema).', 'Failed.': 'Non riuscito.', 'Could not load settings.': 'Impossibile caricare le impostazioni.', 'Auto (smartest decides)': 'Auto (decide il più intelligente)', 'Free cloud (rotates free providers)': 'Cloud gratuito (alterna i provider gratuiti)', 'Claude (subscription)': 'Claude (abbonamento)', 'Loading providers...': 'Caricamento provider...', 'Saving a key persists it; it takes effect after a restart (System tab).': 'Salvare una chiave la conserva; ha effetto dopo un riavvio (scheda Sistema).', 'configured': 'configurato', '•••• set — paste to replace, or Save empty to remove': '•••• impostata — incolla per sostituire, o Salva vuoto per rimuovere', 'Paste API key': 'Incolla la chiave API', 'Removing...': 'Rimozione...', 'Removed.': 'Rimosso.', 'Enter a key.': 'Inserisci una chiave.', 'Could not load providers.': 'Impossibile caricare i provider.', 'Loading skills...': 'Caricamento competenze...', 'No skills match.': 'Nessuna competenza corrisponde.', 'Could not load skills.': 'Impossibile caricare le competenze.', 'Search {n} skills': 'Cerca tra {n} competenze', 'Version': 'Versione', 'Primary model': 'Modello principale', 'Fast model': 'Modello veloce', 'Local model': 'Modello locale', 'Tokens (session)': 'Token (sessione)', '(none)': '(nessuno)', 'Updates': 'Aggiornamenti', 'Update available — {n} new commit(s) on {branch}': 'Aggiornamento disponibile — {n} nuovo/i commit su {branch}', 'Up to date on {branch}.': 'Aggiornato su {branch}.', 'Check for updates': 'Verifica aggiornamenti', 'Upgrade': 'Aggiorna', 'Upgrade now ({n})': 'Aggiorna ora ({n})', 'Checking...': 'Verifica...', 'Check failed.': 'Verifica non riuscita.', 'Upgrade Zamolxis now? It will pull the latest, rebuild, and restart (about a minute).': "Aggiornare Zamolxis ora? Scaricherà l'ultima versione, ricompilerà e riavvierà (circa un minuto).", 'Upgrading — pulling, building, restarting...': 'Aggiornamento — download, build, riavvio...', 'Updated — reloading...': 'Aggiornato — ricaricamento...', 'Still working... reload manually in a bit.': 'Ancora in corso... ricarica manualmente tra poco.', 'Upgrade failed to start.': "Avvio dell'aggiornamento non riuscito.", 'Maintenance': 'Manutenzione', 'Restart Zamolxis': 'Riavvia Zamolxis', 'Open classic UI': "Apri l'interfaccia classica", 'Restarting...': 'Riavvio...', 'Could not load status.': 'Impossibile caricare lo stato.', 'Agent name': "Nome dell'agente", 'Instructions': 'Istruzioni', 'This becomes the agent app. It can run with or without a chat window.': "Questo diventa l'app dell'agente. Può funzionare con o senza finestra di chat.", 'Model': 'Modello', 'Auto, Local, Free cloud, any authenticated provider, or Claude.': 'Auto, Local, Cloud gratuito, qualsiasi provider autenticato o Claude.', 'Create app': "Crea l'app", 'Name is required.': 'Il nome è obbligatorio.', 'Creating...': 'Creazione...', 'Created. Added to the desktop.': 'Creato. Aggiunto al desktop.', 'Backend unreachable.': 'Backend non raggiungibile.', 'e.g. researcher': 'es. ricercatore', 'What should this agent do?': 'Cosa deve fare questo agente?', 'Toggle chat window for this app': 'Attiva/disattiva la finestra di chat per questa app', 'Chat window': 'Finestra di chat', 'Run job': 'Esegui attività', 'Running...': 'Esecuzione...', 'Done': 'Fatto', 'Unreachable': 'Non raggiungibile', 'Ask me to do something, or give me a task.': "Chiedimi qualcosa o assegnami un'attività.", '(no reply)': '(nessuna risposta)', 'Chat window is off — this agent runs headless: it executes its job on demand or on schedule via the existing agent/skill mechanism. Turn the chat on above to talk to it directly.': "La finestra di chat è disattivata — questo agente funziona senza interfaccia: esegue la sua attività su richiesta o pianificata tramite il meccanismo esistente di agenti/competenze. Attiva la chat sopra per parlargli direttamente.", 'Recent activity will appear here.': "L'attività recente apparirà qui.", 'Model: {m}': 'Modello: {m}', '(default)': '(predefinito)', 'Help & Guide': 'Aiuto e guida' }
+    it: { 'Send': 'Invia', 'Route': 'Instradamento', 'Save': 'Salva', 'Close': 'Chiudi', 'Remove': 'Rimuovi', 'Delete': 'Elimina', 'Import': 'Importa', 'Minimize': 'Riduci a icona', 'Maximize': 'Ingrandisci', 'Appearance': 'Aspetto', 'Engine': 'Motore', 'Providers': 'Provider', 'Skills': 'Competenze', 'System': 'Sistema', 'Help': 'Aiuto', 'Desktop style': 'Stile desktop', 'Appearance mode': 'Modalità aspetto', 'Language': 'Lingua', 'Auto': 'Auto', 'Light': 'Chiaro', 'Dark': 'Scuro', 'All apps': 'Tutte le app', 'Search apps': 'Cerca app', 'No apps match.': 'Nessuna app corrisponde.', 'Message': 'Messaggio a', 'New Agent': 'Nuovo agente', 'Settings': 'Impostazioni', 'Attach files': 'Allega file', 'You': 'Tu', 'connecting...': 'connessione...', 'connected': 'connesso', 'reconnecting': 'riconnessione', 'error': 'errore', 'thinking...': 'sto pensando...', 'uploading...': 'caricamento...', 'Loading...': 'Caricamento...', 'Choose the interface language. Default is English; untranslated labels stay in English.': "Scegli la lingua dell'interfaccia. L'impostazione predefinita è l'inglese; le etichette non tradotte restano in inglese.", 'Auto follows your OS (detected: {os}). Override below.': 'Auto segue il tuo SO (rilevato: {os}). Modificabile sotto.', '"Classic" opens the previous stable Zamolxis interface (the last stable version), kept as a fourth option.': "« Classic » apre la precedente interfaccia stabile di Zamolxis (l'ultima versione stabile), mantenuta come quarta opzione.", 'Auto follows your system light/dark preference (now: {mode}).': 'Auto segue la preferenza chiaro/scuro del sistema (ora: {mode}).', 'Each model can be a Claude variant, Local, or any authenticated free provider. Model = answers your chats · Fast = simple turns · Smartest = hard turns / final fallback. "Claude (default)" keeps Claude as the rescue tier.': 'Ogni modello può essere una variante di Claude, Local o qualsiasi provider gratuito autenticato. Modello = risponde alle chat · Veloce = turni semplici · Più intelligente = turni difficili / ripiego finale. « Claude (predefinito) » mantiene Claude come livello di soccorso.', 'Model (answers your chats)': 'Modello (risponde alle chat)', 'Fast model (simple turns)': 'Modello veloce (turni semplici)', 'Smartest model (hard turns / final fallback)': 'Modello più intelligente (turni difficili / ripiego finale)', 'Assistant name': "Nome dell'assistente", 'Permission mode': 'Modalità autorizzazioni', 'Max turns': 'Turni max', 'Max concurrent': 'Concorrenza max', 'Turn timeout (seconds)': 'Timeout per turno (secondi)', 'How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.': 'Per quanto può durare un singolo turno prima di essere fermato. Es. 3600 = 1 ora, 14400 = 4 ore. Applicato subito.', 'Local-model routing (auto / off)': 'Instradamento modello locale (auto / off)', 'Routing': 'Instradamento', 'System prompt append': 'Aggiunta al prompt di sistema', 'Saving...': 'Salvataggio...', 'Saved.': 'Salvato.', ' Some changes need a restart (System tab).': ' Alcune modifiche richiedono un riavvio (scheda Sistema).', 'Failed.': 'Non riuscito.', 'Could not load settings.': 'Impossibile caricare le impostazioni.', 'Auto (smartest decides)': 'Auto (decide il più intelligente)', 'Free cloud (rotates free providers)': 'Cloud gratuito (alterna i provider gratuiti)', 'Claude (subscription)': 'Claude (abbonamento)', 'Loading providers...': 'Caricamento provider...', 'Saving a key persists it; it takes effect after a restart (System tab).': 'Salvare una chiave la conserva; ha effetto dopo un riavvio (scheda Sistema).', 'configured': 'configurato', '•••• set — paste to replace, or Save empty to remove': '•••• impostata — incolla per sostituire, o Salva vuoto per rimuovere', 'Paste API key': 'Incolla la chiave API', 'Removing...': 'Rimozione...', 'Removed.': 'Rimosso.', 'Enter a key.': 'Inserisci una chiave.', 'Could not load providers.': 'Impossibile caricare i provider.', 'Loading skills...': 'Caricamento competenze...', 'No skills match.': 'Nessuna competenza corrisponde.', 'Could not load skills.': 'Impossibile caricare le competenze.', 'Search {n} skills': 'Cerca tra {n} competenze', 'Version': 'Versione', 'Primary model': 'Modello principale', 'Fast model': 'Modello veloce', 'Local model': 'Modello locale', 'Tokens (session)': 'Token (sessione)', '(none)': '(nessuno)', 'Updates': 'Aggiornamenti', 'Update available — {n} new commit(s) on {branch}': 'Aggiornamento disponibile — {n} nuovo/i commit su {branch}', 'Up to date on {branch}.': 'Aggiornato su {branch}.', 'Check for updates': 'Verifica aggiornamenti', 'Upgrade': 'Aggiorna', 'Upgrade now ({n})': 'Aggiorna ora ({n})', 'Checking...': 'Verifica...', 'Check failed.': 'Verifica non riuscita.', 'Upgrade Zamolxis now? It will pull the latest, rebuild, and restart (about a minute).': "Aggiornare Zamolxis ora? Scaricherà l'ultima versione, ricompilerà e riavvierà (circa un minuto).", 'Upgrading — pulling, building, restarting...': 'Aggiornamento — download, build, riavvio...', 'Updated — reloading...': 'Aggiornato — ricaricamento...', 'Still working... reload manually in a bit.': 'Ancora in corso... ricarica manualmente tra poco.', 'Upgrade failed to start.': "Avvio dell'aggiornamento non riuscito.", 'Maintenance': 'Manutenzione', 'Restart Zamolxis': 'Riavvia Zamolxis', 'Open classic UI': "Apri l'interfaccia classica", 'Restarting...': 'Riavvio...', 'Could not load status.': 'Impossibile caricare lo stato.', 'Agent name': "Nome dell'agente", 'Instructions': 'Istruzioni', 'This becomes the agent app. It can run with or without a chat window.': "Questo diventa l'app dell'agente. Può funzionare con o senza finestra di chat.", 'Model': 'Modello', 'Auto, Local, Free cloud, any authenticated provider, or Claude.': 'Auto, Local, Cloud gratuito, qualsiasi provider autenticato o Claude.', 'Create app': "Crea l'app", 'Name is required.': 'Il nome è obbligatorio.', 'Creating...': 'Creazione...', 'Created. Added to the desktop.': 'Creato. Aggiunto al desktop.', 'Backend unreachable.': 'Backend non raggiungibile.', 'e.g. researcher': 'es. ricercatore', 'What should this agent do?': 'Cosa deve fare questo agente?', 'Toggle chat window for this app': 'Attiva/disattiva la finestra di chat per questa app', 'Chat window': 'Finestra di chat', 'Run job': 'Esegui attività', 'Running...': 'Esecuzione...', 'Done': 'Fatto', 'Unreachable': 'Non raggiungibile', 'Ask me to do something, or give me a task.': "Chiedimi qualcosa o assegnami un'attività.", '(no reply)': '(nessuna risposta)', 'Chat window is off — this agent runs headless: it executes its job on demand or on schedule via the existing agent/skill mechanism. Turn the chat on above to talk to it directly.': "La finestra di chat è disattivata — questo agente funziona senza interfaccia: esegue la sua attività su richiesta o pianificata tramite il meccanismo esistente di agenti/competenze. Attiva la chat sopra per parlargli direttamente.", 'Recent activity will appear here.': "L'attività recente apparirà qui.", 'Model: {m}': 'Modello: {m}', '(default)': '(predefinito)', 'Help & Guide': 'Aiuto e guida' },
+    pl: { 'Send': 'Wyślij', 'Route': 'Trasa', 'Save': 'Zapisz', 'Close': 'Zamknij', 'Remove': 'Usuń', 'Delete': 'Usuń', 'Import': 'Importuj', 'Minimize': 'Minimalizuj', 'Maximize': 'Maksymalizuj', 'Appearance': 'Wygląd', 'Engine': 'Silnik', 'Providers': 'Dostawcy', 'Skills': 'Umiejętności', 'System': 'System', 'Help': 'Pomoc', 'Desktop style': 'Styl pulpitu', 'Appearance mode': 'Tryb wyglądu', 'Language': 'Język', 'Auto': 'Auto', 'Light': 'Jasny', 'Dark': 'Ciemny', 'All apps': 'Wszystkie aplikacje', 'Search apps': 'Szukaj aplikacji', 'No apps match.': 'Brak pasujących aplikacji.', 'Message': 'Wiadomość do', 'New Agent': 'Nowy agent', 'Settings': 'Ustawienia', 'Attach files': 'Załącz pliki', 'You': 'Ty', 'connecting...': 'łączenie...', 'connected': 'połączono', 'reconnecting': 'ponowne łączenie', 'error': 'błąd', 'thinking...': 'myślę...', 'uploading...': 'przesyłanie...', 'Loading...': 'Ładowanie...', 'Choose the interface language. Default is English; untranslated labels stay in English.': 'Wybierz język interfejsu. Domyślnie angielski; nieprzetłumaczone etykiety pozostają po angielsku.', 'Auto follows your OS (detected: {os}). Override below.': 'Auto podąża za systemem (wykryto: {os}). Zmień poniżej.', '"Classic" opens the previous stable Zamolxis interface (the last stable version), kept as a fourth option.': "„Classic” otwiera poprzedni stabilny interfejs Zamolxis (ostatnią stabilną wersję), zachowany jako czwarta opcja.", 'Auto follows your system light/dark preference (now: {mode}).': 'Auto podąża za ustawieniem jasny/ciemny systemu (teraz: {mode}).', 'Each model can be a Claude variant, Local, or any authenticated free provider. Model = answers your chats · Fast = simple turns · Smartest = hard turns / final fallback. "Claude (default)" keeps Claude as the rescue tier.': "Każdy model może być wariantem Claude, Local lub dowolnym uwierzytelnionym dostawcą. Model = odpowiada na czaty · Szybki = proste tury · Najmądrzejszy = trudne tury / ostateczna rezerwa. „Claude (domyślny)” zachowuje Claude jako poziom ratunkowy.", 'Model (answers your chats)': 'Model (odpowiada na czaty)', 'Fast model (simple turns)': 'Szybki model (proste tury)', 'Smartest model (hard turns / final fallback)': 'Najmądrzejszy model (trudne tury / ostateczna rezerwa)', 'Assistant name': 'Nazwa asystenta', 'Permission mode': 'Tryb uprawnień', 'Max turns': 'Maks. tury', 'Max concurrent': 'Maks. równoczesnych', 'Turn timeout (seconds)': 'Limit czasu tury (sekundy)', 'How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.': 'Jak długo może trwać pojedyncza tura, zanim zostanie zatrzymana. Np. 3600 = 1 godzina, 14400 = 4 godziny. Działa od razu.', 'Local-model routing (auto / off)': 'Trasowanie modelu lokalnego (auto / wył.)', 'Routing': 'Trasowanie', 'System prompt append': 'Dopisek do promptu systemowego', 'Saving...': 'Zapisywanie...', 'Saved.': 'Zapisano.', ' Some changes need a restart (System tab).': ' Niektóre zmiany wymagają ponownego uruchomienia (karta System).', 'Failed.': 'Nie powiodło się.', 'Could not load settings.': 'Nie udało się wczytać ustawień.', 'Auto (smartest decides)': 'Auto (decyduje najmądrzejszy)', 'Claude (subscription)': 'Claude (subskrypcja)', 'Loading providers...': 'Ładowanie dostawców...', 'Saving a key persists it; it takes effect after a restart (System tab).': 'Zapisanie klucza utrwala go; działa po ponownym uruchomieniu (karta System).', 'configured': 'skonfigurowano', '•••• set — paste to replace, or Save empty to remove': '•••• ustawiono — wklej, aby zastąpić, lub Zapisz puste, aby usunąć', 'Paste API key': 'Wklej klucz API', 'Removing...': 'Usuwanie...', 'Removed.': 'Usunięto.', 'Enter a key.': 'Wprowadź klucz.', 'Could not load providers.': 'Nie udało się wczytać dostawców.', 'Loading skills...': 'Ładowanie umiejętności...', 'No skills match.': 'Brak pasujących umiejętności.', 'Could not load skills.': 'Nie udało się wczytać umiejętności.', 'Search {n} skills': 'Przeszukaj {n} umiejętności', 'Version': 'Wersja', 'Primary model': 'Model główny', 'Fast model': 'Szybki model', 'Local model': 'Model lokalny', 'Tokens (session)': 'Tokeny (sesja)', '(none)': '(brak)', 'Updates': 'Aktualizacje', 'Update available — {n} new commit(s) on {branch}': 'Dostępna aktualizacja — {n} nowych commitów w {branch}', 'Up to date on {branch}.': 'Aktualne w {branch}.', 'Check for updates': 'Sprawdź aktualizacje', 'Upgrade': 'Aktualizuj', 'Upgrade now ({n})': 'Aktualizuj teraz ({n})', 'Checking...': 'Sprawdzanie...', 'Check failed.': 'Sprawdzanie nie powiodło się.', 'Upgrade Zamolxis now? It will pull the latest, rebuild, and restart (about a minute).': 'Zaktualizować Zamolxis teraz? Pobierze najnowszą wersję, przebuduje i uruchomi ponownie (około minuty).', 'Upgrading — pulling, building, restarting...': 'Aktualizacja — pobieranie, budowanie, ponowne uruchamianie...', 'Updated — reloading...': 'Zaktualizowano — przeładowywanie...', 'Still working... reload manually in a bit.': 'Wciąż pracuje... za chwilę przeładuj ręcznie.', 'Upgrade failed to start.': 'Nie udało się uruchomić aktualizacji.', 'Maintenance': 'Konserwacja', 'Restart Zamolxis': 'Uruchom ponownie Zamolxis', 'Open classic UI': 'Otwórz klasyczny interfejs', 'Restarting...': 'Ponowne uruchamianie...', 'Could not load status.': 'Nie udało się wczytać stanu.', 'Agent name': 'Nazwa agenta', 'Instructions': 'Instrukcje', 'This becomes the agent app. It can run with or without a chat window.': 'To staje się aplikacją agenta. Może działać z oknem czatu lub bez niego.', 'Model': 'Model', 'Auto, Local, Free cloud, any authenticated provider, or Claude.': 'Auto, Local, Darmowa chmura, dowolny uwierzytelniony dostawca lub Claude.', 'Free cloud (rotates free providers)': 'Darmowa chmura (rotacja darmowych dostawców)', 'Create app': 'Utwórz aplikację', 'Name is required.': 'Nazwa jest wymagana.', 'Creating...': 'Tworzenie...', 'Created. Added to the desktop.': 'Utworzono. Dodano do pulpitu.', 'Backend unreachable.': 'Backend niedostępny.', 'e.g. researcher': 'np. badacz', 'What should this agent do?': 'Co powinien robić ten agent?', 'Toggle chat window for this app': 'Przełącz okno czatu dla tej aplikacji', 'Chat window': 'Okno czatu', 'Run job': 'Uruchom zadanie', 'Running...': 'Wykonywanie...', 'Done': 'Gotowe', 'Unreachable': 'Niedostępny', 'Ask me to do something, or give me a task.': 'Poproś mnie o coś lub daj mi zadanie.', '(no reply)': '(brak odpowiedzi)', 'Chat window is off — this agent runs headless: it executes its job on demand or on schedule via the existing agent/skill mechanism. Turn the chat on above to talk to it directly.': 'Okno czatu jest wyłączone — ten agent działa bez interfejsu: wykonuje swoje zadanie na żądanie lub według harmonogramu poprzez istniejący mechanizm agentów/umiejętności. Włącz czat powyżej, aby z nim rozmawiać bezpośrednio.', 'Recent activity will appear here.': 'Ostatnia aktywność pojawi się tutaj.', 'Model: {m}': 'Model: {m}', '(default)': '(domyślny)', 'Help & Guide': 'Pomoc i przewodnik' },
+    uk: { 'Send': 'Надіслати', 'Route': 'Маршрут', 'Save': 'Зберегти', 'Close': 'Закрити', 'Remove': 'Прибрати', 'Delete': 'Видалити', 'Import': 'Імпортувати', 'Minimize': 'Згорнути', 'Maximize': 'Розгорнути', 'Appearance': 'Вигляд', 'Engine': 'Рушій', 'Providers': 'Постачальники', 'Skills': 'Навички', 'System': 'Система', 'Help': 'Довідка', 'Desktop style': 'Стиль робочого столу', 'Appearance mode': 'Режим вигляду', 'Language': 'Мова', 'Auto': 'Авто', 'Light': 'Світла', 'Dark': 'Темна', 'All apps': 'Усі застосунки', 'Search apps': 'Пошук застосунків', 'No apps match.': 'Немає збігів.', 'Message': 'Повідомлення до', 'New Agent': 'Новий агент', 'Settings': 'Налаштування', 'Attach files': 'Додати файли', 'You': 'Ви', 'connecting...': 'підключення...', 'connected': 'підключено', 'reconnecting': 'повторне підключення', 'error': 'помилка', 'thinking...': 'думаю...', 'uploading...': 'завантаження...', 'Loading...': 'Завантаження...', 'Choose the interface language. Default is English; untranslated labels stay in English.': 'Виберіть мову інтерфейсу. Типово англійська; неперекладені написи залишаються англійською.', 'Auto follows your OS (detected: {os}). Override below.': 'Авто слідує за вашою ОС (виявлено: {os}). Змініть нижче.', '"Classic" opens the previous stable Zamolxis interface (the last stable version), kept as a fourth option.': "«Classic» відкриває попередній стабільний інтерфейс Zamolxis (останню стабільну версію), збережений як четвертий варіант.", 'Auto follows your system light/dark preference (now: {mode}).': 'Авто слідує за системним налаштуванням світла/темряви (зараз: {mode}).', 'Each model can be a Claude variant, Local, or any authenticated free provider. Model = answers your chats · Fast = simple turns · Smartest = hard turns / final fallback. "Claude (default)" keeps Claude as the rescue tier.': "Кожна модель може бути варіантом Claude, Local або будь-яким автентифікованим постачальником. Модель = відповідає на ваші чати · Швидка = прості ходи · Найрозумніша = складні ходи / остаточний резерв. «Claude (типовий)» залишає Claude як рятувальний рівень.", 'Model (answers your chats)': 'Модель (відповідає на ваші чати)', 'Fast model (simple turns)': 'Швидка модель (прості ходи)', 'Smartest model (hard turns / final fallback)': 'Найрозумніша модель (складні ходи / остаточний резерв)', 'Assistant name': "Ім'я асистента", 'Permission mode': 'Режим дозволів', 'Max turns': 'Макс. ходів', 'Max concurrent': 'Макс. одночасно', 'Turn timeout (seconds)': 'Тайм-аут ходу (секунди)', 'How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.': 'Скільки може тривати один хід до зупинки. Напр. 3600 = 1 година, 14400 = 4 години. Застосовується миттєво.', 'Local-model routing (auto / off)': 'Маршрутизація локальної моделі (авто / вимк.)', 'Routing': 'Маршрутизація', 'System prompt append': 'Доповнення до системного промпту', 'Saving...': 'Збереження...', 'Saved.': 'Збережено.', ' Some changes need a restart (System tab).': ' Деякі зміни потребують перезапуску (вкладка Система).', 'Failed.': 'Не вдалося.', 'Could not load settings.': 'Не вдалося завантажити налаштування.', 'Auto (smartest decides)': 'Авто (вирішує найрозумніша)', 'Claude (subscription)': 'Claude (підписка)', 'Loading providers...': 'Завантаження постачальників...', 'Saving a key persists it; it takes effect after a restart (System tab).': 'Збережений ключ зберігається; набуває чинності після перезапуску (вкладка Система).', 'configured': 'налаштовано', '•••• set — paste to replace, or Save empty to remove': '•••• задано — вставте, щоб замінити, або Збережіть порожнім, щоб прибрати', 'Paste API key': 'Вставте ключ API', 'Removing...': 'Видалення...', 'Removed.': 'Прибрано.', 'Enter a key.': 'Введіть ключ.', 'Could not load providers.': 'Не вдалося завантажити постачальників.', 'Loading skills...': 'Завантаження навичок...', 'No skills match.': 'Немає збігів навичок.', 'Could not load skills.': 'Не вдалося завантажити навички.', 'Search {n} skills': 'Пошук серед {n} навичок', 'Version': 'Версія', 'Primary model': 'Основна модель', 'Fast model': 'Швидка модель', 'Local model': 'Локальна модель', 'Tokens (session)': 'Токени (сесія)', '(none)': '(немає)', 'Updates': 'Оновлення', 'Update available — {n} new commit(s) on {branch}': 'Доступне оновлення — {n} нових комітів у {branch}', 'Up to date on {branch}.': 'Актуально в {branch}.', 'Check for updates': 'Перевірити оновлення', 'Upgrade': 'Оновити', 'Upgrade now ({n})': 'Оновити зараз ({n})', 'Checking...': 'Перевірка...', 'Check failed.': 'Перевірка не вдалася.', 'Upgrade Zamolxis now? It will pull the latest, rebuild, and restart (about a minute).': 'Оновити Zamolxis зараз? Він завантажить найновішу версію, перезбере і перезапуститься (близько хвилини).', 'Upgrading — pulling, building, restarting...': 'Оновлення — завантаження, збірка, перезапуск...', 'Updated — reloading...': 'Оновлено — перезавантаження...', 'Still working... reload manually in a bit.': 'Ще працює... за мить перезавантажте вручну.', 'Upgrade failed to start.': 'Не вдалося запустити оновлення.', 'Maintenance': 'Обслуговування', 'Restart Zamolxis': 'Перезапустити Zamolxis', 'Open classic UI': 'Відкрити класичний інтерфейс', 'Restarting...': 'Перезапуск...', 'Could not load status.': 'Не вдалося завантажити стан.', 'Agent name': "Ім'я агента", 'Instructions': 'Інструкції', 'This becomes the agent app. It can run with or without a chat window.': 'Це стає застосунком агента. Він може працювати з вікном чату або без нього.', 'Model': 'Модель', 'Auto, Local, Free cloud, any authenticated provider, or Claude.': 'Авто, Local, Безкоштовна хмара, будь-який автентифікований постачальник або Claude.', 'Free cloud (rotates free providers)': 'Безкоштовна хмара (чергування безкоштовних постачальників)', 'Create app': 'Створити застосунок', 'Name is required.': "Ім'я обов'язкове.", 'Creating...': 'Створення...', 'Created. Added to the desktop.': 'Створено. Додано на робочий стіл.', 'Backend unreachable.': 'Бекенд недоступний.', 'e.g. researcher': 'напр. дослідник', 'What should this agent do?': 'Що має робити цей агент?', 'Toggle chat window for this app': 'Перемкнути вікно чату для цього застосунку', 'Chat window': 'Вікно чату', 'Run job': 'Запустити завдання', 'Running...': 'Виконання...', 'Done': 'Готово', 'Unreachable': 'Недоступний', 'Ask me to do something, or give me a task.': 'Попросіть мене щось зробити або дайте завдання.', '(no reply)': '(немає відповіді)', 'Chat window is off — this agent runs headless: it executes its job on demand or on schedule via the existing agent/skill mechanism. Turn the chat on above to talk to it directly.': 'Вікно чату вимкнено — цей агент працює без інтерфейсу: він виконує своє завдання за запитом або за розкладом через наявний механізм агентів/навичок. Увімкніть чат вище, щоб говорити з ним напряму.', 'Recent activity will appear here.': 'Остання активність зʼявиться тут.', 'Model: {m}': 'Модель: {m}', '(default)': '(типовий)', 'Help & Guide': 'Довідка та посібник' }
   };
-  var LANGS = [['en', 'English'], ['es', 'Español'], ['fr', 'Français'], ['de', 'Deutsch'], ['ro', 'Română'], ['it', 'Italiano']];
+  var LANGS = [['en', 'English'], ['es', 'Español'], ['fr', 'Français'], ['de', 'Deutsch'], ['ro', 'Română'], ['it', 'Italiano'], ['pl', 'Polski'], ['uk', 'Українська']];
   // App names, categories and File-Manager UI strings (merged into I18N to keep the main table readable).
   var I18N_APPS = {
     es: { 'Files': 'Archivos', 'Text Editor': 'Editor de texto', 'Calculator': 'Calculadora', 'Image Viewer': 'Visor de imágenes', 'Media Player': 'Reproductor multimedia', 'Ebook Reader': 'Lector de libros', 'Word': 'Word', 'Excel': 'Excel', 'SFTP Client': 'Cliente SFTP', 'Telnet': 'Telnet', 'Messages': 'Mensajes', 'Office': 'Oficina', 'Media': 'Multimedia', 'Network': 'Red', 'Utilities': 'Utilidades', 'Communication': 'Comunicación', 'Agents': 'Agentes', 'Apps': 'Apps', 'New file': 'Nuevo archivo', 'New folder': 'Nueva carpeta', 'Rename': 'Renombrar', 'Download': 'Descargar', 'Refresh': 'Actualizar', 'Open': 'Abrir', 'Open from File Manager': 'Abrir desde el Administrador de archivos', 'No file open': 'Ningún archivo abierto', 'Ask Zamolxis to edit': 'Pedir a Zamolxis que edite', 'empty folder': 'carpeta vacía', 'Could not open.': 'No se pudo abrir.' },
     fr: { 'Files': 'Fichiers', 'Text Editor': 'Éditeur de texte', 'Calculator': 'Calculatrice', 'Image Viewer': "Visionneuse d'images", 'Media Player': 'Lecteur multimédia', 'Ebook Reader': 'Lecteur de livres', 'Word': 'Word', 'Excel': 'Excel', 'SFTP Client': 'Client SFTP', 'Telnet': 'Telnet', 'Messages': 'Messages', 'Office': 'Bureautique', 'Media': 'Multimédia', 'Network': 'Réseau', 'Utilities': 'Utilitaires', 'Communication': 'Communication', 'Agents': 'Agents', 'Apps': 'Apps', 'New file': 'Nouveau fichier', 'New folder': 'Nouveau dossier', 'Rename': 'Renommer', 'Download': 'Télécharger', 'Refresh': 'Actualiser', 'Open': 'Ouvrir', 'Open from File Manager': 'Ouvrir depuis le Gestionnaire de fichiers', 'No file open': 'Aucun fichier ouvert', 'Ask Zamolxis to edit': 'Demander à Zamolxis de modifier', 'empty folder': 'dossier vide', 'Could not open.': "Impossible d'ouvrir." },
     de: { 'Files': 'Dateien', 'Text Editor': 'Texteditor', 'Calculator': 'Rechner', 'Image Viewer': 'Bildbetrachter', 'Media Player': 'Medienplayer', 'Ebook Reader': 'E-Book-Reader', 'Word': 'Word', 'Excel': 'Excel', 'SFTP Client': 'SFTP-Client', 'Telnet': 'Telnet', 'Messages': 'Nachrichten', 'Office': 'Büro', 'Media': 'Medien', 'Network': 'Netzwerk', 'Utilities': 'Dienstprogramme', 'Communication': 'Kommunikation', 'Agents': 'Agenten', 'Apps': 'Apps', 'New file': 'Neue Datei', 'New folder': 'Neuer Ordner', 'Rename': 'Umbenennen', 'Download': 'Herunterladen', 'Refresh': 'Aktualisieren', 'Open': 'Öffnen', 'Open from File Manager': 'Im Datei-Manager öffnen', 'No file open': 'Keine Datei geöffnet', 'Ask Zamolxis to edit': 'Zamolxis um Bearbeitung bitten', 'empty folder': 'leerer Ordner', 'Could not open.': 'Konnte nicht geöffnet werden.' },
     ro: { 'Files': 'Fișiere', 'Text Editor': 'Editor de text', 'Calculator': 'Calculator', 'Image Viewer': 'Vizualizator imagini', 'Media Player': 'Player media', 'Ebook Reader': 'Cititor de cărți', 'Word': 'Word', 'Excel': 'Excel', 'SFTP Client': 'Client SFTP', 'Telnet': 'Telnet', 'Messages': 'Mesaje', 'Office': 'Birou', 'Media': 'Media', 'Network': 'Rețea', 'Utilities': 'Utilitare', 'Communication': 'Comunicare', 'Agents': 'Agenți', 'Apps': 'Aplicații', 'New file': 'Fișier nou', 'New folder': 'Dosar nou', 'Rename': 'Redenumește', 'Download': 'Descarcă', 'Refresh': 'Reîmprospătează', 'Open': 'Deschide', 'Open from File Manager': 'Deschide din Managerul de fișiere', 'No file open': 'Niciun fișier deschis', 'Ask Zamolxis to edit': 'Cere lui Zamolxis să editeze', 'empty folder': 'dosar gol', 'Could not open.': 'Nu s-a putut deschide.' },
-    it: { 'Files': 'File', 'Text Editor': 'Editor di testo', 'Calculator': 'Calcolatrice', 'Image Viewer': 'Visualizzatore immagini', 'Media Player': 'Lettore multimediale', 'Ebook Reader': 'Lettore di e-book', 'Word': 'Word', 'Excel': 'Excel', 'SFTP Client': 'Client SFTP', 'Telnet': 'Telnet', 'Messages': 'Messaggi', 'Office': 'Ufficio', 'Media': 'Multimedia', 'Network': 'Rete', 'Utilities': 'Utilità', 'Communication': 'Comunicazione', 'Agents': 'Agenti', 'Apps': 'App', 'New file': 'Nuovo file', 'New folder': 'Nuova cartella', 'Rename': 'Rinomina', 'Download': 'Scarica', 'Refresh': 'Aggiorna', 'Open': 'Apri', 'Open from File Manager': 'Apri dal File Manager', 'No file open': 'Nessun file aperto', 'Ask Zamolxis to edit': 'Chiedi a Zamolxis di modificare', 'empty folder': 'cartella vuota', 'Could not open.': 'Impossibile aprire.' }
+    it: { 'Files': 'File', 'Text Editor': 'Editor di testo', 'Calculator': 'Calcolatrice', 'Image Viewer': 'Visualizzatore immagini', 'Media Player': 'Lettore multimediale', 'Ebook Reader': 'Lettore di e-book', 'Word': 'Word', 'Excel': 'Excel', 'SFTP Client': 'Client SFTP', 'Telnet': 'Telnet', 'Messages': 'Messaggi', 'Office': 'Ufficio', 'Media': 'Multimedia', 'Network': 'Rete', 'Utilities': 'Utilità', 'Communication': 'Comunicazione', 'Agents': 'Agenti', 'Apps': 'App', 'New file': 'Nuovo file', 'New folder': 'Nuova cartella', 'Rename': 'Rinomina', 'Download': 'Scarica', 'Refresh': 'Aggiorna', 'Open': 'Apri', 'Open from File Manager': 'Apri dal File Manager', 'No file open': 'Nessun file aperto', 'Ask Zamolxis to edit': 'Chiedi a Zamolxis di modificare', 'empty folder': 'cartella vuota', 'Could not open.': 'Impossibile aprire.' },
+    pl: { 'Files': 'Pliki', 'Text Editor': 'Edytor tekstu', 'Calculator': 'Kalkulator', 'Image Viewer': 'Przeglądarka obrazów', 'Media Player': 'Odtwarzacz multimedialny', 'Ebook Reader': 'Czytnik e-booków', 'Word': 'Word', 'Excel': 'Excel', 'SFTP Client': 'Klient SFTP', 'Telnet': 'Telnet', 'Messages': 'Wiadomości', 'Office': 'Biuro', 'Media': 'Multimedia', 'Network': 'Sieć', 'Utilities': 'Narzędzia', 'Communication': 'Komunikacja', 'Agents': 'Agenci', 'Apps': 'Aplikacje', 'New file': 'Nowy plik', 'New folder': 'Nowy folder', 'Rename': 'Zmień nazwę', 'Download': 'Pobierz', 'Refresh': 'Odśwież', 'Open': 'Otwórz', 'Open from File Manager': 'Otwórz z Menedżera plików', 'No file open': 'Brak otwartego pliku', 'Ask Zamolxis to edit': 'Poproś Zamolxis o edycję', 'empty folder': 'pusty folder', 'Could not open.': 'Nie udało się otworzyć.' },
+    uk: { 'Files': 'Файли', 'Text Editor': 'Текстовий редактор', 'Calculator': 'Калькулятор', 'Image Viewer': 'Перегляд зображень', 'Media Player': 'Медіапрогравач', 'Ebook Reader': 'Читач е-книг', 'Word': 'Word', 'Excel': 'Excel', 'SFTP Client': 'Клієнт SFTP', 'Telnet': 'Telnet', 'Messages': 'Повідомлення', 'Office': 'Офіс', 'Media': 'Медіа', 'Network': 'Мережа', 'Utilities': 'Утиліти', 'Communication': 'Звʼязок', 'Agents': 'Агенти', 'Apps': 'Застосунки', 'New file': 'Новий файл', 'New folder': 'Нова папка', 'Rename': 'Перейменувати', 'Download': 'Завантажити', 'Refresh': 'Оновити', 'Open': 'Відкрити', 'Open from File Manager': 'Відкрити з Менеджера файлів', 'No file open': 'Немає відкритого файлу', 'Ask Zamolxis to edit': 'Попросити Zamolxis відредагувати', 'empty folder': 'порожня папка', 'Could not open.': 'Не вдалося відкрити.' }
   };
   Object.keys(I18N_APPS).forEach(function (l) { if (I18N[l]) Object.keys(I18N_APPS[l]).forEach(function (k) { I18N[l][k] = I18N_APPS[l][k]; }); });
   // Application-menu labels.
@@ -105,7 +123,9 @@
     fr: { 'File': 'Fichier', 'Edit': 'Édition', 'View': 'Affichage', 'Page': 'Page', 'Session': 'Session', 'New': 'Nouveau', 'Select all': 'Tout sélectionner', 'Rotate': 'Pivoter', 'Delete page': 'Supprimer la page', 'Save as new file': 'Enregistrer comme nouveau', 'Connect': 'Connecter', 'Disconnect': 'Déconnecter', 'Upload': 'Téléverser', 'Save As': 'Enregistrer sous' },
     de: { 'File': 'Datei', 'Edit': 'Bearbeiten', 'View': 'Ansicht', 'Page': 'Seite', 'Session': 'Sitzung', 'New': 'Neu', 'Select all': 'Alles auswählen', 'Rotate': 'Drehen', 'Delete page': 'Seite löschen', 'Save as new file': 'Als neue Datei speichern', 'Connect': 'Verbinden', 'Disconnect': 'Trennen', 'Upload': 'Hochladen', 'Save As': 'Speichern unter' },
     ro: { 'File': 'Fișier', 'Edit': 'Editare', 'View': 'Vizualizare', 'Page': 'Pagină', 'Session': 'Sesiune', 'New': 'Nou', 'Select all': 'Selectează tot', 'Rotate': 'Rotește', 'Delete page': 'Șterge pagina', 'Save as new file': 'Salvează ca fișier nou', 'Connect': 'Conectează', 'Disconnect': 'Deconectează', 'Upload': 'Încarcă', 'Save As': 'Salvează ca' },
-    it: { 'File': 'File', 'Edit': 'Modifica', 'View': 'Visualizza', 'Page': 'Pagina', 'Session': 'Sessione', 'New': 'Nuovo', 'Select all': 'Seleziona tutto', 'Rotate': 'Ruota', 'Delete page': 'Elimina pagina', 'Save as new file': 'Salva come nuovo file', 'Connect': 'Connetti', 'Disconnect': 'Disconnetti', 'Upload': 'Carica', 'Save As': 'Salva con nome' }
+    it: { 'File': 'File', 'Edit': 'Modifica', 'View': 'Visualizza', 'Page': 'Pagina', 'Session': 'Sessione', 'New': 'Nuovo', 'Select all': 'Seleziona tutto', 'Rotate': 'Ruota', 'Delete page': 'Elimina pagina', 'Save as new file': 'Salva come nuovo file', 'Connect': 'Connetti', 'Disconnect': 'Disconnetti', 'Upload': 'Carica', 'Save As': 'Salva con nome' },
+    pl: { 'File': 'Plik', 'Edit': 'Edycja', 'View': 'Widok', 'Page': 'Strona', 'Session': 'Sesja', 'New': 'Nowy', 'Select all': 'Zaznacz wszystko', 'Rotate': 'Obróć', 'Delete page': 'Usuń stronę', 'Save as new file': 'Zapisz jako nowy plik', 'Connect': 'Połącz', 'Disconnect': 'Rozłącz', 'Upload': 'Prześlij', 'Save As': 'Zapisz jako' },
+    uk: { 'File': 'Файл', 'Edit': 'Редагувати', 'View': 'Вигляд', 'Page': 'Сторінка', 'Session': 'Сесія', 'New': 'Новий', 'Select all': 'Виділити все', 'Rotate': 'Повернути', 'Delete page': 'Видалити сторінку', 'Save as new file': 'Зберегти як новий файл', 'Connect': 'Підключити', 'Disconnect': 'Відключити', 'Upload': 'Завантажити', 'Save As': 'Зберегти як' }
   };
   Object.keys(I18N_MENUS).forEach(function (l) { if (I18N[l]) Object.keys(I18N_MENUS[l]).forEach(function (k) { I18N[l][k] = I18N_MENUS[l][k]; }); });
   var I18N_SET = {
@@ -113,7 +133,9 @@
     fr: { 'Timezone': 'Fuseau horaire', 'Autostart': 'Démarrage auto', 'Run Zamolxis at login': 'Lancer Zamolxis à la connexion', 'Export setup': 'Exporter la configuration', 'Channels': 'Canaux', 'Enable a channel and add its credentials. Changes take effect after a restart (System tab).': "Activez un canal et ajoutez ses identifiants. Les changements prennent effet après un redémarrage (onglet Système)." },
     de: { 'Timezone': 'Zeitzone', 'Autostart': 'Autostart', 'Run Zamolxis at login': 'Zamolxis bei Anmeldung starten', 'Export setup': 'Setup exportieren', 'Channels': 'Kanäle', 'Enable a channel and add its credentials. Changes take effect after a restart (System tab).': 'Aktivieren Sie einen Kanal und fügen Sie seine Anmeldedaten hinzu. Änderungen werden nach einem Neustart wirksam (Tab System).' },
     ro: { 'Timezone': 'Fus orar', 'Autostart': 'Pornire automată', 'Run Zamolxis at login': 'Pornește Zamolxis la autentificare', 'Export setup': 'Exportă configurația', 'Channels': 'Canale', 'Enable a channel and add its credentials. Changes take effect after a restart (System tab).': 'Activează un canal și adaugă-i credențialele. Modificările intră în vigoare după repornire (fila Sistem).' },
-    it: { 'Timezone': 'Fuso orario', 'Autostart': 'Avvio automatico', 'Run Zamolxis at login': "Avvia Zamolxis all'accesso", 'Export setup': 'Esporta configurazione', 'Channels': 'Canali', 'Enable a channel and add its credentials. Changes take effect after a restart (System tab).': 'Abilita un canale e aggiungi le sue credenziali. Le modifiche hanno effetto dopo un riavvio (scheda Sistema).' }
+    it: { 'Timezone': 'Fuso orario', 'Autostart': 'Avvio automatico', 'Run Zamolxis at login': "Avvia Zamolxis all'accesso", 'Export setup': 'Esporta configurazione', 'Channels': 'Canali', 'Enable a channel and add its credentials. Changes take effect after a restart (System tab).': 'Abilita un canale e aggiungi le sue credenziali. Le modifiche hanno effetto dopo un riavvio (scheda Sistema).' },
+    pl: { 'Timezone': 'Strefa czasowa', 'Autostart': 'Autostart', 'Run Zamolxis at login': 'Uruchamiaj Zamolxis przy logowaniu', 'Export setup': 'Eksportuj konfigurację', 'Channels': 'Kanały', 'Enable a channel and add its credentials. Changes take effect after a restart (System tab).': 'Włącz kanał i dodaj jego dane uwierzytelniające. Zmiany działają po ponownym uruchomieniu (karta System).' },
+    uk: { 'Timezone': 'Часовий пояс', 'Autostart': 'Автозапуск', 'Run Zamolxis at login': 'Запускати Zamolxis під час входу', 'Export setup': 'Експортувати конфігурацію', 'Channels': 'Канали', 'Enable a channel and add its credentials. Changes take effect after a restart (System tab).': 'Увімкніть канал і додайте його облікові дані. Зміни набувають чинності після перезапуску (вкладка Система).' }
   };
   Object.keys(I18N_SET).forEach(function (l) { if (I18N[l]) Object.keys(I18N_SET[l]).forEach(function (k) { I18N[l][k] = I18N_SET[l][k]; }); });
   var I18N_X = {
@@ -121,7 +143,9 @@
     fr: { 'Clear conversation': 'Effacer la conversation', 'Select a file to open': 'Sélectionnez un fichier à ouvrir' },
     de: { 'Clear conversation': 'Unterhaltung löschen', 'Select a file to open': 'Wählen Sie eine Datei zum Öffnen' },
     ro: { 'Clear conversation': 'Șterge conversația', 'Select a file to open': 'Selectează un fișier de deschis' },
-    it: { 'Clear conversation': 'Cancella conversazione', 'Select a file to open': 'Seleziona un file da aprire' }
+    it: { 'Clear conversation': 'Cancella conversazione', 'Select a file to open': 'Seleziona un file da aprire' },
+    pl: { 'Clear conversation': 'Wyczyść rozmowę', 'Select a file to open': 'Wybierz plik do otwarcia' },
+    uk: { 'Clear conversation': 'Очистити розмову', 'Select a file to open': 'Виберіть файл для відкриття' }
   };
   Object.keys(I18N_X).forEach(function (l) { if (I18N[l]) Object.keys(I18N_X[l]).forEach(function (k) { I18N[l][k] = I18N_X[l][k]; }); });
   var I18N_DISP = {
@@ -129,7 +153,9 @@
     fr: { 'Notes': 'Notes', 'Database': 'Base de données', 'History': 'Historique', 'Mail': 'Courrier', 'Calendar': 'Calendrier', 'Contacts': 'Contacts', 'Tasks': 'Tâches', 'Run': 'Exécuter', 'Bookmarks': 'Favoris', 'Search': 'Rechercher', 'no rows': 'aucune ligne' },
     de: { 'Notes': 'Notizen', 'Database': 'Datenbank', 'History': 'Verlauf', 'Mail': 'E-Mail', 'Calendar': 'Kalender', 'Contacts': 'Kontakte', 'Tasks': 'Aufgaben', 'Run': 'Ausführen', 'Bookmarks': 'Lesezeichen', 'Search': 'Suchen', 'no rows': 'keine Zeilen' },
     ro: { 'Notes': 'Note', 'Database': 'Bază de date', 'History': 'Istoric', 'Mail': 'Poștă', 'Calendar': 'Calendar', 'Contacts': 'Contacte', 'Tasks': 'Sarcini', 'Run': 'Rulează', 'Bookmarks': 'Marcaje', 'Search': 'Caută', 'no rows': 'niciun rând' },
-    it: { 'Notes': 'Note', 'Database': 'Database', 'History': 'Cronologia', 'Mail': 'Posta', 'Calendar': 'Calendario', 'Contacts': 'Contatti', 'Tasks': 'Attività', 'Run': 'Esegui', 'Bookmarks': 'Segnalibri', 'Search': 'Cerca', 'no rows': 'nessuna riga' }
+    it: { 'Notes': 'Note', 'Database': 'Database', 'History': 'Cronologia', 'Mail': 'Posta', 'Calendar': 'Calendario', 'Contacts': 'Contatti', 'Tasks': 'Attività', 'Run': 'Esegui', 'Bookmarks': 'Segnalibri', 'Search': 'Cerca', 'no rows': 'nessuna riga' },
+    pl: { 'Notes': 'Notatki', 'Database': 'Baza danych', 'History': 'Historia', 'Mail': 'Poczta', 'Calendar': 'Kalendarz', 'Contacts': 'Kontakty', 'Tasks': 'Zadania', 'Run': 'Uruchom', 'Bookmarks': 'Zakładki', 'Search': 'Szukaj', 'no rows': 'brak wierszy' },
+    uk: { 'Notes': 'Нотатки', 'Database': 'База даних', 'History': 'Історія', 'Mail': 'Пошта', 'Calendar': 'Календар', 'Contacts': 'Контакти', 'Tasks': 'Завдання', 'Run': 'Запустити', 'Bookmarks': 'Закладки', 'Search': 'Пошук', 'no rows': 'немає рядків' }
   };
   Object.keys(I18N_DISP).forEach(function (l) { if (I18N[l]) Object.keys(I18N_DISP[l]).forEach(function (k) { I18N[l][k] = I18N_DISP[l][k]; }); });
   var I18N_VOICE = {
@@ -137,7 +163,9 @@
     fr: { 'Voice': 'Voix', 'Speak replies': 'Lire les réponses à voix haute', 'Wake word ("Zamolxis")': 'Mot de réveil (« Zamolxis »)', 'Speak': 'Parler', 'Talk to Zamolxis and hear replies (uses your browser speech engine).': 'Parlez à Zamolxis et écoutez les réponses (utilise le moteur vocal du navigateur).' },
     de: { 'Voice': 'Stimme', 'Speak replies': 'Antworten vorlesen', 'Wake word ("Zamolxis")': 'Aktivierungswort („Zamolxis“)', 'Speak': 'Sprechen', 'Talk to Zamolxis and hear replies (uses your browser speech engine).': 'Sprechen Sie mit Zamolxis und hören Sie die Antworten (nutzt die Sprach-Engine des Browsers).' },
     ro: { 'Voice': 'Voce', 'Speak replies': 'Citește răspunsurile cu voce', 'Wake word ("Zamolxis")': 'Cuvânt de activare („Zamolxis”)', 'Speak': 'Vorbește', 'Talk to Zamolxis and hear replies (uses your browser speech engine).': 'Vorbește cu Zamolxis și ascultă răspunsurile (folosește motorul vocal al browserului).' },
-    it: { 'Voice': 'Voce', 'Speak replies': 'Leggi le risposte ad alta voce', 'Wake word ("Zamolxis")': 'Parola di attivazione ("Zamolxis")', 'Speak': 'Parla', 'Talk to Zamolxis and hear replies (uses your browser speech engine).': 'Parla con Zamolxis e ascolta le risposte (usa il motore vocale del browser).' }
+    it: { 'Voice': 'Voce', 'Speak replies': 'Leggi le risposte ad alta voce', 'Wake word ("Zamolxis")': 'Parola di attivazione ("Zamolxis")', 'Speak': 'Parla', 'Talk to Zamolxis and hear replies (uses your browser speech engine).': 'Parla con Zamolxis e ascolta le risposte (usa il motore vocale del browser).' },
+    pl: { 'Voice': 'Głos', 'Speak replies': 'Czytaj odpowiedzi na głos', 'Wake word ("Zamolxis")': 'Słowo aktywujące ("Zamolxis")', 'Speak': 'Mów', 'Talk to Zamolxis and hear replies (uses your browser speech engine).': 'Rozmawiaj z Zamolxis i słuchaj odpowiedzi (używa silnika mowy przeglądarki).' },
+    uk: { 'Voice': 'Голос', 'Speak replies': 'Озвучувати відповіді', 'Wake word ("Zamolxis")': 'Слово активації ("Zamolxis")', 'Speak': 'Говорити', 'Talk to Zamolxis and hear replies (uses your browser speech engine).': 'Спілкуйтеся з Zamolxis і слухайте відповіді (використовує голосовий рушій браузера).' }
   };
   Object.keys(I18N_VOICE).forEach(function (l) { if (I18N[l]) Object.keys(I18N_VOICE[l]).forEach(function (k) { I18N[l][k] = I18N_VOICE[l][k]; }); });
   var I18N_WATCH = {
@@ -145,7 +173,9 @@
     fr: { 'Proactive': 'Proactif', 'Watch Outlook inbox': 'Surveiller la boîte Outlook', 'Alert me about new email (toast + optional voice).': 'Me prévenir des nouveaux e-mails (notification + voix en option).', 'every': 'toutes les', 'min': 'min' },
     de: { 'Proactive': 'Proaktiv', 'Watch Outlook inbox': 'Outlook-Posteingang überwachen', 'Alert me about new email (toast + optional voice).': 'Bei neuen E-Mails benachrichtigen (Hinweis + optional Stimme).', 'every': 'alle', 'min': 'Min' },
     ro: { 'Proactive': 'Proactiv', 'Watch Outlook inbox': 'Monitorizează inboxul Outlook', 'Alert me about new email (toast + optional voice).': 'Anunță-mă despre e-mailuri noi (notificare + voce opțional).', 'every': 'la fiecare', 'min': 'min' },
-    it: { 'Proactive': 'Proattivo', 'Watch Outlook inbox': 'Monitora la posta di Outlook', 'Alert me about new email (toast + optional voice).': 'Avvisami delle nuove email (avviso + voce opzionale).', 'every': 'ogni', 'min': 'min' }
+    it: { 'Proactive': 'Proattivo', 'Watch Outlook inbox': 'Monitora la posta di Outlook', 'Alert me about new email (toast + optional voice).': 'Avvisami delle nuove email (avviso + voce opzionale).', 'every': 'ogni', 'min': 'min' },
+    pl: { 'Proactive': 'Proaktywny', 'Watch Outlook inbox': 'Obserwuj skrzynkę Outlook', 'Alert me about new email (toast + optional voice).': 'Powiadamiaj o nowych e-mailach (powiadomienie + opcjonalnie głos).', 'every': 'co', 'min': 'min' },
+    uk: { 'Proactive': 'Проактивний', 'Watch Outlook inbox': 'Стежити за поштою Outlook', 'Alert me about new email (toast + optional voice).': 'Сповіщати про нові листи (сповіщення + голос за бажанням).', 'every': 'кожні', 'min': 'хв' }
   };
   Object.keys(I18N_WATCH).forEach(function (l) { if (I18N[l]) Object.keys(I18N_WATCH[l]).forEach(function (k) { I18N[l][k] = I18N_WATCH[l][k]; }); });
   function langChoice() { return localStorage.getItem('zx_lang') || 'en'; }
@@ -478,13 +508,16 @@
     { id: 'database', name: 'Database', iconSvg: ICON.db, cat: 'Utilities', skill: 'sql-databases', kind: 'native' },
     { id: 'history', name: 'History', iconSvg: ICON.hist, cat: 'Utilities', skill: 'browser-history', kind: 'native' },
     { id: 'canvas', name: 'Canvas', iconSvg: ICON.canvas, cat: 'Utilities', skill: 'canvas', kind: 'native' },
-    { id: 'sftp', name: 'SFTP Client', iconSvg: ICON.net, cat: 'Network', skill: 'sftp-client', kind: 'native' },
+    { id: 'sftp', name: 'File Transfer', iconSvg: ICON.ftp, cat: 'Network', skill: 'sftp-client', kind: 'native', desktop: true },
     { id: 'telnet', name: 'Telnet', iconSvg: ICON.term, cat: 'Network', skill: 'telnet-client', kind: 'native' },
     { id: 'apiclient', name: 'API Client', iconSvg: ICON.api, cat: 'Network', skill: 'api-client', kind: 'native' },
     { id: 'systemtoolkit', name: 'System Toolkit', iconSvg: ICON.sys, cat: 'Utilities', skill: 'system-toolkit', kind: 'native' },
     { id: 'stockgame', name: 'Stock Game', iconSvg: ICON.stock, cat: 'Utilities', skill: 'stock-game', kind: 'native' },
     { id: 'vault', name: 'Memory Vault', iconSvg: ICON.vault, cat: 'System', skill: '', kind: 'native' },
     { id: 'workflow', name: 'Workflow Canvas', iconSvg: ICON.plan, cat: 'System', skill: '', kind: 'native' },
+    { id: 'runs', name: 'Agent Activity', iconSvg: ICON.chart, cat: 'System', skill: 'observability', kind: 'native' },
+    { id: 'triggers', name: 'Automations', iconSvg: ICON.bolt, cat: 'System', skill: 'automations', kind: 'native' },
+    { id: 'privacy', name: 'Privacy', iconSvg: ICON.shield, cat: 'System', skill: '', kind: 'native' },
     { id: 'messages', name: 'Messages', iconSvg: ICON.chat, cat: 'Communication', skill: 'chat-clients', kind: 'native' }
   ];
   var CAT_ORDER = ['System', 'Apps', 'Agents', 'Office', 'Media', 'Network', 'Communication', 'Utilities'];
@@ -498,7 +531,7 @@
   }
   // Of the built-in web apps, only the ones with NO real installed equivalent stay on the desktop
   // (the rest are replaced by launchers to the host's real apps). Canvas = agent output; Messages = channels.
-  var KEEP_NATIVE = { canvas: 1, messages: 1, apiclient: 1, systemtoolkit: 1, stockgame: 1, vault: 1, workflow: 1 };
+  var KEEP_NATIVE = { canvas: 1, messages: 1, apiclient: 1, systemtoolkit: 1, stockgame: 1, vault: 1, workflow: 1, runs: 1, triggers: 1, privacy: 1 };
   var hostApps = []; // the machine's real installed apps (from /api/apps), shown as launchers
   function hostIcon(id, name) {
     var hue = hashHue(name || 'a'); var letter = ((name || '?').trim().charAt(0) || '?').toUpperCase();
@@ -512,6 +545,7 @@
     CATALOG.forEach(function (a) { if (!KEEP_NATIVE[a.id]) return; out.push({ id: a.id, name: T(a.name), iconSvg: a.iconSvg, kind: a.kind, cat: 'System', skill: a.skill, baseName: a.name }); });
     hostApps.forEach(function (a) { out.push({ id: 'host:' + a.id, name: a.name, iconSvg: hostIcon(a.id, a.name), kind: 'host', cat: 'Apps' }); });
     agents.forEach(function (a) {
+      if (a.hidden) return; // hidden agents are off the desktop / app list until un-hidden in Settings
       out.push({ id: 'agent:' + a.name, name: a.label || a.name, iconSvg: agentIconSvg(a.label || a.name), kind: 'agent', cat: 'Agents', agent: a });
     });
     return out;
@@ -555,20 +589,23 @@
     var spec;
     if (appId === 'zamolxis') spec = { appId: appId, title: AGENT_NAME, iconSvg: ICON.zamolxis, w: 460, h: 620, onMount: mountChat };
     else if (appId === 'settings') spec = { appId: appId, title: T('Settings'), iconSvg: ICON.settings, w: 620, h: 520, onMount: mountSettings };
-    else if (appId === 'newagent') spec = { appId: appId, title: T('New Agent'), iconSvg: ICON.newagent, w: 460, h: 480, onMount: mountNewAgent };
+    else if (appId === 'newagent') spec = { appId: appId, title: T('New Agent'), iconSvg: ICON.newagent, w: 480, h: 640, onMount: mountNewAgent };
     else if (appId === 'help') spec = { appId: appId, title: T('Help'), iconSvg: ICON.help, w: 720, h: 600, onMount: mountHelp };
     else if (catalogById(appId)) {
       var ca = catalogById(appId);
       if (appId === 'files') spec = { appId: appId, title: T('Files'), iconSvg: ICON.files, w: 760, h: 560, onMount: mountFiles };
       else if (appId === 'texteditor') spec = { appId: appId, title: T('Text Editor'), iconSvg: ICON.editor, w: 720, h: 560, onMount: function (b, w) { mountTextEditor(b, w, null); } };
       else if (appId === 'calculator') spec = { appId: appId, title: T('Calculator'), iconSvg: ICON.calc, w: 300, h: 430, onMount: mountCalculator };
-      else if (appId === 'sftp') spec = { appId: appId, title: T('SFTP Client'), iconSvg: ICON.net, w: 820, h: 600, onMount: mountSftp };
+      else if (appId === 'sftp') spec = { appId: appId, title: T('File Transfer'), iconSvg: ICON.ftp, w: 960, h: 620, onMount: mountSftp };
       else if (appId === 'telnet') spec = { appId: appId, title: T('Telnet'), iconSvg: ICON.term, w: 720, h: 520, onMount: mountTelnet };
       else if (appId === 'apiclient') spec = { appId: appId, title: T('API Client'), iconSvg: ICON.api, w: 940, h: 660, onMount: mountApiClient };
       else if (appId === 'systemtoolkit') spec = { appId: appId, title: T('System Toolkit'), iconSvg: ICON.sys, w: 720, h: 600, onMount: mountSystemToolkit };
       else if (appId === 'stockgame') spec = { appId: appId, title: T('Stock Game'), iconSvg: ICON.stock, w: 860, h: 640, onMount: mountStockGame };
       else if (appId === 'vault') spec = { appId: appId, title: T('Memory Vault'), iconSvg: ICON.vault, w: 900, h: 640, onMount: mountVault };
       else if (appId === 'workflow') spec = { appId: appId, title: T('Workflow Canvas'), iconSvg: ICON.plan, w: 900, h: 660, onMount: mountWorkflow };
+      else if (appId === 'runs') spec = { appId: appId, title: T('Agent Activity'), iconSvg: ICON.chart, w: 880, h: 640, onMount: mountRuns };
+      else if (appId === 'triggers') spec = { appId: appId, title: T('Automations'), iconSvg: ICON.bolt, w: 720, h: 620, onMount: mountTriggers };
+      else if (appId === 'privacy') spec = { appId: appId, title: T('Privacy'), iconSvg: ICON.shield, w: 760, h: 660, onMount: mountPrivacy };
       else if (appId === 'messages') spec = { appId: appId, title: T('Messages'), iconSvg: ICON.chat, w: 720, h: 560, onMount: mountMessages };
       else if (appId === 'outlook') spec = { appId: appId, title: T('Outlook'), iconSvg: ICON.mail, w: 860, h: 620, onMount: mountOutlook };
       else if (appId === 'notes') spec = { appId: appId, title: T('Notes'), iconSvg: ICON.notebook, w: 820, h: 600, onMount: mountNotes };
@@ -600,18 +637,37 @@
   function pushChatLog(key, rec) { try { var a = loadChatLog(key); a.push(rec); if (a.length > 300) a = a.slice(a.length - 300); localStorage.setItem(key, JSON.stringify(a)); } catch (e) {} }
 
   // ---------- model/route options: Auto, Local, Free cloud, every AUTHENTICATED provider, Claude ----------
+  // "Claude Fable 5" from claude-fable-5 (dated ids like claude-opus-4-8 read the same way).
+  function prettyModel(id) {
+    return 'Claude ' + String(id).replace(/^claude-/, '').replace(/-latest$/, '').replace(/-/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  }
   function fetchModelOpts() {
     return Promise.all([
       api('/api/providers').catch(function () { return { providers: [] }; }),
-      api('/api/status').catch(function () { return {}; })
+      api('/api/settings').catch(function () { return {}; })
     ]).then(function (res) {
       var provs = (res[0] && res[0].providers) || [];
-      var st = res[1] || {};
+      var meta = (res[1] && res[1].meta) || {};
+      var live = (res[1] && res[1].live) || {};
+      var localModel = live.localModel || (res[0] && res[0].localModel) || '';
       var opts = [['auto', T('Auto (smartest decides)')]];
-      if (st.models && st.models.local) opts.push(['local', 'Local (' + st.models.local + ')']);
+      // "Local" only when a local model is actually installed — otherwise picking it just fails.
+      if (localModel) opts.push(['local', 'Local (' + localModel + ')']);
       opts.push(['freecloud', T('Free cloud (rotates free providers)')]);
+      var provById = {}; provs.forEach(function (p) { provById[p.id] = p; });
       provs.filter(function (p) { return p.configured; }).forEach(function (p) { opts.push([p.id, p.label + (p.kind === 'free' ? ' · free' : '')]); });
       opts.push(['claude', T('Claude (subscription)')]);
+      // Concrete Claude variants from the live model list (Fable, Opus, Sonnet, Haiku and any dated
+      // ids) — one per family, so Fable appears while dated Opus/Sonnet/Haiku don't duplicate the aliases.
+      var covered = {};
+      var models = (meta.models && meta.models.length) ? meta.models : ['opus', 'sonnet', 'haiku'];
+      models.forEach(function (m) {
+        if (m === '' || m === 'local' || m === 'freecloud' || provById[m]) return;
+        if (m === 'opus') { opts.push(['opus', T('Claude Opus (most capable)')]); covered.opus = 1; }
+        else if (m === 'sonnet') { opts.push(['sonnet', T('Claude Sonnet (balanced)')]); covered.sonnet = 1; }
+        else if (m === 'haiku') { opts.push(['haiku', T('Claude Haiku (fastest)')]); covered.haiku = 1; }
+        else { var fam = String(m).replace(/^claude-/, '').split('-')[0]; if (!covered[fam]) { opts.push([m, prettyModel(m)]); covered[fam] = 1; } }
+      });
       return opts;
     });
   }
@@ -636,9 +692,15 @@
     var bar = el('div', 'chat-bar');
     bar.innerHTML = "<span>" + T('Route') + "</span>";
     var sel = el('select');
+    // Which model answers THIS chat. Defaults to Auto; a stale saved value that's no longer a real
+    // option (e.g. an old "local" when no local model is installed) falls back to Auto.
     var savedRoute = localStorage.getItem('zx_route_' + cid) || localStorage.getItem('zx_default_route') || 'auto';
-    fillSelect(sel, [['auto', 'Auto']], savedRoute);
-    fetchModelOpts().then(function (opts) { fillSelect(sel, opts, savedRoute); });
+    fillSelect(sel, [['auto', T('Auto (smartest decides)')]], 'auto');
+    fetchModelOpts().then(function (opts) {
+      var cur = opts.some(function (o) { return o[0] === savedRoute; }) ? savedRoute : 'auto';
+      fillSelect(sel, opts, cur);
+      if (cur !== savedRoute) localStorage.setItem('zx_route_' + cid, cur);
+    });
     sel.addEventListener('change', function () { localStorage.setItem('zx_route_' + cid, sel.value); });
     var stat = el('span'); stat.style.marginLeft = 'auto'; stat.textContent = T('connecting...');
     if (opts && opts.route) bar.appendChild(sel);
@@ -664,7 +726,7 @@
     function addMsg(who, text, cls, via, persist) {
       var m = el('div', 'msg ' + cls);
       var w = el('div', 'who', who + (via ? ' · via ' + via : '')); m.appendChild(w);
-      var c = el('div'); c.textContent = text; m.appendChild(c); c._who = w; c._whoBase = who;
+      var c = el('div'); setMsgBody(c, text, cls); m.appendChild(c); c._who = w; c._whoBase = who;
       log.appendChild(m); log.scrollTop = log.scrollHeight;
       if (persist !== false) pushChatLog(logKey, { who: who, text: text, cls: cls, via: via });
       return c;
@@ -705,8 +767,37 @@
         var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
         if (m.type === 'status') return;
         if (m.type === 'chunk') { if (!streamEl) streamEl = addMsg(AGENT_NAME, '', 'bot', null, false); streamEl.textContent += m.text; log.scrollTop = log.scrollHeight; return; }
-        if (m.type === 'reply') { var node; if (streamEl) { streamEl.textContent = m.text; node = streamEl; streamEl = null; pushChatLog(logKey, { who: AGENT_NAME, text: m.text, cls: 'bot' }); } else { node = addMsg(AGENT_NAME, m.text, 'bot'); } stat.textContent = '● ' + T('connected'); setReplyMeta(node, sendStart ? ((Date.now() - sendStart) / 1000).toFixed(1) : null); speak(m.text); }
+        if (m.type === 'reply') { var node; if (streamEl) { setMsgBody(streamEl, m.text, 'bot'); node = streamEl; streamEl = null; pushChatLog(logKey, { who: AGENT_NAME, text: m.text, cls: 'bot' }); } else { node = addMsg(AGENT_NAME, m.text, 'bot'); } stat.textContent = '● ' + T('connected'); setReplyMeta(node, sendStart ? ((Date.now() - sendStart) / 1000).toFixed(1) : null); speak(m.text); }
+        if (m.type === 'permission') { showPermissionCard(m); return; }
       };
+    }
+    // Interactive tool-permission prompt: an inline card with allow/deny choices.
+    // "Always" answers are remembered server-side per chat / skill / agent.
+    function showPermissionCard(m) {
+      var card = el('div', 'msg bot perm-card');
+      card.style.cssText = 'border:1px solid var(--accent);box-shadow:0 0 10px rgba(217,122,43,.25)';
+      var head = el('div', 'who', T('Permission request'));
+      var bodyEl = el('div');
+      bodyEl.textContent = AGENT_NAME + ' ' + T('wants to use') + ' "' + m.tool + '"' + (m.detail ? ('\n' + m.detail) : '');
+      bodyEl.style.whiteSpace = 'pre-wrap';
+      var row = el('div'); row.style.cssText = 'display:flex;gap:6px;margin-top:8px;flex-wrap:wrap';
+      var answered = false;
+      function answer(decision, label) {
+        if (answered) return; answered = true;
+        try { sock.send(JSON.stringify({ permission_id: m.id, decision: decision })); } catch (e) {}
+        row.innerHTML = ''; var done = el('span', 'hint'); done.textContent = label; row.appendChild(done);
+      }
+      [['allow', T('Allow once'), 'var(--accent)'],
+       ['allow-always', T('Always allow'), '#2e9e3f'],
+       ['deny', T('Deny'), '#888'],
+       ['deny-always', T('Always deny'), '#c0392b']].forEach(function (o) {
+        var b = el('button', 'btn', o[1]);
+        b.style.cssText = 'background:' + o[2] + ';padding:5px 10px;font-size:12px;cursor:pointer';
+        b.addEventListener('click', function () { answer(o[0], o[1] + (o[0].indexOf('always') >= 0 ? ' · ' + (m.scope || '') : '')); });
+        row.appendChild(b);
+      });
+      card.appendChild(head); card.appendChild(bodyEl); card.appendChild(row);
+      log.appendChild(card); log.scrollTop = log.scrollHeight;
     }
     connect();
     win.cleanup.push(function () { win.closed = true; try { sock.close(); } catch (e) {} });
@@ -764,6 +855,17 @@
       { label: T('Help'), items: [ { label: T('Help & Guide'), action: function () { launchApp('help'); } } ] }
     ]);
     setTimeout(function () { ta.focus(); }, 50);
+    // Let other surfaces (e.g. the command bar) drop a message straight into this chat and send it.
+    // Retries until the socket is open so a query sent right after launch isn't silently dropped.
+    win.sendChat = function (text) {
+      ta.value = String(text || ''); ta.focus();
+      var tries = 0;
+      (function attempt() {
+        if (!ta.value.trim()) return;
+        if (sock && sock.readyState === WebSocket.OPEN) doSend();
+        else if (tries++ < 40) setTimeout(attempt, 100);
+      })();
+    };
   }
 
   // ---------- App: Settings (tabbed, wired to the real backend) ----------
@@ -781,7 +883,7 @@
     var nav = el('div', 'set-nav');
     var pane = el('div', 'set-pane');
     wrap.appendChild(nav); wrap.appendChild(pane); body.appendChild(wrap);
-    var tabs = [['appearance', T('Appearance')], ['engine', T('Engine')], ['providers', T('Providers')], ['channels', T('Channels')], ['skills', T('Skills')], ['agents', T('Sub-agents')], ['system', T('System')]];
+    var tabs = [['appearance', T('Appearance')], ['engine', T('Engine')], ['providers', T('Providers')], ['channels', T('Channels')], ['integrations', T('Integrations')], ['skills', T('Skills')], ['agents', T('Sub-agents')], ['permissions', T('Permissions')], ['system', T('System')]];
     function renderNav() { nav.innerHTML = ''; tabs.forEach(function (t) { var b = el('button', state.tab === t[0] ? 'active' : null, t[1]); b.addEventListener('click', function () { state.tab = t[0]; renderNav(); renderTab(); }); nav.appendChild(b); }); }
     function renderTab() {
       pane.innerHTML = '';
@@ -789,8 +891,10 @@
       else if (state.tab === 'engine') tabEngine(pane);
       else if (state.tab === 'providers') tabProviders(pane);
       else if (state.tab === 'channels') tabChannels(pane);
+      else if (state.tab === 'integrations') tabIntegrations(pane);
       else if (state.tab === 'skills') tabSkills(pane);
       else if (state.tab === 'agents') tabAgents(pane);
+      else if (state.tab === 'permissions') tabPermissions(pane);
       else tabSystem(pane);
     }
     settingsRender = function () { renderTab(); };
@@ -800,18 +904,10 @@
   function rerenderSettings() { if (settingsRender) settingsRender(); }
 
   function tabAppearance(pane) {
-    var t = applyTheme();
-    var f = el('div', 'field');
-    f.appendChild(el('label', null, T('Desktop style')));
-    f.appendChild(el('div', 'hint', 'The Zamolxis desktop is the single built-in style. "Classic" opens the previous stable text interface.'));
-    var seg = el('div', 'seg');
-    [['win', 'Zamolxis'], ['classic', 'Classic']].forEach(function (o) {
-      var b = el('button', t.choice === o[0] ? 'active' : null, T(o[1]));
-      b.addEventListener('click', function () { if (o[0] === 'classic') { location.href = '/classic'; } else { setTheme(o[0]); } });
-      seg.appendChild(b);
-    });
-    f.appendChild(seg); pane.appendChild(f);
-    pane.appendChild(el('div', 'hint', '"Classic" opens the previous stable Zamolxis interface (the last stable version), kept as a second option.'));
+    // Zamolxis is the only desktop theme now, so there's no theme picker here —
+    // Appearance is just light/dark mode and the interface language. (The Classic
+    // text UI lives as a link at the bottom of the System tab.)
+    applyTheme();
 
     var mc = modeChoice();
     var f2 = el('div', 'field');
@@ -861,9 +957,9 @@
       var name = inp(live.agentName);
       var tz = inp(live.timezone); tz.placeholder = 'e.g. Europe/Bucharest';
       // Unified model list from the backend snapshot: Claude variants + 'local' + every configured provider.
-      function mlabel(v) { return v === '' ? 'Claude (default)' : v === 'local' ? 'Local' : v === 'freecloud' ? 'Free cloud' : v; }
+      function mlabel(v) { return v === '' ? 'Claude (default)' : v === 'local' ? (live.localModel ? 'Local (' + live.localModel + ')' : 'Local') : v === 'freecloud' ? 'Free cloud' : /^claude-/.test(v) ? prettyModel(v) : v; }
       var modelOpts = (((s.meta && s.meta.models) || ['']).map(function (v) { return [v, mlabel(v)]; }));
-      function modelSel(cur) { var sl = el('select', 'inp'); sl.style.width = '100%'; fillSelect(sl, modelOpts, cur || ''); return sl; }
+      function modelSel(cur) { var sl = el('select', 'inp'); sl.style.width = '100%'; fillSelect(sl, modelOpts.filter(function (o) { return o[0] !== 'local' || live.localModel || cur === 'local'; }), cur || ''); return sl; }
       var model = modelSel(live.model);
       var fast = modelSel(live.fastModel);
       var smart = modelSel(live.smartModel);
@@ -885,9 +981,9 @@
       pane.appendChild(fld(T('Smartest model (hard turns / final fallback)'), smart));
       pane.appendChild(fld(T('Assistant name'), name));
       pane.appendChild(fld(T('Timezone'), tz, 'IANA name used for time-aware replies and schedules (blank = server default).'));
-      pane.appendChild(fld(T('Permission mode'), perm));
+      pane.appendChild(fld(T('Permission mode'), perm, T('default = ask before each tool/resource and remember "always" answers (see the Permissions tab); acceptEdits / bypassPermissions = never ask. Scheduled agents are never blocked by a prompt.')));
       var row = el('div', 'row2'); var c1 = el('div'); c1.style.flex = '1'; c1.appendChild(fld(T('Max turns'), turns)); var c2 = el('div'); c2.style.flex = '1'; c2.appendChild(fld(T('Max concurrent'), conc)); row.appendChild(c1); row.appendChild(c2); pane.appendChild(row);
-      pane.appendChild(fld(T('Turn timeout (seconds)'), tmo, T('How long a single turn may run before it is stopped. e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.')));
+      pane.appendChild(fld(T('Turn timeout (seconds)'), tmo, T('How long a single turn may run before it is stopped. Default 1800 (30 minutes); e.g. 3600 = 1 hour, 14400 = 4 hours. Applies live.')));
       var rrow = el('div'); rrow.style.cssText = 'display:flex;align-items:center;gap:8px'; rrow.appendChild(routing); rrow.appendChild(el('span', 'hint', T('Local-model routing (auto / off)'))); pane.appendChild(fld(T('Routing'), rrow));
       var prow = el('div'); prow.style.cssText = 'display:flex;align-items:center;gap:8px'; prow.appendChild(privacy); prow.appendChild(el('span', 'hint', T('Force ALL inference to your local model - no cloud provider or Claude ever. Needs a local model set (below/Local model tab).'))); pane.appendChild(fld('🔒 ' + T('Privacy Mode'), prow));
       pane.appendChild(fld('🧃 ' + T('Tool output cap (chars)'), juice, T('TokenJuice: cap a single tool result before it reaches the model. Oversized output keeps head+tail and the full text is saved to ~/.zamolxis/tooljuice/. 0 = no cap.')));
@@ -905,9 +1001,47 @@
 
   function tabProviders(pane) {
     pane.appendChild(el('div', 'hint', T('Loading providers...')));
-    api('/api/providers').then(function (d) {
+    // We need both the provider registry (/api/providers) and the credential set-state
+    // (/api/settings) so the Claude API-key card can show whether a key is already saved.
+    Promise.all([api('/api/providers'), api('/api/settings').catch(function () { return {}; })]).then(function (res) {
+      var d = res[0] || {}; var sset = res[1] || {};
       pane.innerHTML = '';
       pane.appendChild(el('div', 'hint', T('Saving a key persists it; it takes effect after a restart (System tab).')));
+
+      // Claude — the subscription is the default; this optional API key enables metered billing.
+      (function () {
+        var creds = (sset.credentials || []);
+        var oauthSet = creds.some(function (c) { return c.key === 'CLAUDE_CODE_OAUTH_TOKEN' && c.set; });
+        var apiSet = creds.some(function (c) { return c.key === 'ANTHROPIC_API_KEY' && c.set; });
+        var card = el('div', 'prov');
+        var top = el('div', 'top');
+        top.appendChild(el('span', 'name', 'Claude (Anthropic)'));
+        var cl = (d.claude || {});
+        top.appendChild(el('span', 'tag ' + (cl.found ? 'ok' : 'paid'), cl.found ? T('subscription') : T('not logged in')));
+        if (apiSet) top.appendChild(el('span', 'tag ok', T('API key set')));
+        card.appendChild(top);
+        card.appendChild(el('div', 'hint', T('Runs on your Pro/Max subscription via `claude auth login` — no key needed. Add a Claude API key below only if you want metered API billing instead (it is used only when ZAMOLXIS_ALLOW_API_KEY=1).')));
+        var krow = el('div'); krow.style.cssText = 'display:flex;gap:8px;margin-top:8px';
+        var key = el('input', 'inp'); key.type = 'password'; key.style.flex = '1';
+        key.placeholder = apiSet ? T('•••• set — paste to replace, or Save empty to remove') : 'sk-ant-...';
+        var sv = el('button', 'btn', T('Save')); var st = el('div', 'hint'); st.style.marginTop = '4px';
+        krow.appendChild(key); krow.appendChild(sv);
+        function clearKey() {
+          sv.disabled = true; st.textContent = T('Removing...');
+          postSettings({ clearCredentials: ['ANTHROPIC_API_KEY'] }).then(function () { st.textContent = T('Removed.'); tabProviders(pane); }).catch(function () { sv.disabled = false; st.textContent = T('Failed.'); });
+        }
+        if (apiSet) { var rm = el('button', 'btn ghost', T('Remove')); rm.addEventListener('click', clearKey); krow.appendChild(rm); }
+        card.appendChild(krow); card.appendChild(st);
+        sv.addEventListener('click', function () {
+          var v = key.value.trim();
+          if (!v) { if (apiSet) clearKey(); else st.textContent = T('Enter a key.'); return; }
+          sv.disabled = true; st.textContent = T('Saving...');
+          postSettings({ credentials: { ANTHROPIC_API_KEY: v } }).then(function () { sv.disabled = false; key.value = ''; st.textContent = T('Saved.'); tabProviders(pane); }).catch(function () { sv.disabled = false; st.textContent = T('Failed.'); });
+        });
+        if (!oauthSet && !cl.found) card.appendChild(el('div', 'hint', T('Tip: run `claude auth login` on the host to use your subscription (recommended).')));
+        pane.appendChild(card);
+      })();
+
       (d.providers || []).forEach(function (p) {
         var card = el('div', 'prov');
         var top = el('div', 'top');
@@ -941,11 +1075,64 @@
   }
 
   // Channels setup tab — enable messaging channels + set their credentials (parity with classic).
+  // Integrations tab — credential groups that aren't messaging channels or model providers:
+  // Jira, optional web-search keys, and paid plugin keys. This is where "Settings →
+  // Integrations → Jira" lives (the Jira tools/agents point here when not configured).
+  function tabIntegrations(pane) {
+    pane.appendChild(el('div', 'hint', T('Loading...')));
+    var GROUPS = [
+      { group: 'jira', title: 'Jira', blurb: 'Connect Jira so the Jira tools and agents (Jira Sentinel, Jira Watcher) can read and create issues. Create an API token at id.atlassian.com/manage-profile/security/api-tokens.' },
+      { group: 'search', title: 'Web search keys (optional)', blurb: 'Optional higher-quality search providers. Web search already works without a key via DuckDuckGo.' },
+      { group: 'plugins', title: 'Plugins (optional)', blurb: 'Paid extras: OpenAI enables image generation and the cross-provider router.' }
+    ];
+    api('/api/settings').then(function (s) {
+      pane.innerHTML = '';
+      pane.appendChild(el('div', 'hint', T('Set credentials for integrations. Changes take effect after a restart (System tab).')));
+      var creds = s.credentials || [];
+      var any = false;
+      GROUPS.forEach(function (g) {
+        var fields = creds.filter(function (c) { return c.group === g.group; });
+        if (!fields.length) return; // group not present in this build
+        any = true;
+        var card = el('div', 'prov');
+        var top = el('div', 'top'); top.appendChild(el('span', 'name', g.title)); card.appendChild(top);
+        card.appendChild(el('div', 'hint', g.blurb));
+        fields.forEach(function (c) {
+          var row = el('div'); row.style.cssText = 'display:flex;gap:8px;margin-top:6px;align-items:center';
+          var lbl = el('div', 'hint'); lbl.style.cssText = 'flex:0 0 42%'; lbl.textContent = c.label;
+          var inpv = el('input', 'inp'); inpv.style.flex = '1';
+          if (c.secret) { inpv.type = 'password'; inpv.placeholder = c.set ? '•••• set — paste to replace' : 'paste value'; } else { inpv.value = c.value || ''; }
+          var sv = el('button', 'btn ghost', T('Save'));
+          sv.addEventListener('click', function () { var v = inpv.value.trim(); var cred = {}; cred[c.key] = v; sv.disabled = true; sv.textContent = '...'; postSettings({ credentials: cred }).then(function () { sv.disabled = false; sv.textContent = T('Saved.'); if (c.secret) inpv.value = ''; }).catch(function () { sv.disabled = false; sv.textContent = T('Failed.'); }); });
+          row.appendChild(lbl); row.appendChild(inpv); row.appendChild(sv); card.appendChild(row);
+        });
+        pane.appendChild(card);
+      });
+      if (!any) pane.appendChild(el('div', 'empty', 'No integrations available in this build.'));
+    }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', T('Could not load settings.'))); });
+  }
+  // Channels setup tab — enable messaging channels + set their credentials.
   function tabChannels(pane) {
     pane.appendChild(el('div', 'hint', T('Loading...')));
     api('/api/settings').then(function (s) {
       pane.innerHTML = '';
-      pane.appendChild(el('div', 'hint', T('Enable a channel and add its credentials. Changes take effect after a restart (System tab).')));
+      pane.appendChild(el('div', 'hint', T('Enable a channel and add its credentials. Changes take effect after a restart (System tab). Each card has a step-by-step "How to set up".')));
+      // Per-connector setup walkthroughs — especially Slack, which has the most steps.
+      var SETUP = {
+        telegram: { url: 'https://t.me/BotFather', steps: ['Open @BotFather in Telegram, send /newbot and follow the prompts.', 'Copy the bot token it returns into "Telegram bot token" and Save.', '(Optional) "allowed usernames/ids" restricts who may talk to it (blank = anyone).', 'Enable Telegram above, then restart (System tab).'] },
+        discord: { url: 'https://discord.com/developers/applications', steps: ['Discord Developer Portal → New Application.', 'Bot → Reset Token → copy it into "Discord bot token" and Save.', 'Under Bot, turn ON the "Message Content Intent".', 'OAuth2 → URL Generator: scope "bot" + permission "Send Messages"; open the generated URL to invite the bot to your server.', 'Enable Discord above, then restart.'] },
+        slack: { url: 'https://api.slack.com/apps', steps: [
+          '1. api.slack.com/apps → "Create New App" → "From scratch"; name it (e.g. Zamolxis) and pick your workspace.',
+          '2. "Socket Mode" → Enable. When prompted, generate an App-Level Token with scope connections:write — copy that xapp-… token.',
+          '3. "OAuth & Permissions" → Bot Token Scopes: add app_mentions:read, chat:write, im:history, im:read, im:write. Then "Install to Workspace" and copy the Bot User OAuth Token (xoxb-…).',
+          '4. "Event Subscriptions" → Enable; under "Subscribe to bot events" add app_mention and message.im; Save.',
+          '5. Paste xoxb-… into "Slack bot token" and xapp-… into "Slack app token" here, Save each, enable Slack above, and restart (System tab).',
+          '6. In Slack, DM the bot or @-mention it in a channel it belongs to. (Or just ask Zamolxis in chat: "connect slack" — the connect-slack skill walks you through it.)'
+        ] },
+        whatsapp: { steps: ['Enable WhatsApp above and restart. On first run a QR code appears in the logs — scan it from WhatsApp → Linked devices. No token needed.'] },
+        signal: { url: 'https://github.com/AsamK/signal-cli', steps: ['Install signal-cli and register your number (see its README).', 'Set "Signal number" (+15551234567); leave the signal-cli path blank if it is on PATH.', 'Enable Signal above, then restart.'] },
+        email: { url: 'https://support.google.com/accounts/answer/185833', steps: ['Use an APP PASSWORD, not your login password (Gmail → Google Account → Security → App passwords).', 'Set Email user + the app password, and IMAP/SMTP host+port (Gmail: imap.gmail.com:993 / smtp.gmail.com:465).', 'Or just tell Zamolxis in chat: "connect my gmail you@gmail.com app password XXXX" (connect-gmail / connect-outlook / connect-yahoo skills).', 'Enable Email above, then restart.'] }
+      };
       var chMap = s.channels || {}; var creds = s.credentials || []; var list = (s.meta && s.meta.channels) || [];
       list.filter(function (n) { return n !== 'web' && n !== 'cli'; }).forEach(function (name) {
         var card = el('div', 'prov');
@@ -966,6 +1153,17 @@
           sv.addEventListener('click', function () { var v = inpv.value.trim(); var cred = {}; cred[c.key] = v; sv.disabled = true; sv.textContent = '...'; postSettings({ credentials: cred }).then(function () { sv.disabled = false; sv.textContent = T('Saved.'); if (c.secret) inpv.value = ''; }).catch(function () { sv.disabled = false; sv.textContent = T('Failed.'); }); });
           row.appendChild(lbl); row.appendChild(inpv); row.appendChild(sv); card.appendChild(row);
         });
+        var su = SETUP[name];
+        if (su) {
+          var det = el('details'); det.style.cssText = 'margin-top:8px';
+          var sum = el('summary', null, T('How to set up') + ' ' + name); sum.style.cssText = 'cursor:pointer;font-weight:600;font-size:12px;color:var(--accent,#d97a2b)';
+          det.appendChild(sum);
+          var ol = el('ol'); ol.style.cssText = 'margin:6px 0 0 16px;padding:0;font-size:12px;line-height:1.55';
+          su.steps.forEach(function (stp) { var li = el('li'); li.textContent = stp; li.style.marginBottom = '3px'; ol.appendChild(li); });
+          det.appendChild(ol);
+          if (su.url) { var a = el('a', null, T('Open the setup page') + ' ↗'); a.href = su.url; a.target = '_blank'; a.rel = 'noopener'; a.style.cssText = 'display:inline-block;margin:6px 0 2px;font-size:12px;color:var(--accent,#d97a2b);text-decoration:none'; det.appendChild(a); }
+          card.appendChild(det);
+        }
         pane.appendChild(card);
       });
     }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', T('Could not load settings.'))); });
@@ -1029,7 +1227,7 @@
       var list = el('div'); list.style.cssText = 'display:flex;flex-direction:column;gap:10px;margin-top:10px';
       pane.appendChild(list);
 
-      agentsList.slice().sort(function (a, b) { return (a.label || a.name).localeCompare(b.label || b.name); }).forEach(function (agent) {
+      agentsList.slice().filter(function (a) { return !a.hidden; }).sort(function (a, b) { return (a.label || a.name).localeCompare(b.label || b.name); }).forEach(function (agent) {
         var mine = byAgent[agent.name] || [];
         var paused = !!agent.stopped;
         var card = el('div'); card.style.cssText = 'border:1px solid rgba(128,128,128,.2);border-radius:8px;padding:10px 12px;background:rgba(128,128,128,.04)';
@@ -1097,6 +1295,27 @@
         list.appendChild(card);
       });
       if (!agentsList.length) list.appendChild(el('div', 'hint', T('No sub-agents yet.')));
+
+      // Hidden agents: off the desktop, listed here so they can be brought back.
+      var hiddenAgents = agentsList.filter(function (a) { return a.hidden; });
+      if (hiddenAgents.length) {
+        var hl = el('label', null, T('Hidden')); hl.style.marginTop = '22px'; hl.style.display = 'block'; pane.appendChild(hl);
+        pane.appendChild(el('div', 'hint', T('These are off the desktop. Un-hide brings one back (paused, no schedule).')));
+        var hlist = el('div'); hlist.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-top:8px';
+        pane.appendChild(hlist);
+        hiddenAgents.sort(function (a, b) { return (a.label || a.name).localeCompare(b.label || b.name); }).forEach(function (agent) {
+          var row = el('div'); row.style.cssText = 'display:flex;align-items:center;gap:10px;border:1px solid rgba(128,128,128,.2);border-radius:8px;padding:8px 12px';
+          var nm = el('span'); nm.textContent = agent.label || agent.name; nm.style.flex = '1';
+          if (agent.premade) { var tag = el('span', 'hint'); tag.textContent = T('pre-made'); tag.style.fontSize = '11px'; nm.appendChild(document.createTextNode(' ')); nm.appendChild(tag); }
+          var note = el('span', 'hint');
+          var unhide = el('button', 'btn ghost', T('Un-hide'));
+          unhide.addEventListener('click', function () {
+            unhide.disabled = true; note.textContent = T('Working...');
+            post({ action: 'unhide', name: agent.name }).then(function (d) { if (d && d.agents) { agents = d.agents; renderDesktop(); syncTaskbar(); } else loadAgents(); reload(); }).catch(function () { unhide.disabled = false; note.textContent = T('Failed.'); });
+          });
+          row.appendChild(nm); row.appendChild(note); row.appendChild(unhide); hlist.appendChild(row);
+        });
+      }
     }
     function reload() {
       Promise.all([
@@ -1106,6 +1325,45 @@
       ]).then(function (r) { render(r[0], r[1], r[2]); }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'hint', T('Could not load agents.'))); });
     }
     reload();
+  }
+
+  // Remembered tool-permission grants: list per scope (chat / skill / agent / global) + revoke.
+  function tabPermissions(pane) {
+    pane.appendChild(el('div', 'hint', T('Loading...')));
+    api('/api/permissions').then(function (d) {
+      pane.innerHTML = '';
+      pane.appendChild(el('div', 'hint', T('Zamolxis asks before using a tool or resource and remembers your "always" answers here — per chat, per skill, and per agent. Revoke a grant to be asked again.')));
+      if (d && d.mode) pane.appendChild(el('div', 'hint', T('Permission mode') + ': ' + d.mode + (d.mode === 'default' ? '' : ' — ' + T('prompts are off in this mode; set Permission mode to "default" in Settings → Engine to be asked.'))));
+      var grants = (d && d.grants) || [];
+      if (!grants.length) { pane.appendChild(el('div', 'empty', T('No remembered permissions yet.'))); return; }
+      var byScope = {};
+      grants.forEach(function (g) { (byScope[g.scope] = byScope[g.scope] || []).push(g); });
+      Object.keys(byScope).sort().forEach(function (scope) {
+        var card = el('div', 'prov');
+        var top = el('div', 'top');
+        var scopeEl = el('span', 'name'); scopeEl.textContent = scope; top.appendChild(scopeEl);
+        var clr = el('button', 'btn ghost', T('Revoke all'));
+        clr.style.cssText = 'margin-left:auto;padding:3px 10px;font-size:12px;cursor:pointer';
+        clr.addEventListener('click', function () {
+          api('/api/permissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'clearScope', scope: scope }) }).then(function () { pane.innerHTML = ''; tabPermissions(pane); });
+        });
+        top.appendChild(clr);
+        card.appendChild(top);
+        byScope[scope].forEach(function (g) {
+          var row = el('div'); row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 0';
+          var dec = el('span', 'tag ' + (g.decision === 'allow' ? 'ok' : 'paid')); dec.textContent = g.decision; row.appendChild(dec);
+          var nm = el('span'); nm.textContent = g.tool; nm.style.cssText = 'flex:1;font-size:13px'; row.appendChild(nm);
+          var rv = el('button', 'btn ghost', T('Revoke'));
+          rv.style.cssText = 'padding:2px 8px;font-size:11px;cursor:pointer';
+          rv.addEventListener('click', function () {
+            api('/api/permissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'revoke', scope: g.scope, tool: g.tool }) }).then(function () { pane.innerHTML = ''; tabPermissions(pane); });
+          });
+          row.appendChild(rv);
+          card.appendChild(row);
+        });
+        pane.appendChild(card);
+      });
+    }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', T('Could not load permissions.'))); });
   }
 
   function tabSkills(pane) {
@@ -1214,9 +1472,8 @@
       // --- Maintenance ---
       pane.appendChild(el('label', null, T('Maintenance')));
       var rb = el('button', 'btn ghost', T('Restart Zamolxis'));
-      var cl = el('a', 'btn ghost', T('Open classic UI')); cl.href = '/classic'; cl.target = '_blank'; cl.style.cssText = 'text-decoration:none;line-height:30px';
       var st = el('span', 'hint');
-      var sr = el('div', 'save-row'); sr.appendChild(rb); sr.appendChild(cl); sr.appendChild(st); pane.appendChild(sr);
+      var sr = el('div', 'save-row'); sr.appendChild(rb); sr.appendChild(st); pane.appendChild(sr);
       rb.addEventListener('click', function () { restartZam(rb, st); });
 
       // --- Startup ---
@@ -1231,17 +1488,48 @@
 
       // --- Proactive watchers ---
       pane.appendChild(el('label', null, T('Proactive')));
-      var wRow = el('div'); wRow.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap';
-      var wTog = el('button', 'switch', "<span class='knob'></span>");
-      var wMin = el('input', 'inp'); wMin.type = 'number'; wMin.min = '1'; wMin.value = '5'; wMin.style.width = '60px';
-      var wNote = el('span', 'hint');
-      wRow.appendChild(wTog); wRow.appendChild(el('span', 'hint', T('Watch Outlook inbox'))); wRow.appendChild(el('span', 'hint', T('every'))); wRow.appendChild(wMin); wRow.appendChild(el('span', 'hint', T('min'))); wRow.appendChild(wNote);
-      pane.appendChild(wRow);
-      pane.appendChild(el('div', 'hint', T('Alert me about new email (toast + optional voice).')));
-      api('/api/watchers').then(function (w) { if (w && w.outlookUnread) { if (w.outlookUnread.enabled) wTog.classList.add('on'); wMin.value = w.outlookUnread.intervalMin || 5; } }).catch(function () {});
-      function saveWatch() { var en = wTog.classList.contains('on'); if (en && window.Notification && Notification.permission === 'default') { try { Notification.requestPermission(); } catch (e) {} } wNote.textContent = '...'; api('/api/watchers', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ outlookUnread: { enabled: en, intervalMin: Number(wMin.value) || 5 } }) }).then(function () { wNote.textContent = T('Saved.'); }).catch(function () { wNote.textContent = T('Failed.'); }); }
-      wTog.addEventListener('click', function () { wTog.classList.toggle('on'); saveWatch(); });
-      wMin.addEventListener('change', saveWatch);
+      pane.appendChild(el('div', 'hint', T('Alert me about new email, followed Jira tasks and site health (toast + optional voice).')));
+      function watchRow(key, label) {
+        var row = el('div'); row.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px';
+        var tog = el('button', 'switch', "<span class='knob'></span>");
+        var min = el('input', 'inp'); min.type = 'number'; min.min = '1'; min.value = '5'; min.style.width = '60px';
+        var note = el('span', 'hint');
+        row.appendChild(tog); row.appendChild(el('span', 'hint', T(label))); row.appendChild(el('span', 'hint', T('every'))); row.appendChild(min); row.appendChild(el('span', 'hint', T('min'))); row.appendChild(note);
+        pane.appendChild(row);
+        function save() {
+          var en = tog.classList.contains('on');
+          if (en && window.Notification && Notification.permission === 'default') { try { Notification.requestPermission(); } catch (e) {} }
+          note.textContent = '...';
+          var body = {}; body[key] = { enabled: en, intervalMin: Number(min.value) || 5 };
+          api('/api/watchers', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(function () { note.textContent = T('Saved.'); }).catch(function () { note.textContent = T('Failed.'); });
+        }
+        tog.addEventListener('click', function () { tog.classList.toggle('on'); save(); });
+        min.addEventListener('change', save);
+        return { tog: tog, min: min };
+      }
+      var wOutlook = watchRow('outlookUnread', 'Watch Outlook inbox');
+      var wJiraTasks = watchRow('jiraTasks', 'Watch followed Jira tasks for updates');
+      var wUrl = watchRow('urlHealth', 'Watch site health (URLs)');
+      api('/api/watchers').then(function (w) {
+        if (!w) return;
+        [[wOutlook, w.outlookUnread], [wJiraTasks, w.jiraTasks], [wUrl, w.urlHealth]].forEach(function (p) {
+          if (!p[1]) return;
+          if (p[1].enabled) p[0].tog.classList.add('on');
+          p[0].min.value = p[1].intervalMin || 5;
+        });
+      }).catch(function () {});
+      // A plain on/off (no interval): also pop a native OS notification (Windows toast / macOS /
+      // Linux notify-send) for every alert, so it surfaces even when this page isn't in focus.
+      var osRow = el('div'); osRow.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px';
+      var osTog = el('button', 'switch', "<span class='knob'></span>"); var osNote = el('span', 'hint');
+      osRow.appendChild(osTog); osRow.appendChild(el('span', 'hint', T('Also show alerts as native OS notifications'))); osRow.appendChild(osNote);
+      pane.appendChild(osRow);
+      api('/api/watchers').then(function (w) { if (w && w.osNotify && w.osNotify.enabled) osTog.classList.add('on'); }).catch(function () {});
+      osTog.addEventListener('click', function () {
+        osTog.classList.toggle('on'); osNote.textContent = '...';
+        api('/api/watchers', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ osNotify: { enabled: osTog.classList.contains('on') } }) })
+          .then(function () { osNote.textContent = T('Saved.'); }).catch(function () { osNote.textContent = T('Failed.'); });
+      });
 
       // --- Export setup (skills bundle; never includes secrets) ---
       pane.appendChild(el('label', null, T('Export setup')));
@@ -1251,6 +1539,15 @@
         exBtn.disabled = true; exNote.textContent = '...'; var fn = 'zamolxis-setup.zip';
         fetch('/api/pack', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) }).then(function (r) { if (!r.ok) throw 0; var cd = r.headers.get('content-disposition') || ''; var m = /filename="?([^";]+)"?/.exec(cd); if (m) fn = m[1]; return r.blob(); }).then(function (b) { var u = URL.createObjectURL(b); var a = document.createElement('a'); a.href = u; a.download = fn; a.click(); URL.revokeObjectURL(u); exBtn.disabled = false; exNote.textContent = T('Saved.'); }).catch(function () { exBtn.disabled = false; exNote.textContent = T('Failed.'); });
       });
+
+      // Classic UI link, pinned at the very bottom of the System page (moved here out
+      // of Appearance). A plain text link, not a button — it's a rarely-used escape hatch.
+      var clWrap = el('div'); clWrap.style.cssText = 'margin-top:22px;padding-top:12px;border-top:1px solid rgba(128,128,128,.2)';
+      var cl = el('a', null, T('Open classic UI') + ' →'); cl.href = '/classic'; cl.target = '_blank';
+      cl.style.cssText = 'font-size:12px;color:var(--accent,#d97a2b);text-decoration:none';
+      clWrap.appendChild(cl);
+      clWrap.appendChild(el('div', 'hint', T('The previous stable text-only interface, kept as a fallback.')));
+      pane.appendChild(clWrap);
     }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', T('Could not load status.'))); });
   }
 
@@ -1280,12 +1577,66 @@
           if (d && d.error) { msg.textContent = String(d.error); return; }
           msg.textContent = T('Created. Added to the desktop.');
           if (d && d.agents) agents = d.agents; else loadAgents();
-          renderDesktop();
+          renderDesktop(); fillExport();
         })
         .catch(function () { create.disabled = false; msg.textContent = T('Backend unreachable.'); });
     });
     var row = el('div'); row.style.cssText = 'display:flex;gap:10px;align-items:center'; row.appendChild(create); row.appendChild(msg);
     pad.appendChild(row);
+
+    // ---- Share: import an agent card, or export an existing agent as a portable JSON card ----
+    var hr = el('div'); hr.style.cssText = 'border-top:1px solid rgba(128,128,128,.2);margin:18px 0 4px'; pad.appendChild(hr);
+    var shareTitle = el('div'); shareTitle.textContent = T('Share agents'); shareTitle.style.cssText = 'font-weight:600;margin:6px 0'; pad.appendChild(shareTitle);
+    pad.appendChild(el('div', 'hint', T('Move agents between machines: export one as a small JSON card, or import a card someone shared.')));
+
+    // Import.
+    var impMsg = el('div', 'hint'); impMsg.style.minHeight = '16px';
+    var fileIn = el('input'); fileIn.type = 'file'; fileIn.accept = '.json,application/json'; fileIn.style.display = 'none';
+    var impBtn = el('button', 'btn ghost', T('Import agent card...'));
+    impBtn.onclick = function () { fileIn.click(); };
+    function doImport(card, overwrite) {
+      return api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'import', card: card, overwrite: !!overwrite }) })
+        .then(function (d) {
+          if (d && d.conflict) {
+            if (confirm(T('An agent named') + ' "' + d.name + '" ' + T('already exists. Replace it?'))) return doImport(card, true);
+            impMsg.textContent = T('Import cancelled.'); return;
+          }
+          if (d && d.error) { impMsg.textContent = String(d.error); return; }
+          if (d && d.ok) { impMsg.textContent = T('Imported') + ' "' + d.name + '". ' + T('Added to the desktop.'); if (d.agents) agents = d.agents; else loadAgents(); renderDesktop(); fillExport(); }
+        }).catch(function () { impMsg.textContent = T('Backend unreachable.'); });
+    }
+    fileIn.addEventListener('change', function () {
+      var f = fileIn.files && fileIn.files[0]; fileIn.value = ''; if (!f) return;
+      var rd = new FileReader();
+      rd.onload = function () { var card; try { card = JSON.parse(String(rd.result || '')); } catch (e) { impMsg.textContent = T('That file is not valid JSON.'); return; } doImport(card, false); };
+      rd.readAsText(f);
+    });
+    var impRow = el('div'); impRow.style.cssText = 'display:flex;gap:10px;align-items:center;margin-top:8px'; impRow.appendChild(impBtn); impRow.appendChild(impMsg); impRow.appendChild(fileIn);
+    pad.appendChild(impRow);
+
+    // Export.
+    var expSel = el('select'); expSel.style.cssText = 'height:34px;border:1px solid #d6d6d6;border-radius:8px;padding:0 8px;font:inherit;max-width:60%';
+    function fillExport() {
+      var cur = expSel.value; expSel.innerHTML = '';
+      (agents || []).filter(function (a) { return !a.hidden; }).sort(function (a, b) { return (a.label || a.name).localeCompare(b.label || b.name); }).forEach(function (a) { var o = el('option'); o.value = a.name; o.textContent = a.label || a.name; if (a.name === cur) o.selected = true; expSel.appendChild(o); });
+    }
+    fillExport();
+    var expBtn = el('button', 'btn ghost', T('Export'));
+    var expMsg = el('div', 'hint'); expMsg.style.minHeight = '16px';
+    expBtn.onclick = function () {
+      var n = expSel.value; if (!n) { expMsg.textContent = T('No agent selected.'); return; }
+      api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'export', name: n }) })
+        .then(function (d) {
+          if (!d || !d.ok) { expMsg.textContent = (d && d.error) || T('Export failed.'); return; }
+          var blob = new Blob([JSON.stringify(d.card, null, 2)], { type: 'application/json' });
+          var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = n + '.agent.json';
+          document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+          expMsg.textContent = T('Downloaded') + ' ' + n + '.agent.json';
+        }).catch(function () { expMsg.textContent = T('Backend unreachable.'); });
+    };
+    var expRow = el('div'); expRow.style.cssText = 'display:flex;gap:10px;align-items:center;margin-top:10px'; expRow.appendChild(expSel); expRow.appendChild(expBtn); expRow.appendChild(expMsg);
+    pad.appendChild(expRow);
+
     body.appendChild(pad);
   }
 
@@ -1305,7 +1656,7 @@
 <h3>Chatting</h3>
 <ul>
 <li>Type your message and press Enter to send (Shift+Enter for a new line).</li>
-<li>The <b>Route</b> selector picks which model answers: Auto, a local model, the free-cloud rotation, any provider you set up, or Claude.</li>
+<li>The <b>Route</b> selector picks which model answers this chat: Auto, the free-cloud rotation, any provider you set up, Claude or a specific Claude model (Opus, Sonnet, Haiku, Fable), or a local model if one is installed.</li>
 <li>The <b>attach</b> button adds files to your message (see Files below).</li>
 <li>Conversations are saved on this device and restored when you reopen the app.</li>
 </ul>
@@ -1328,7 +1679,7 @@
 <p><b>Settings → System</b> shows your version and a one-click <b>Upgrade</b> that pulls the latest, rebuilds and restarts — no manual commands. You can also restart Zamolxis or open the classic interface here.</p>
 <h3>Tips</h3>
 <ul>
-<li>Click the clock to open Settings quickly.</li>
+<li>Open Settings from the launcher or the gear icon. (And the clock hides a little surprise.)</li>
 <li>Double-click a window's title bar to maximize it.</li>
 <li>Your open windows and their positions are restored next time you load the desktop.</li>
 </ul>`,
@@ -1536,6 +1887,88 @@
 <li>Fai clic sull'orologio per aprire rapidamente le Impostazioni.</li>
 <li>Doppio clic sulla barra del titolo di una finestra per ingrandirla.</li>
 <li>Le finestre aperte e le loro posizioni vengono ripristinate al successivo caricamento del desktop.</li>
+</ul>`,
+    pl: `<h2>Zamolxis — Pomoc i przewodnik</h2>
+<p>Zamolxis to twój zawsze dostępny osobisty asystent z pulpitem, którego możesz używać jak prawdziwego systemu operacyjnego. Ten przewodnik wyjaśnia każdą część interfejsu.</p>
+<h3>Pulpit</h3>
+<ul>
+<li><b>Okna</b> — każda aplikacja otwiera się w oknie, które możesz przeciągać za pasek tytułu, zmieniać jego rozmiar od dowolnej krawędzi, minimalizować, maksymalizować lub zamykać.</li>
+<li><b>Pasek zadań</b> — pokazuje uruchomione aplikacje; kliknij, aby przełączyć się na jedną, lub kliknij ponownie, aby ją zminimalizować. Zamolxis jest zawsze przypięty.</li>
+<li><b>Menu Start</b> — kliknij Start, aby zobaczyć wszystkie aplikacje i wyszukać je po nazwie.</li>
+<li><b>Ikony pulpitu</b> — kliknij dwukrotnie, aby otworzyć aplikację. Przeciągaj ikony, gdzie chcesz; ich położenie jest zapamiętywane.</li>
+</ul>
+<h3>Aplikacje to agenci</h3>
+<p>W Zamolxis każda aplikacja jest agentem (pracownikiem AI). <b>Zamolxis</b> to domyślna aplikacja, w której znajduje się twój główny czat. Użyj przycisku <b>Nowy agent</b>, aby stworzyć własnego: nadaj mu nazwę, instrukcje (co ma robić) i model. Każdy agent ma przełącznik <b>Okno czatu</b> — wyłącz go, aby działał bez interfejsu (na żądanie lub według harmonogramu) jedynie z dziennikiem aktywności, albo włącz, aby rozmawiać z nim bezpośrednio.</p>
+<h3>Rozmowy</h3>
+<ul>
+<li>Wpisz wiadomość i naciśnij Enter, aby wysłać (Shift+Enter dla nowego wiersza).</li>
+<li>Selektor <b>Trasa</b> wybiera, który model odpowiada: Auto, model lokalny, dowolny skonfigurowany dostawca lub Claude.</li>
+<li>Przycisk <b>załącz</b> dodaje pliki do wiadomości (zobacz Pliki poniżej).</li>
+<li>Rozmowy są zapisywane na tym urządzeniu i przywracane po ponownym otwarciu aplikacji.</li>
+</ul>
+<h3>Modele i trasowanie</h3>
+<p>Zamolxis domyślnie odpowiada za pomocą twojej subskrypcji <b>Claude</b>. Opcjonalnie możesz zainstalować lokalny model na urządzeniu (domyślnie wyłączony) lub dodać płatnych dostawców i kierować do nich proste tury, aby oszczędzać użycie Claude. W <b>Ustawienia → Silnik</b> ustawiasz trzy role: <b>Model</b> (odpowiada na czaty), <b>Szybki</b> (proste tury) i <b>Najmądrzejszy</b> (trudne tury / ostateczna rezerwa). Każdy może być wariantem Claude, modelem lokalnym lub dowolnym uwierzytelnionym dostawcą.</p>
+<h3>Dostawcy i klucze API</h3>
+<p>W <b>Ustawienia → Dostawcy</b> możesz wkleić klucz API dla każdego dostawcy (płatny, rozliczany na ciebie). Klucz działa po ponownym uruchomieniu (karta System). Zapisanie pustego klucza lub naciśnięcie <b>Usuń</b> kasuje klucz danego dostawcy.</p>
+<h3>Pliki</h3>
+<ul>
+<li><b>Tekst i kod</b> — odczytywane bezpośrednio przez dowolny model.</li>
+<li><b>PDF, Word, Excel, PowerPoint</b> — ich tekst jest wyodrębniany na serwerze, więc każdy model może go odczytać.</li>
+<li><b>Obrazy</b> — opisywane lub analizowane przez model z funkcją widzenia.</li>
+</ul>
+<p>Do Claude trafiają tylko te pliki, które naprawdę go potrzebują.</p>
+<h3>Umiejętności</h3>
+<p><b>Ustawienia → Umiejętności</b> wymienia zdolności, których Zamolxis może używać. Włącz lub wyłącz daną umiejętność albo <b>Importuj</b> zewnętrzną umiejętność, aby uczynić ją swoją.</p>
+<h3>Wygląd i język</h3>
+<p><b>Ustawienia → Wygląd</b> pozwala przełączać tryb jasny/ciemny (lub podążać za systemem) i wybrać <b>Język</b> interfejsu. Domyślny jest angielski; to, co nie zostało jeszcze przetłumaczone, pozostaje po angielsku.</p>
+<h3>Aktualizowanie</h3>
+<p><b>Ustawienia → System</b> pokazuje twoją wersję oraz przycisk <b>Aktualizuj</b> działający jednym kliknięciem, który pobiera najnowszą wersję, przebudowuje i uruchamia ponownie — bez ręcznych poleceń. Tutaj możesz też ponownie uruchomić Zamolxis lub otworzyć klasyczny interfejs.</p>
+<h3>Wskazówki</h3>
+<ul>
+<li>Kliknij zegar, aby szybko otworzyć Ustawienia.</li>
+<li>Kliknij dwukrotnie pasek tytułu okna, aby je zmaksymalizować.</li>
+<li>Otwarte okna i ich położenie są przywracane przy następnym wczytaniu pulpitu.</li>
+</ul>`,
+    uk: `<h2>Zamolxis — Довідка та посібник</h2>
+<p>Zamolxis — це ваш завжди доступний особистий асистент із робочим столом, який можна використовувати як справжню операційну систему. Цей посібник пояснює кожну частину інтерфейсу.</p>
+<h3>Робочий стіл</h3>
+<ul>
+<li><b>Вікна</b> — кожен застосунок відкривається у вікні, яке можна перетягувати за заголовок, змінювати розмір від будь-якого краю, згортати, розгортати або закривати.</li>
+<li><b>Панель завдань</b> — показує запущені застосунки; клацніть, щоб перейти до одного, або клацніть ще раз, щоб згорнути. Zamolxis завжди закріплений.</li>
+<li><b>Меню Пуск</b> — натисніть Пуск, щоб побачити всі застосунки та шукати їх за назвою.</li>
+<li><b>Значки робочого столу</b> — двічі клацніть, щоб відкрити застосунок. Перетягуйте значки куди завгодно; їхнє розташування запамʼятовується.</li>
+</ul>
+<h3>Застосунки — це агенти</h3>
+<p>У Zamolxis кожен застосунок є агентом (працівником ШІ). <b>Zamolxis</b> — це типовий застосунок, що містить ваш головний чат. Скористайтеся кнопкою <b>Новий агент</b>, щоб створити власного: дайте йому імʼя, інструкції (що він має робити) та модель. Кожен агент має перемикач <b>Вікно чату</b> — вимкніть його, щоб агент працював без інтерфейсу (за запитом або за розкладом) лише з журналом активності, або увімкніть, щоб спілкуватися з ним напряму.</p>
+<h3>Спілкування</h3>
+<ul>
+<li>Введіть повідомлення та натисніть Enter, щоб надіслати (Shift+Enter для нового рядка).</li>
+<li>Селектор <b>Маршрут</b> вибирає, яка модель відповідає: Авто, локальна модель, будь-який налаштований постачальник або Claude.</li>
+<li>Кнопка <b>додати</b> додає файли до вашого повідомлення (див. Файли нижче).</li>
+<li>Розмови зберігаються на цьому пристрої та відновлюються при повторному відкритті застосунку.</li>
+</ul>
+<h3>Моделі та маршрутизація</h3>
+<p>Zamolxis за замовчуванням відповідає за допомогою вашої підписки <b>Claude</b>. За бажанням можна встановити локальну модель на пристрої (типово вимкнено) або додати платних постачальників і спрямовувати до них прості ходи, щоб економити використання Claude. У <b>Налаштування → Рушій</b> ви задаєте три ролі: <b>Модель</b> (відповідає на чати), <b>Швидка</b> (прості ходи) і <b>Найрозумніша</b> (складні ходи / остаточний резерв). Кожна може бути варіантом Claude, локальною моделлю або будь-яким автентифікованим постачальником.</p>
+<h3>Постачальники та ключі API</h3>
+<p>У <b>Налаштування → Постачальники</b> можна вставити ключ API для кожного постачальника (платний, рахунок виставляється вам). Ключ набуває чинності після перезапуску (вкладка Система). Збереження порожнього ключа або натискання <b>Прибрати</b> видаляє ключ цього постачальника.</p>
+<h3>Файли</h3>
+<ul>
+<li><b>Текст і код</b> — читаються напряму будь-якою моделлю.</li>
+<li><b>PDF, Word, Excel, PowerPoint</b> — їхній текст вилучається на сервері, тож будь-яка модель може його прочитати.</li>
+<li><b>Зображення</b> — описуються або аналізуються моделлю з підтримкою зору.</li>
+</ul>
+<p>До Claude надсилаються лише ті файли, яким він справді потрібен.</p>
+<h3>Навички</h3>
+<p><b>Налаштування → Навички</b> перелічує можливості, якими може користуватися Zamolxis. Увімкніть або вимкніть навичку чи <b>Імпортуйте</b> зовнішню навичку, щоб зробити її своєю.</p>
+<h3>Вигляд і мова</h3>
+<p><b>Налаштування → Вигляд</b> дозволяє перемикати світлий/темний режим (або слідувати за системою) та вибирати <b>Мову</b> інтерфейсу. Типово англійська; те, що ще не перекладено, залишається англійською.</p>
+<h3>Підтримання в актуальному стані</h3>
+<p><b>Налаштування → Система</b> показує вашу версію та кнопку <b>Оновити</b> в один клік, яка завантажує найновішу версію, перезбирає і перезапускає — без ручних команд. Тут також можна перезапустити Zamolxis або відкрити класичний інтерфейс.</p>
+<h3>Поради</h3>
+<ul>
+<li>Клацніть годинник, щоб швидко відкрити Налаштування.</li>
+<li>Двічі клацніть заголовок вікна, щоб розгорнути його.</li>
+<li>Відкриті вікна та їхнє розташування відновлюються під час наступного завантаження робочого столу.</li>
 </ul>`
   };
   function mountHelp(body, win) {
@@ -2300,6 +2733,335 @@
     load();
   }
 
+  // ---------- App: Privacy ----------
+  // An honest, at-a-glance picture of Zamolxis's self-hosting posture - what runs on this machine and
+  // the few places data can leave it. Reads /api/privacy (all derived from config) and shows the
+  // live Privacy Mode state with a toggle (same switch as Settings -> Engine).
+  function mountPrivacy(body, win) {
+    body.style.padding = '0';
+    var root = el('div'); root.style.cssText = 'height:100%;display:flex;flex-direction:column';
+    var pane = el('div'); pane.style.cssText = 'flex:1;overflow:auto;padding:16px 18px';
+    root.appendChild(pane); body.appendChild(root);
+
+    function section(titleText) { var h = el('h3'); h.textContent = titleText; h.style.cssText = 'margin:18px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.5px;opacity:.65'; return h; }
+    function fact(label, value, good) {
+      var r = el('div'); r.style.cssText = 'display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid rgba(128,128,128,.12)';
+      var a = el('span'); a.textContent = label; a.style.opacity = '.8';
+      var b = el('span'); b.textContent = value; b.style.cssText = 'text-align:right;font-weight:600;word-break:break-all' + (good === true ? ';color:#2e9e6b' : good === false ? ';color:#d97a2b' : '');
+      r.appendChild(a); r.appendChild(b); return r;
+    }
+
+    function load() {
+      pane.innerHTML = '';
+      pane.appendChild(el('div', 'hint', T('Loading...')));
+      api('/api/privacy').then(function (d) {
+        if (!d || !d.web) throw new Error('bad');
+        pane.innerHTML = '';
+        var pm = d.privacyMode || {};
+        // Hero.
+        var hero = el('div'); hero.style.cssText = 'display:flex;gap:14px;align-items:center;background:linear-gradient(135deg,rgba(46,158,107,.16),rgba(46,158,107,.04));border:1px solid rgba(46,158,107,.35);border-radius:12px;padding:16px 18px';
+        var sh = el('div'); sh.style.cssText = 'width:44px;height:44px;flex:0 0 44px'; sh.innerHTML = ICON.shield;
+        var htxt = el('div');
+        var h1 = el('div'); h1.textContent = pm.effective ? T('Runs entirely on your machine - Privacy Mode is on') : T('Self-hosted on your machine'); h1.style.cssText = 'font-weight:700;font-size:16px';
+        var h2 = el('div', 'hint'); h2.textContent = d.host + ' · ' + d.platform + ' · ' + T('signed in as') + ' ' + d.account; h2.style.fontSize = '12px';
+        htxt.appendChild(h1); htxt.appendChild(h2); hero.appendChild(sh); hero.appendChild(htxt); pane.appendChild(hero);
+
+        // Privacy Mode (local-only inference) with a live toggle.
+        pane.appendChild(section('🔒 ' + T('Privacy Mode')));
+        var pmRow = el('div'); pmRow.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 0';
+        var sw = el('button', 'switch' + (pm.on ? ' on' : ''), "<span class='knob'></span>");
+        var pmTxt = el('div');
+        var pmState = el('div'); pmState.style.fontWeight = '600';
+        pmState.textContent = pm.on ? (pm.effective ? T('On: every model call is answered by') + ' ' + pm.localModel + ' ' + T('on this machine') : T('On, but no local model is set: nothing can answer')) : T('Off: turns may use Claude or configured cloud providers');
+        pmState.style.color = pm.on ? (pm.effective ? '#2e9e6b' : '#d13438') : '';
+        var pmHint = el('div', 'hint'); pmHint.style.fontSize = '12px';
+        pmHint.textContent = T('Forces ALL inference to your local model - no cloud provider or Claude ever. Tools that reach the network on purpose (web search, messaging, Home Assistant, external MCP) are not affected.');
+        pmTxt.appendChild(pmState); pmTxt.appendChild(pmHint);
+        pmRow.appendChild(sw); pmRow.appendChild(pmTxt); pane.appendChild(pmRow);
+        if (!pm.on && !d.model.localModel) { var w0 = el('div', 'hint', T('Set a local model first (Settings -> Engine / Local model), otherwise Privacy Mode blocks every reply.')); w0.style.cssText = 'font-size:12px;color:#d97a2b'; pane.appendChild(w0); }
+        sw.addEventListener('click', function () {
+          var next = !pm.on;
+          if (next && !d.model.localModel && !confirm(T('No local model is configured. With Privacy Mode on, nothing will be able to answer. Turn it on anyway?'))) return;
+          sw.disabled = true;
+          postSettings({ live: { privacyMode: next } }).then(function () { try { refreshPrivacyBadge(); } catch (e) {} load(); }).catch(function () { sw.disabled = false; showToast(T('Failed.'), ''); });
+        });
+
+        // Hosting facts.
+        pane.appendChild(section(T('Hosting')));
+        pane.appendChild(fact(T('Data location'), d.dataDir));
+        pane.appendChild(fact(T('Web interface'), d.web.loopbackOnly ? (T('This machine only') + ' (' + d.web.bind + ':' + d.web.port + ')') : (T('Exposed on the network') + ' (' + d.web.bind + ':' + d.web.port + ')'), d.web.loopbackOnly));
+        if (!d.web.loopbackOnly) pane.appendChild(fact(T('Access token required'), d.web.authTokenSet ? T('Yes') : T('No - set one!'), d.web.authTokenSet));
+        pane.appendChild(fact(T('Local model'), d.model.localModel ? d.model.localModel + ' (' + T('on this machine') + ')' : T('none (cloud models only)'), d.model.localModel ? true : null));
+        pane.appendChild(fact(T('Routing chain'), (d.model.routeChain || []).join(' -> ') || '-'));
+
+        // Where data can go out.
+        pane.appendChild(section(T('Where data can leave this machine')));
+        (d.outbound || []).forEach(function (o) {
+          var card = el('div'); card.style.cssText = 'border:1px solid rgba(128,128,128,.2);border-radius:8px;padding:10px 12px;margin-bottom:8px' + (o.status === 'blocked' ? ';opacity:.7' : '');
+          var top = el('div'); top.style.cssText = 'display:flex;justify-content:space-between;gap:10px;align-items:center';
+          var nm = el('div'); nm.textContent = o.name; nm.style.fontWeight = '600';
+          var badge = el('span'); badge.textContent = o.status === 'required' ? T('required') : o.status === 'blocked' ? T('blocked') : T('active');
+          badge.style.cssText = 'font-size:11px;font-weight:600;padding:1px 8px;border-radius:10px;color:#fff;background:' + (o.status === 'required' ? '#3a7bd5' : o.status === 'blocked' ? '#2e9e6b' : '#d97a2b');
+          top.appendChild(nm); top.appendChild(badge);
+          var note = el('div', 'hint'); note.textContent = o.note; note.style.cssText = 'font-size:12px;margin-top:3px;line-height:1.45';
+          card.appendChild(top); card.appendChild(note); pane.appendChild(card);
+        });
+
+        // Stays local.
+        pane.appendChild(section(T('Never leaves this machine')));
+        var ul = el('div');
+        (d.localOnly || []).forEach(function (t) {
+          var li = el('div'); li.style.cssText = 'display:flex;gap:8px;padding:5px 0;align-items:flex-start';
+          var ck = el('span'); ck.textContent = '✓'; ck.style.cssText = 'color:#2e9e6b;font-weight:700;flex:0 0 auto';
+          var tx = el('span'); tx.textContent = t;
+          li.appendChild(ck); li.appendChild(tx); ul.appendChild(li);
+        });
+        pane.appendChild(ul);
+
+        var foot = el('div', 'hint'); foot.style.cssText = 'margin-top:16px;font-size:12px;line-height:1.5;opacity:.7';
+        foot.textContent = T('Zamolxis is self-hosted: no external database, no telemetry. The list above is generated from your current configuration, so it always reflects reality.');
+        pane.appendChild(foot);
+      }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'hint', T('Could not load privacy status.'))); });
+    }
+    if (win.setMenus) win.setMenus([{ label: T('View'), items: [{ label: T('Refresh'), action: load }, { label: T('Settings'), action: function () { launchApp('settings'); } }] }]);
+    load();
+  }
+
+  // ---------- App: Automations + Agent Activity ----------
+  // Automations: manage event-driven triggers that fire an agent when a file lands or a system
+  // resource crosses a threshold - the reactive counterpart to scheduled agents. Local to this
+  // machine: the watcher runs in the Zamolxis process and reacts to this desktop's own filesystem.
+  function mountTriggers(body, win) {
+    body.style.padding = '0';
+    var root = el('div'); root.style.cssText = 'height:100%;display:flex;flex-direction:column';
+    var bar = el('div'); bar.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid rgba(128,128,128,.2)';
+    var title = el('div'); title.textContent = T('Automations'); title.style.cssText = 'font-weight:600;font-size:14px';
+    var spacer = el('div'); spacer.style.flex = '1';
+    var addBtn = el('button', 'btn', T('New automation'));
+    bar.appendChild(title); bar.appendChild(spacer); bar.appendChild(addBtn);
+    var pane = el('div'); pane.style.cssText = 'flex:1;overflow:auto;padding:14px';
+    root.appendChild(bar); root.appendChild(pane); body.appendChild(root);
+
+    var TYPE_LABEL = { file: T('File lands in a folder'), disk: T('Disk space runs low'), memory: T('Memory runs high') };
+
+    function tPost(payload) {
+      return api('/api/triggers', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+    }
+    function describe(t) {
+      if (t.label) return t.label;
+      if (t.type === 'file') return T('New file in') + ' ' + (t.folder || '?') + (t.match ? ' (' + t.match + ')' : '');
+      if (t.type === 'disk') return (t.drive || 'C:') + ' ' + T('free space below') + ' ' + (t.thresholdPct != null ? t.thresholdPct : 10) + '%';
+      if (t.type === 'memory') return T('Memory use above') + ' ' + (t.thresholdPct != null ? t.thresholdPct : 90) + '%';
+      return t.type;
+    }
+
+    function render() {
+      pane.innerHTML = ''; pane.appendChild(el('div', 'hint', T('Loading...')));
+      api('/api/triggers').then(function (d) {
+        pane.innerHTML = '';
+        var list = (d && d.triggers) || [];
+        var intro = el('div', 'hint');
+        intro.textContent = T('Run an agent automatically when something happens on this machine - not on a schedule. Everything is watched locally.');
+        intro.style.cssText = 'margin-bottom:12px;line-height:1.5'; pane.appendChild(intro);
+        if (!list.length) {
+          var empty = el('div', 'hint'); empty.textContent = T('No automations yet. Click "New automation" to create one.');
+          empty.style.cssText = 'text-align:center;padding:26px 10px'; pane.appendChild(empty);
+          return;
+        }
+        list.forEach(function (t) {
+          var card = el('div'); card.style.cssText = 'border:1px solid rgba(128,128,128,.2);border-radius:8px;padding:10px 12px;margin-bottom:10px;display:flex;align-items:center;gap:12px';
+          var left = el('div'); left.style.flex = '1';
+          var d1 = el('div'); d1.textContent = describe(t); d1.style.fontWeight = '600';
+          var d2 = el('div', 'hint'); d2.style.fontSize = '12px';
+          d2.textContent = T('Runs') + ' ' + t.agent + (t.lastFired ? ' · ' + T('last fired') + ' ' + new Date(t.lastFired).toLocaleString() : ' · ' + T('never fired'));
+          left.appendChild(d1); left.appendChild(d2);
+          var toggle = el('label'); toggle.style.cssText = 'display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer';
+          var cb = el('input'); cb.type = 'checkbox'; cb.checked = !!t.enabled;
+          cb.onchange = function () { tPost({ action: 'toggle', id: t.id, enabled: cb.checked }).then(function () { showToast(cb.checked ? T('Enabled') : T('Disabled')); }); };
+          toggle.appendChild(cb); toggle.appendChild(document.createTextNode(T('On')));
+          var del = el('button', 'btn ghost', T('Delete'));
+          del.onclick = function () { tPost({ action: 'remove', id: t.id }).then(function () { showToast(T('Deleted')); render(); }); };
+          card.appendChild(left); card.appendChild(toggle); card.appendChild(del);
+          pane.appendChild(card);
+        });
+      }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'hint', 'Could not load automations.')); });
+    }
+
+    function showAddForm() {
+      pane.innerHTML = '';
+      var h = el('h3'); h.textContent = T('New automation'); h.style.cssText = 'margin:0 0 12px;font-size:15px'; pane.appendChild(h);
+      function field(labelText, node) {
+        var wrap = el('div'); wrap.style.marginBottom = '12px';
+        var l = el('label'); l.textContent = labelText; l.style.cssText = 'display:block;font-size:12px;font-weight:600;margin-bottom:4px;opacity:.8';
+        wrap.appendChild(l); wrap.appendChild(node); return wrap;
+      }
+      function input(ph, val) { var i = el('input'); i.type = 'text'; if (ph) i.placeholder = ph; if (val != null) i.value = val; i.style.cssText = 'width:100%;padding:7px 9px;border:1px solid rgba(128,128,128,.3);border-radius:6px;background:transparent;color:inherit;box-sizing:border-box'; return i; }
+      function num(val) { var i = el('input'); i.type = 'number'; i.value = val; i.style.cssText = 'width:100%;padding:7px 9px;border:1px solid rgba(128,128,128,.3);border-radius:6px;background:transparent;color:inherit;box-sizing:border-box'; return i; }
+
+      // Agent picker (from the loaded, non-hidden agents).
+      var agentSel = el('select'); agentSel.style.cssText = 'width:100%;padding:7px 9px;border:1px solid rgba(128,128,128,.3);border-radius:6px;background:transparent;color:inherit;box-sizing:border-box';
+      var avail = (agents || []).filter(function (a) { return !a.hidden; });
+      if (!avail.length) { var o0 = el('option'); o0.textContent = T('(no agents - create one first)'); o0.value = ''; agentSel.appendChild(o0); }
+      avail.forEach(function (a) { var o = el('option'); o.value = a.name; o.textContent = a.label || a.name; agentSel.appendChild(o); });
+      pane.appendChild(field(T('Run this agent'), agentSel));
+
+      var typeSel = el('select'); typeSel.style.cssText = agentSel.style.cssText;
+      ['file', 'disk', 'memory'].forEach(function (k) { var o = el('option'); o.value = k; o.textContent = TYPE_LABEL[k]; typeSel.appendChild(o); });
+      pane.appendChild(field(T('When'), typeSel));
+
+      // Type-specific fields swap in here.
+      var dyn = el('div'); pane.appendChild(dyn);
+      var folderI = input('C:\\\\Drop'), matchI = input('*.csv  (' + T('optional - blank = any file') + ')'), driveI = input('C:', 'C:'), diskN = num(10), memN = num(90);
+      function renderDyn() {
+        dyn.innerHTML = '';
+        if (typeSel.value === 'file') { dyn.appendChild(field(T('Folder to watch'), folderI)); dyn.appendChild(field(T('Only files matching'), matchI)); }
+        else if (typeSel.value === 'disk') { dyn.appendChild(field(T('Drive'), driveI)); dyn.appendChild(field(T('Fire when free space drops below (%)'), diskN)); }
+        else { dyn.appendChild(field(T('Fire when memory used climbs above (%)'), memN)); }
+      }
+      typeSel.onchange = renderDyn; renderDyn();
+
+      var promptI = el('textarea'); promptI.placeholder = T('What should the agent do? (optional - use {file} for the file path)');
+      promptI.style.cssText = 'width:100%;min-height:64px;padding:7px 9px;border:1px solid rgba(128,128,128,.3);border-radius:6px;background:transparent;color:inherit;box-sizing:border-box;font-family:inherit;resize:vertical';
+      pane.appendChild(field(T('Instruction'), promptI));
+
+      var actions = el('div'); actions.style.cssText = 'display:flex;gap:8px;margin-top:6px';
+      var save = el('button', 'btn', T('Create automation'));
+      var cancel = el('button', 'btn ghost', T('Cancel'));
+      actions.appendChild(save); actions.appendChild(cancel); pane.appendChild(actions);
+      cancel.onclick = render;
+      save.onclick = function () {
+        var agent = agentSel.value;
+        if (!agent) { showToast(T('Pick an agent first')); return; }
+        var payload = { action: 'add', agent: agent, type: typeSel.value, prompt: promptI.value || undefined };
+        if (typeSel.value === 'file') {
+          if (!folderI.value.trim()) { showToast(T('Enter a folder to watch')); return; }
+          payload.folder = folderI.value.trim(); payload.match = matchI.value.trim() || undefined;
+        } else if (typeSel.value === 'disk') {
+          payload.drive = driveI.value.trim() || 'C:'; payload.thresholdPct = Number(diskN.value) || 10;
+        } else {
+          payload.thresholdPct = Number(memN.value) || 90;
+        }
+        save.disabled = true;
+        tPost(payload).then(function (r) {
+          save.disabled = false;
+          if (r && r.ok) { showToast(T('Automation created')); render(); }
+          else { showToast((r && r.error) || T('Could not create automation')); }
+        }).catch(function () { save.disabled = false; showToast(T('Could not create automation')); });
+      };
+    }
+    addBtn.onclick = showAddForm;
+    render();
+  }
+
+  // Agent Activity: the observability dashboard. Reads /api/runs (per-agent rollups + recent runs)
+  // and shows how each agent has been doing - how often it runs, how reliable it is, what it costs,
+  // and what it last did. Everything here is local: the ledger lives in the data dir on this machine.
+  function mountRuns(body, win) {
+    body.style.padding = '0';
+    var root = el('div'); root.style.cssText = 'height:100%;display:flex;flex-direction:column';
+    var bar = el('div'); bar.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid rgba(128,128,128,.2)';
+    var title = el('div'); title.textContent = T('Agent Activity'); title.style.cssText = 'font-weight:600;font-size:14px';
+    var spacer = el('div'); spacer.style.flex = '1';
+    var refresh = el('button', 'btn ghost', T('Refresh'));
+    bar.appendChild(title); bar.appendChild(spacer); bar.appendChild(refresh);
+    var pane = el('div'); pane.style.cssText = 'flex:1;overflow:auto;padding:14px';
+    root.appendChild(bar); root.appendChild(pane); body.appendChild(root);
+
+    function relTime(ms) {
+      if (!ms) return '-';
+      var s = Math.round((Date.now() - ms) / 1000);
+      if (s < 60) return s + 's ago';
+      if (s < 3600) return Math.round(s / 60) + 'm ago';
+      if (s < 86400) return Math.round(s / 3600) + 'h ago';
+      return Math.round(s / 86400) + 'd ago';
+    }
+    function fmtDur(ms) { ms = Math.round(ms || 0); if (ms < 1000) return ms + 'ms'; var s = ms / 1000; return s < 60 ? s.toFixed(1) + 's' : Math.floor(s / 60) + 'm ' + Math.round(s % 60) + 's'; }
+    function fmtCost(u) { return u ? '$' + (u < 0.01 ? u.toFixed(4) : u.toFixed(3)) : '$0'; }
+    var ORIGIN_COLOR = { schedule: '#3a7bd5', manual: '#d97a2b', event: '#2e9e6b', chat: '#7a5cd0', unknown: '#888' };
+    function badge(text, color) {
+      var b = el('span'); b.textContent = text;
+      b.style.cssText = 'display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:600;color:#fff;background:' + color;
+      return b;
+    }
+    function cell(text, opts) {
+      var c = el('td'); c.textContent = text == null ? '' : text;
+      c.style.cssText = 'padding:6px 10px;border-bottom:1px solid rgba(128,128,128,.12);' + ((opts && opts.css) || '');
+      return c;
+    }
+    function th(text, css) { var h = el('th'); h.textContent = text; h.style.cssText = 'text-align:left;padding:6px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;opacity:.6;border-bottom:1px solid rgba(128,128,128,.25);' + (css || ''); return h; }
+
+    function render() {
+      pane.innerHTML = ''; pane.appendChild(el('div', 'hint', T('Loading...')));
+      api('/api/runs?limit=100').then(function (d) {
+        pane.innerHTML = '';
+        var stats = (d && d.stats) || [], runs = (d && d.runs) || [];
+        if (!stats.length && !runs.length) {
+          var empty = el('div', 'hint');
+          empty.innerHTML = T('No agent runs recorded yet.') + '<br>' + T('Run an agent (scheduled, manual, or event-triggered) and its activity shows up here.');
+          empty.style.cssText = 'text-align:center;padding:40px 20px;line-height:1.7';
+          pane.appendChild(empty); return;
+        }
+        // Totals strip.
+        var totRuns = 0, totCost = 0, totFail = 0;
+        stats.forEach(function (s) { totRuns += s.runs; totCost += s.totalCostUsd; totFail += s.failed; });
+        var strip = el('div'); strip.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px';
+        function card(label, value, sub) {
+          var c = el('div'); c.style.cssText = 'flex:1;min-width:120px;background:rgba(128,128,128,.08);border:1px solid rgba(128,128,128,.15);border-radius:8px;padding:10px 12px';
+          var v = el('div'); v.textContent = value; v.style.cssText = 'font-size:20px;font-weight:700';
+          var l = el('div', 'hint'); l.textContent = label; l.style.fontSize = '12px';
+          c.appendChild(v); c.appendChild(l);
+          if (sub) { var s2 = el('div', 'hint'); s2.textContent = sub; s2.style.cssText = 'font-size:11px;margin-top:2px'; c.appendChild(s2); }
+          return c;
+        }
+        strip.appendChild(card(T('Agents active'), String(stats.length)));
+        strip.appendChild(card(T('Total runs'), String(totRuns), totFail ? (totFail + ' ' + T('failed')) : T('all succeeded')));
+        strip.appendChild(card(T('Total cost'), fmtCost(totCost), T('this machine, all local')));
+        pane.appendChild(strip);
+
+        // Per-agent rollup table.
+        var h1 = el('h3'); h1.textContent = T('By agent'); h1.style.cssText = 'margin:6px 0 8px;font-size:13px'; pane.appendChild(h1);
+        var t1 = el('table'); t1.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px';
+        var hr = el('tr'); ['Agent', 'Runs', 'Success', 'Total cost', 'Avg time', 'Last run'].forEach(function (x, i) { hr.appendChild(th(T(x), i > 0 ? 'text-align:right' : '')); }); t1.appendChild(hr);
+        stats.forEach(function (s) {
+          var tr = el('tr');
+          tr.appendChild(cell(s.agent, { css: 'font-weight:600' }));
+          tr.appendChild(cell(String(s.runs), { css: 'text-align:right' }));
+          var rate = s.runs ? Math.round((s.ok / s.runs) * 100) : 0;
+          tr.appendChild(cell(rate + '%', { css: 'text-align:right;color:' + (rate >= 90 ? '#2e9e6b' : rate >= 60 ? '#d97a2b' : '#e07a5f') }));
+          tr.appendChild(cell(fmtCost(s.totalCostUsd), { css: 'text-align:right' }));
+          tr.appendChild(cell(fmtDur(s.avgDurationMs), { css: 'text-align:right' }));
+          var last = cell('', { css: 'text-align:right;white-space:nowrap' });
+          last.textContent = relTime(s.lastAt) + (s.lastOk === false ? ' ✗' : '');
+          if (s.lastOk === false) last.style.color = '#e07a5f';
+          tr.appendChild(last);
+          t1.appendChild(tr);
+        });
+        pane.appendChild(t1);
+
+        // Recent runs feed.
+        var h2 = el('h3'); h2.textContent = T('Recent runs'); h2.style.cssText = 'margin:18px 0 8px;font-size:13px'; pane.appendChild(h2);
+        var t2 = el('table'); t2.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px';
+        var hr2 = el('tr'); ['When', 'Agent', 'Trigger', '', 'Time', 'Cost', 'Result'].forEach(function (x) { hr2.appendChild(th(x ? T(x) : '')); }); t2.appendChild(hr2);
+        runs.forEach(function (r) {
+          var tr = el('tr');
+          tr.appendChild(cell(relTime(r.at), { css: 'white-space:nowrap;opacity:.75' }));
+          tr.appendChild(cell(r.agent, { css: 'font-weight:600' }));
+          var bc = cell(''); bc.appendChild(badge(T(r.origin || 'unknown'), ORIGIN_COLOR[r.origin] || ORIGIN_COLOR.unknown)); tr.appendChild(bc);
+          var ok = cell(r.ok ? '✓' : '✗', { css: 'text-align:center;font-weight:700;color:' + (r.ok ? '#2e9e6b' : '#e07a5f') }); tr.appendChild(ok);
+          tr.appendChild(cell(fmtDur(r.durationMs), { css: 'white-space:nowrap;opacity:.75' }));
+          tr.appendChild(cell(fmtCost(r.costUsd), { css: 'white-space:nowrap;opacity:.75' }));
+          var pv = cell(r.preview || '', { css: 'max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85' });
+          pv.title = r.preview || '';
+          tr.appendChild(pv);
+          t2.appendChild(tr);
+        });
+        pane.appendChild(t2);
+      }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'hint', 'Could not load agent activity.')); });
+    }
+    refresh.onclick = render;
+    render();
+  }
+
   // ---------- App: System Toolkit ----------
   // A Swiss-army manager for the host machine: a health Overview, disk Cleanup, Startup
   // programs, running Processes (with End task), and a Windows Registry cruft scanner that
@@ -2659,69 +3421,146 @@
     win.cleanup.push(function () { if (sock) { try { sock.close(); } catch (e) {} } });
   }
 
-  // SFTP client: real SSH/SFTP sessions via the /api/sftp backend (ssh2). Browse, download, upload, manage.
+  // File Transfer — a FileZilla-style dual-pane client. Left pane is the local machine
+  // (browsed via /api/fs), right pane is a remote SSH/SFTP server (/api/sftp, ssh2). Files
+  // move between them with the transfer arrows; a status log at the bottom narrates each step.
   function mountSftp(body, win) {
     body.style.padding = '0';
+    var sid = null;
     var wrap = el('div'); wrap.style.cssText = 'height:100%;display:flex;flex-direction:column;font-size:13px';
+    // Quick-connect bar (always visible, like FileZilla's top toolbar).
     var form = el('div'); form.style.cssText = 'display:flex;gap:6px;padding:8px;border-bottom:1px solid rgba(128,128,128,.2);flex-wrap:wrap;align-items:center';
     var host = el('input', 'inp'); host.placeholder = 'host'; host.style.flex = '2';
     var port = el('input', 'inp'); port.placeholder = '22'; port.value = '22'; port.style.width = '56px';
     var user = el('input', 'inp'); user.placeholder = 'username'; user.style.flex = '1';
     var pass = el('input', 'inp'); pass.type = 'password'; pass.placeholder = 'password'; pass.style.flex = '1';
-    var connBtn = el('button', 'btn', 'Connect');
-    [host, port, user, pass, connBtn].forEach(function (e) { form.appendChild(e); });
-    var bar = el('div'); bar.style.cssText = 'display:none;gap:6px;padding:6px 8px;border-bottom:1px solid rgba(128,128,128,.2);align-items:center;flex-wrap:wrap';
-    var upBtn = el('button', 'btn ghost', '↰'); var pathInp = el('input', 'inp'); pathInp.style.flex = '1';
-    var refBtn = el('button', 'btn ghost', T('Refresh')); var mkBtn = el('button', 'btn ghost', T('New folder')); var ulBtn = el('button', 'btn ghost', '📎'); var dcBtn = el('button', 'btn ghost', 'Disconnect');
-    var fileIn = el('input'); fileIn.type = 'file'; fileIn.style.display = 'none';
-    [upBtn, pathInp, refBtn, mkBtn, ulBtn, dcBtn].forEach(function (e) { bar.appendChild(e); });
-    var list = el('div'); list.style.cssText = 'flex:1;overflow:auto;padding:6px';
-    var status = el('div', 'hint'); status.style.cssText = 'padding:4px 8px;border-top:1px solid rgba(128,128,128,.2)';
-    wrap.appendChild(form); wrap.appendChild(bar); wrap.appendChild(list); wrap.appendChild(status); body.appendChild(wrap); body.appendChild(fileIn);
-    var sid = null, cur = '.';
-    function sapi(op, extra) { return api('/api/sftp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ op: op, sessionId: sid }, extra || {})) }); }
-    function parent(p) { if (p === '/' || p === '.' || p === '') return p; var q = p.replace(/\/+$/, ''); var i = q.lastIndexOf('/'); return i <= 0 ? '/' : q.slice(0, i); }
-    function join(p, n) { if (p === '.') return n; return (p === '/' ? '' : p.replace(/\/+$/, '')) + '/' + n; }
-    function load(p) {
-      status.textContent = '...'; sapi('list', { path: p }).then(function (d) {
-        if (d.error) { status.textContent = d.error; return; }
-        cur = p; pathInp.value = p; list.innerHTML = '';
-        d.items.forEach(function (it) {
-          var full = join(p, it.name);
+    var connBtn = el('button', 'btn', T('Connect'));
+    var dcBtn = el('button', 'btn ghost', T('Disconnect')); dcBtn.disabled = true;
+    [host, port, user, pass, connBtn, dcBtn].forEach(function (e) { form.appendChild(e); });
+    // Two side-by-side panes + the transfer log.
+    var panes = el('div'); panes.style.cssText = 'flex:1;display:flex;gap:8px;padding:8px;min-height:0';
+    var logBox = el('div'); logBox.style.cssText = 'height:92px;flex:0 0 auto;overflow:auto;padding:6px 9px;border-top:1px solid rgba(128,128,128,.2);font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.5';
+    wrap.appendChild(form); wrap.appendChild(panes); wrap.appendChild(logBox); body.appendChild(wrap);
+    function logMsg(s) { var line = el('div'); line.textContent = s; line.style.whiteSpace = 'pre-wrap'; logBox.appendChild(line); logBox.scrollTop = logBox.scrollHeight; }
+
+    function sftpCall(op, extra) { return api('/api/sftp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ op: op, sessionId: sid }, extra || {})) }); }
+    function rjoin(p, n) { if (p === '.') return n; return (p === '/' ? '' : p.replace(/\/+$/, '')) + '/' + n; }
+    function rparent(p) { if (p === '/' || p === '.' || p === '') return p; var q = p.replace(/\/+$/, ''); var i = q.lastIndexOf('/'); return i <= 0 ? '/' : q.slice(0, i); }
+    function fsCall(op, extra) { return api('/api/fs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ op: op }, extra || {})) }); }
+
+    // Drivers abstract the two backends behind a common shape the pane renderer can use.
+    var localDriver = {
+      isLocal: true, start: '',
+      list: function (p) { return fsCall('list', { path: p }); }, // returns {path,parent,sep,items[,drives]}
+      join: function (dir, name, it) { return (it && it.abs) ? it.abs : dir.replace(/[\\/]+$/, '') + (dir.indexOf('\\') >= 0 ? '\\' : '/') + name; },
+      parentOf: function (p) { return p; },
+      mkdir: function (p) { return fsCall('mkdir', { path: p }); },
+      rename: function (full, nn, cwd) { var s = cwd.indexOf('\\') >= 0 ? '\\' : '/'; return fsCall('rename', { path: full, to: cwd.replace(/[\\/]+$/, '') + s + nn }); },
+      del: function (p) { return fsCall('delete', { path: p }); }
+    };
+    var remoteDriver = {
+      isLocal: false, start: '.',
+      list: function (p) { return sftpCall('list', { path: p }).then(function (d) { if (d && !d.error) { d.path = p; d.parent = rparent(p); d.sep = '/'; } return d; }); },
+      join: function (dir, name) { return rjoin(dir, name); },
+      parentOf: function (p) { return rparent(p); },
+      mkdir: function (p) { return sftpCall('mkdir', { path: p }); },
+      rename: function (full, nn, cwd) { return sftpCall('rename', { path: full, to: rjoin(cwd, nn) }); },
+      del: function (p) { return sftpCall('delete', { path: p }); }
+    };
+
+    function makePane(driver, title) {
+      var pane = el('div'); pane.style.cssText = 'flex:1;min-width:0;display:flex;flex-direction:column;border:1px solid rgba(128,128,128,.25);border-radius:6px;overflow:hidden';
+      var head = el('div'); head.textContent = title; head.style.cssText = 'padding:5px 9px;border-bottom:1px solid rgba(128,128,128,.2);font-weight:600;font-size:12px';
+      var bar = el('div'); bar.style.cssText = 'display:flex;gap:4px;padding:4px 6px;border-bottom:1px solid rgba(128,128,128,.2);align-items:center';
+      var up = el('button', 'btn ghost mini', '↰'); up.title = T('Up');
+      var pathInp = el('input', 'inp'); pathInp.style.cssText = 'flex:1;font-size:12px;padding:2px 6px';
+      var refB = el('button', 'btn ghost mini', '⟳'); refB.title = T('Refresh');
+      var mkB = el('button', 'btn ghost mini', '+'); mkB.title = T('New folder');
+      [up, pathInp, refB, mkB].forEach(function (e) { bar.appendChild(e); });
+      var list = el('div'); list.style.cssText = 'flex:1;overflow:auto;font-size:12px';
+      var foot = el('div', 'hint'); foot.style.cssText = 'padding:3px 9px;border-top:1px solid rgba(128,128,128,.15);font-size:11px';
+      [head, bar, list, foot].forEach(function (e) { pane.appendChild(e); });
+      var P = { el: pane, cwd: driver.start, sep: '/', parent: null, onTransfer: null };
+      function setEnabled(on) { [pathInp, up, refB, mkB].forEach(function (b) { b.disabled = !on; }); if (!on) { list.innerHTML = ''; foot.textContent = title === T('Remote site') ? 'Not connected.' : ''; pathInp.value = ''; } }
+      P.setEnabled = setEnabled;
+      function render(d) {
+        if (d.path != null) P.cwd = d.path;
+        P.parent = (d.parent !== undefined) ? d.parent : driver.parentOf(P.cwd);
+        if (d.sep) P.sep = d.sep;
+        pathInp.value = P.cwd; list.innerHTML = '';
+        (d.items || []).forEach(function (it) {
+          var full = driver.join(P.cwd, it.name, it);
           var row = el('div', 'fm-row');
           var ic = el('span', 'fm-ico', it.dir ? ICON.files : iconForName(it.name));
           var nm = el('span'); nm.textContent = it.name; nm.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
           var meta = el('span', 'hint'); meta.textContent = it.dir ? '' : humanSize(it.size);
           var act = el('span', 'fm-act');
-          if (!it.dir) { var dl = el('button', 'btn ghost mini', T('Download')); dl.addEventListener('click', function (e) { e.stopPropagation(); status.textContent = '...'; sapi('read', { path: full }).then(function (r) { if (r.error) { status.textContent = r.error; return; } var a = document.createElement('a'); a.href = 'data:application/octet-stream;base64,' + r.b64; a.download = it.name; a.click(); status.textContent = 'downloaded ' + it.name; }); }); act.appendChild(dl); }
-          var rn = el('button', 'btn ghost mini', T('Rename')); rn.addEventListener('click', function (e) { e.stopPropagation(); var nn = prompt(T('Rename'), it.name); if (nn && nn !== it.name) sapi('rename', { path: full, to: join(parent(full) === full ? cur : parent(full), nn) }).then(function () { load(cur); }); }); act.appendChild(rn);
-          var del = el('button', 'btn ghost mini', T('Delete')); del.addEventListener('click', function (e) { e.stopPropagation(); if (confirm(T('Delete') + ' "' + it.name + '"?')) sapi('delete', { path: full }).then(function () { load(cur); }); }); act.appendChild(del);
-          row.appendChild(ic); row.appendChild(nm); row.appendChild(meta); row.appendChild(act);
-          row.addEventListener('dblclick', function () { if (it.dir) load(full); });
+          if (!it.dir) { var x = el('button', 'btn ghost mini', driver.isLocal ? '↥' : '↧'); x.title = driver.isLocal ? T('Upload') : T('Download'); x.addEventListener('click', function (e) { e.stopPropagation(); if (P.onTransfer) P.onTransfer(full, it.name, it.size); }); act.appendChild(x); }
+          var rn = el('button', 'btn ghost mini', '✎'); rn.title = T('Rename'); rn.addEventListener('click', function (e) { e.stopPropagation(); var nn = prompt(T('Rename'), it.name); if (nn && nn !== it.name) driver.rename(full, nn, P.cwd).then(function () { P.load(P.cwd); }); }); act.appendChild(rn);
+          var del = el('button', 'btn ghost mini', '🗑'); del.title = T('Delete'); del.addEventListener('click', function (e) { e.stopPropagation(); if (confirm(T('Delete') + ' "' + it.name + '"?')) driver.del(full).then(function () { P.load(P.cwd); }); }); act.appendChild(del);
+          [ic, nm, meta, act].forEach(function (e) { row.appendChild(e); });
+          row.addEventListener('dblclick', function () { if (it.dir) P.load(full); });
           list.appendChild(row);
         });
-        status.textContent = d.items.length + ' items · ' + p;
-      }).catch(function () { status.textContent = 'error'; });
+        foot.textContent = (d.items ? d.items.length : 0) + ' items';
+      }
+      P.load = function (p) { foot.textContent = '…'; return driver.list(p).then(function (d) { if (d && d.error) { foot.textContent = d.error; return; } render(d); }).catch(function () { foot.textContent = 'error'; }); };
+      up.addEventListener('click', function () { var pp = (P.parent !== undefined && P.parent !== null) ? P.parent : driver.parentOf(P.cwd); if (pp != null) P.load(pp); });
+      refB.addEventListener('click', function () { P.load(P.cwd); });
+      pathInp.addEventListener('keydown', function (e) { if (e.key === 'Enter') P.load(pathInp.value); });
+      mkB.addEventListener('click', function () { var n = prompt(T('New folder')); if (n) driver.mkdir(driver.join(P.cwd, n)).then(function () { P.load(P.cwd); }); });
+      return P;
     }
+
+    var localPane = makePane(localDriver, T('Local site'));
+    var remotePane = makePane(remoteDriver, T('Remote site'));
+    panes.appendChild(localPane.el); panes.appendChild(remotePane.el);
+    remotePane.setEnabled(false);
+
+    // Transfer: local file up to the remote's current directory.
+    localPane.onTransfer = function (abs, name, size) {
+      if (!sid) { logMsg('Not connected — connect to a server first.'); return; }
+      logMsg('↥ ' + name + ' …');
+      fsCall('readB64', { path: abs }).then(function (r) {
+        if (!r || r.error) { logMsg('  ✗ ' + ((r && r.error) || 'read failed')); return; }
+        var dest = rjoin(remotePane.cwd, name);
+        sftpCall('write', { path: dest, content: r.b64 }).then(function (d) {
+          if (d && d.error) { logMsg('  ✗ ' + d.error); return; }
+          logMsg('  ✓ ' + name + ' → ' + dest + ' (' + humanSize(r.size || size) + ')'); remotePane.load(remotePane.cwd);
+        });
+      });
+    };
+    // Transfer: remote file down to the local current directory.
+    remotePane.onTransfer = function (full, name) {
+      logMsg('↧ ' + name + ' …');
+      sftpCall('read', { path: full }).then(function (r) {
+        if (!r || r.error) { logMsg('  ✗ ' + ((r && r.error) || 'read failed')); return; }
+        var s = localPane.cwd.indexOf('\\') >= 0 ? '\\' : '/';
+        var dest = localPane.cwd.replace(/[\\/]+$/, '') + s + name;
+        fsCall('writeB64', { path: dest, content: r.b64 }).then(function (d) {
+          if (d && d.error) { logMsg('  ✗ ' + d.error); return; }
+          logMsg('  ✓ ' + name + ' → ' + dest); localPane.load(localPane.cwd);
+        });
+      });
+    };
+
+    function setConnected(on) { connBtn.disabled = on; dcBtn.disabled = !on; [host, port, user, pass].forEach(function (e) { e.disabled = on; }); remotePane.setEnabled(on); }
     connBtn.addEventListener('click', function () {
-      if (sid) return; connBtn.disabled = true; status.textContent = 'connecting...';
-      sapi('connect', { host: host.value.trim(), port: port.value || '22', username: user.value.trim(), password: pass.value }).then(function (d) {
-        connBtn.disabled = false; if (d.error) { status.textContent = d.error; return; }
-        sid = d.sessionId; pass.value = ''; form.style.display = 'none'; bar.style.display = 'flex'; load('.');
-      }).catch(function () { connBtn.disabled = false; status.textContent = 'connect failed'; });
+      if (sid) return; connBtn.disabled = true; logMsg('Connecting to ' + host.value.trim() + ' …');
+      sftpCall('connect', { host: host.value.trim(), port: port.value || '22', username: user.value.trim(), password: pass.value }).then(function (d) {
+        if (!d || d.error) { connBtn.disabled = false; logMsg('  ✗ ' + ((d && d.error) || 'connect failed')); return; }
+        sid = d.sessionId; pass.value = ''; setConnected(true); logMsg('  ✓ Connected.'); remotePane.load('.');
+      }).catch(function () { connBtn.disabled = false; logMsg('  ✗ connect failed'); });
     });
-    upBtn.addEventListener('click', function () { load(parent(cur)); });
-    refBtn.addEventListener('click', function () { load(cur); });
-    pathInp.addEventListener('keydown', function (e) { if (e.key === 'Enter') load(pathInp.value); });
-    mkBtn.addEventListener('click', function () { var n = prompt(T('New folder')); if (n) sapi('mkdir', { path: join(cur, n) }).then(function () { load(cur); }); });
-    ulBtn.addEventListener('click', function () { fileIn.click(); });
-    fileIn.addEventListener('change', function () { var f = (fileIn.files || [])[0]; fileIn.value = ''; if (!f) return; var rd = new FileReader(); rd.onload = function () { var s = String(rd.result || ''); var c = s.indexOf(','); var b64 = c >= 0 ? s.slice(c + 1) : s; status.textContent = 'uploading...'; sapi('write', { path: join(cur, f.name), content: b64 }).then(function () { load(cur); }); }; rd.readAsDataURL(f); });
-    dcBtn.addEventListener('click', function () { if (sid) sapi('disconnect', {}); sid = null; bar.style.display = 'none'; form.style.display = 'flex'; list.innerHTML = ''; status.textContent = ''; });
+    dcBtn.addEventListener('click', function () { if (sid) sftpCall('disconnect', {}); sid = null; setConnected(false); logMsg('Disconnected.'); });
+
     win.setMenus([
-      { label: T('Session'), items: [ { label: T('Connect'), action: function () { connBtn.click(); } }, { label: T('Disconnect'), action: function () { dcBtn.click(); } } ] },
-      { label: T('File'), items: [ { label: T('New folder'), action: function () { mkBtn.click(); } }, { label: T('Upload') + '...', action: function () { ulBtn.click(); } }, { label: T('Refresh'), action: function () { refBtn.click(); } } ] }
+      { label: T('Session'), items: [{ label: T('Connect'), action: function () { connBtn.click(); } }, { label: T('Disconnect'), action: function () { dcBtn.click(); } }] },
+      { label: T('File'), items: [{ label: T('New folder'), action: function () { /* per-pane via the + button */ logMsg('Use the + button in either pane to make a folder.'); } }, { label: T('Refresh'), action: function () { localPane.load(localPane.cwd); if (sid) remotePane.load(remotePane.cwd); } }] }
     ]);
-    win.cleanup.push(function () { if (sid) sapi('disconnect', {}); });
+    win.cleanup.push(function () { if (sid) sftpCall('disconnect', {}); });
+    localPane.load(localDriver.start); // show the local machine immediately
+    logMsg('Local machine ready. Enter host / user / password above and Connect to a remote server.');
   }
 
   // Messages: a real client for the connected messaging channels (Telegram/Discord/Slack/Signal/
@@ -3081,30 +3920,53 @@
     head.appendChild(el('div', 'a-sub', Tf('Model: {m}', { m: agent.model || T('(default)') })));
     if (agent.job) { var j = el('div', 'a-sub'); j.textContent = agent.job; head.appendChild(j); }
     var bar = el('div'); bar.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:10px';
-    var toggle = el('button', 'switch' + (appChatEnabled(win.appId, true) ? ' on' : ''), "<span class='knob'></span>");
+    var toggle = el('button', 'switch' + (appChatEnabled(win.appId, false) ? ' on' : ''), "<span class='knob'></span>");
     toggle.title = T('Toggle chat window for this app');
     var lbl = el('span', 'hint', T('Chat window'));
     var spacer = el('div'); spacer.style.flex = '1';
     var note = el('span', 'hint');
     var runBtn = el('button', 'btn ghost', T('Run job'));
+    // Pre-made agents can be Hidden (they would just re-seed if deleted); user-created agents get
+    // both Hide and Delete. Hide takes it off the desktop and drops its schedules (un-hide in Settings).
+    var hideBtn = el('button', 'btn ghost', T('Hide'));
     var delBtn = el('button', 'btn ghost', T('Delete'));
-    bar.appendChild(toggle); bar.appendChild(lbl); bar.appendChild(spacer); bar.appendChild(note); bar.appendChild(runBtn); bar.appendChild(delBtn);
+    bar.appendChild(toggle); bar.appendChild(lbl); bar.appendChild(spacer); bar.appendChild(note); bar.appendChild(runBtn); bar.appendChild(hideBtn);
+    if (!agent.premade) bar.appendChild(delBtn);
     head.appendChild(bar);
-    // Web-page delivery: publish this agent's latest result at /<agent-name> (a live, self-refreshing page).
+    // Delivery. Chat + Slack are the agent's COMMUNICATION channels (where its text reply lands);
+    // Web page publishes its latest result at /<agent-name> (a live, self-refreshing page). They
+    // auto-save on change — no Save button. How the output is shaped (a Word/Excel doc opened from
+    // Documents\Zamolxis, etc.) is decided by the agent's own instructions — just tell it in chat
+    // (e.g. "save the result as an Excel file and open it").
     var dv = agent.deliver || {};
-    var webRow = el('div'); webRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:8px';
-    var webCb = el('input'); webCb.type = 'checkbox'; webCb.checked = !!dv.web; webCb.id = 'webdeliver_' + agent.name;
-    var webLbl = el('label', 'hint', T('Web page')); webLbl.htmlFor = webCb.id;
+    function mkChk(labelTxt, on) { var w = el('label'); w.style.cssText = 'display:flex;align-items:center;gap:4px;cursor:pointer'; var c = el('input'); c.type = 'checkbox'; c.checked = !!on; w.appendChild(c); w.appendChild(document.createTextNode(' ' + labelTxt)); w._cb = c; return w; }
+    var delivRow = el('div'); delivRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;font-size:12px';
+    var chatChk = mkChk(T('Chat'), dv.chat !== false);
+    var slackChk = mkChk(T('Slack'), !!dv.slack);
+    var slackInp = el('input', 'inp'); slackInp.placeholder = T('Slack channel/ID'); slackInp.value = dv.slackChannel || ''; slackInp.style.cssText = 'width:150px;height:26px';
+    var webChk = mkChk(T('Web page'), !!dv.web);
     var webLink = el('a', null, T('open page') + ' ↗'); webLink.href = location.origin + '/' + agent.name; webLink.target = '_blank'; webLink.style.cssText = 'color:var(--accent,#0067c0);font-size:12px'; webLink.style.display = dv.web ? 'inline' : 'none';
-    var webNote = el('span', 'hint');
-    webCb.addEventListener('change', function () {
-      webNote.textContent = '...';
-      api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'deliver', name: agent.name, chat: dv.chat !== false, slack: !!dv.slack, slackChannel: dv.slackChannel, web: webCb.checked }) })
-        .then(function (d) { if (d && d.deliver) { agent.deliver = d.deliver; dv = d.deliver; } webLink.style.display = webCb.checked ? 'inline' : 'none'; webNote.textContent = webCb.checked ? T('Publishing latest result here (after the next run)') : ''; })
-        .catch(function () { webNote.textContent = T('Unreachable'); });
-    });
-    webRow.appendChild(webCb); webRow.appendChild(webLbl); webRow.appendChild(webLink); webRow.appendChild(webNote);
-    head.appendChild(webRow);
+    var delivNote = el('span', 'hint');
+    delivRow.appendChild(el('span', 'hint', T('Send replies to:'))); delivRow.appendChild(chatChk); delivRow.appendChild(slackChk); delivRow.appendChild(slackInp); delivRow.appendChild(webChk); delivRow.appendChild(webLink); delivRow.appendChild(delivNote);
+    head.appendChild(delivRow);
+    head.appendChild(el('div', 'hint', T('Want a file (Word/Excel) or another format? Tell the agent in chat — it saves to Documents\\Zamolxis and opens it. Chat/Slack/Web page here are just where its message goes.')));
+    function saveDeliver() {
+      delivNote.textContent = '...';
+      var body = { action: 'deliver', name: agent.name, chat: chatChk._cb.checked, slack: slackChk._cb.checked, slackChannel: slackInp.value.trim(), web: webChk._cb.checked };
+      api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+        .then(function (d) {
+          if (d && d.error) { delivNote.textContent = String(d.error); return; }
+          agent.deliver = (d && d.deliver) || { chat: body.chat, slack: body.slack, slackChannel: body.slackChannel, web: body.web }; dv = agent.deliver;
+          webLink.style.display = webChk._cb.checked ? 'inline' : 'none';
+          delivNote.textContent = webChk._cb.checked ? T('Publishing latest result here (after the next run)') : T('Saved.');
+          setTimeout(function () { if (delivNote.textContent !== '...') delivNote.textContent = ''; }, 2500);
+        })
+        .catch(function () { delivNote.textContent = T('Failed.'); });
+    }
+    chatChk._cb.addEventListener('change', saveDeliver);
+    slackChk._cb.addEventListener('change', saveDeliver);
+    slackInp.addEventListener('change', saveDeliver);
+    webChk._cb.addEventListener('change', saveDeliver);
     wrap.appendChild(head);
     var content = el('div'); content.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column';
     wrap.appendChild(content);
@@ -3113,11 +3975,11 @@
     function render() {
       if (win._consoleIv) { clearInterval(win._consoleIv); win._consoleIv = null; }
       content.innerHTML = '';
-      if (appChatEnabled(win.appId, true)) buildAgentChat(content, agent);
+      if (appChatEnabled(win.appId, false)) buildAgentChat(content, agent);
       else buildAgentConsole(content, agent, win);
     }
     toggle.addEventListener('click', function () {
-      var now = !appChatEnabled(win.appId, true);
+      var now = !appChatEnabled(win.appId, false);
       setAppChat(win.appId, now); toggle.classList.toggle('on', now); render();
     });
     runBtn.addEventListener('click', function () {
@@ -3132,13 +3994,21 @@
         .then(function (d) { if (d && d.agents) agents = d.agents; else loadAgents(); closeWin(win); renderDesktop(); })
         .catch(function () { note.textContent = T('Unreachable'); });
     });
+    hideBtn.addEventListener('click', function () {
+      if (!confirm(T('Hide') + ' "' + (agent.label || agent.name) + '"? ' + T('It leaves the desktop and its schedules are removed. Un-hide it from Settings -> Sub-agents.'))) return;
+      api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'hide', name: agent.name }) })
+        .then(function (d) { if (d && d.agents) agents = d.agents; else loadAgents(); closeWin(win); renderDesktop(); syncTaskbar(); })
+        .catch(function () { note.textContent = T('Unreachable'); });
+    });
     win.cleanup.push(function () { win.closed = true; if (win._consoleIv) clearInterval(win._consoleIv); });
-    win.setMenus([{ label: 'Agent', items: [
+    var agentMenu = [
       { label: T('Run job'), action: function () { runBtn.click(); } },
       { label: T('Chat window'), action: function () { toggle.click(); } },
       '---',
-      { label: T('Delete'), action: function () { delBtn.click(); } }
-    ] }]);
+      { label: T('Hide'), action: function () { hideBtn.click(); } }
+    ];
+    if (!agent.premade) agentMenu.push({ label: T('Delete'), action: function () { delBtn.click(); } });
+    win.setMenus([{ label: 'Agent', items: agentMenu }]);
     render();
   }
 
@@ -3152,7 +4022,7 @@
     var send = el('button'); send.textContent = T('Send');
     row.appendChild(ta); row.appendChild(send);
     chat.appendChild(log); chat.appendChild(row); content.appendChild(chat);
-    function addMsg(who, text, cls, via, persist) { var m = el('div', 'msg ' + cls); m.appendChild(el('div', 'who', who + (via ? ' · via ' + via : ''))); var c = el('div'); c.textContent = text; m.appendChild(c); log.appendChild(m); log.scrollTop = log.scrollHeight; if (persist !== false) pushChatLog(logKey, { who: who, text: text, cls: cls, via: via }); return m; }
+    function addMsg(who, text, cls, via, persist) { var m = el('div', 'msg ' + cls); m.appendChild(el('div', 'who', who + (via ? ' · via ' + via : ''))); var c = el('div'); setMsgBody(c, text, cls); m.appendChild(c); log.appendChild(m); log.scrollTop = log.scrollHeight; if (persist !== false) pushChatLog(logKey, { who: who, text: text, cls: cls, via: via }); return m; }
     var hist = loadChatLog(logKey);
     if (hist.length) hist.forEach(function (r) { addMsg(r.who, r.text, r.cls, r.via, false); });
     else addMsg(agent.label || agent.name, T('Ask me to do something, or give me a task.'), 'bot', null, false);
@@ -3165,7 +4035,7 @@
           var c = pend.querySelector('div:last-child'), who = pend.querySelector('.who');
           if (d && d.error) { c.textContent = '(' + d.error + ')'; return; }
           who.textContent = (agent.label || agent.name) + (d.via ? ' · via ' + d.via : '');
-          c.textContent = d.reply || T('(no reply)');
+          setMsgBody(c, d.reply || T('(no reply)'), 'bot');
           pushChatLog(logKey, { who: agent.label || agent.name, text: d.reply || T('(no reply)'), cls: 'bot', via: d.via });
           if (d.scheduled && d.scheduled.cron) addMsg('System', 'Scheduled: ' + (d.scheduled.note || d.scheduled.cron), 'bot');
           log.scrollTop = log.scrollHeight;
@@ -3235,23 +4105,43 @@
     ic.addEventListener('dblclick', function () { launchApp(a.id); });
   }
 
-  function renderDesktop() {
-    deskIcons.innerHTML = '';
-    var pos = loadIconPos();
+  // Grid slot for an icon at position `index`, filling top-to-bottom then wrapping into the NEXT
+  // column when it reaches the bottom of the visible desktop - so icons never stack off-screen.
+  function iconGridPos(index) {
     var os = document.body.dataset.os;
     var startX = os === 'ubuntu' ? 78 : 16;
     var startY = (os === 'mac' || os === 'ubuntu') ? 40 : 16;
-    appList().filter(function (a) { return a.kind !== 'host'; }).forEach(function (a, i) {
+    var cellW = 100, cellH = 100;
+    var availH = (deskIcons && deskIcons.clientHeight) || (window.innerHeight - 56);
+    var rows = Math.max(1, Math.floor((availH - startY) / cellH));
+    return { x: startX + Math.floor(index / rows) * cellW, y: startY + (index % rows) * cellH };
+  }
+  function desktopIcons() {
+    // Host apps never get a desktop icon (they live in the Start menu as launchers).
+    return appList().filter(function (a) { return a.kind !== 'host'; });
+  }
+  function renderDesktop() {
+    deskIcons.innerHTML = '';
+    var pos = loadIconPos();
+    var auto = 0; // running slot for icons WITHOUT a saved position (wraps into columns)
+    desktopIcons().forEach(function (a) {
       var ic = el('div', 'desk-icon');
       ic.appendChild(el('div', 'ico', a.iconSvg));
       ic.appendChild(el('div', 'label', a.name));
       var p = pos[a.id];
       if (p) { ic.style.left = p.x + 'px'; ic.style.top = p.y + 'px'; }
-      else { ic.style.left = startX + 'px'; ic.style.top = (startY + i * 96) + 'px'; }
+      else { var g = iconGridPos(auto++); ic.style.left = g.x + 'px'; ic.style.top = g.y + 'px'; }
       wireIcon(ic, a);
       deskIcons.appendChild(ic);
     });
     if (!startMenu.classList.contains('hidden')) renderStart($('#start-search-input').value);
+  }
+  // Re-lay out every icon into a tidy grid within the visible area (right-click desktop -> Auto-arrange).
+  function autoArrangeIcons() {
+    var pos = {};
+    desktopIcons().forEach(function (a, i) { pos[a.id] = iconGridPos(i); });
+    saveIconPos(pos);
+    renderDesktop();
   }
 
   function loadAgents() {
@@ -3302,8 +4192,119 @@
     if (!e.target.closest('#startmenu') && !e.target.closest('#start-btn') && !e.target.closest('#apps-btn')) closeStart();
     if (!e.target.closest('.desk-icon') && selectedIcon) { selectedIcon.classList.remove('selected'); selectedIcon = null; }
     if (openDD && !e.target.closest('.menu-dd') && !e.target.closest('.menu-btn')) closeDD();
+    hideDeskMenu();
   });
-  $('#clock').addEventListener('click', function () { launchApp('settings'); });
+
+  // Right-click the empty desktop -> a small menu (Command bar, Auto-arrange icons).
+  var deskMenu = null;
+  function hideDeskMenu() { if (deskMenu) { deskMenu.remove(); deskMenu = null; } }
+  deskIcons.addEventListener('contextmenu', function (e) {
+    if (e.target.closest('.desk-icon')) return; // only the empty desktop area
+    e.preventDefault();
+    hideDeskMenu();
+    deskMenu = el('div', 'desk-ctx');
+    deskMenu.style.cssText = 'position:fixed;z-index:2147483646;background:var(--panel,#1b1b1f);color:var(--txt,#e8e8ea);border:1px solid var(--line,rgba(255,255,255,.15));border-radius:8px;padding:4px;min-width:180px;box-shadow:0 10px 30px rgba(0,0,0,.45);font-size:13px;user-select:none';
+    function menuItem(label, onClick) {
+      var item = el('div', null, label);
+      item.style.cssText = 'padding:8px 12px;border-radius:5px;cursor:pointer';
+      item.addEventListener('mouseenter', function () { item.style.background = 'var(--accent,#d97a2b)'; item.style.color = '#fff'; });
+      item.addEventListener('mouseleave', function () { item.style.background = ''; item.style.color = ''; });
+      item.addEventListener('click', function () { onClick(); hideDeskMenu(); });
+      deskMenu.appendChild(item);
+    }
+    menuItem(T('Command bar') + '  (Ctrl+Space)', openCmdBar);
+    menuItem(T('Auto-arrange icons'), autoArrangeIcons);
+    document.body.appendChild(deskMenu);
+    // Clamp to the viewport so it never opens off-screen.
+    var r = deskMenu.getBoundingClientRect();
+    var x = Math.min(e.clientX, window.innerWidth - r.width - 6);
+    var y = Math.min(e.clientY, window.innerHeight - r.height - 6);
+    deskMenu.style.left = Math.max(4, x) + 'px';
+    deskMenu.style.top = Math.max(4, y) + 'px';
+  });
+  window.addEventListener('resize', hideDeskMenu);
+  window.addEventListener('blur', hideDeskMenu);
+  // Easter egg: the clock opens the page about the Dacian god Zamolxis is named after.
+  $('#clock').addEventListener('click', function () { window.open('https://en.wikipedia.org/wiki/Zalmoxis', '_blank', 'noopener'); });
+
+  // ---------- Command bar (Ctrl+Space / Ctrl+K): type to launch an app or agent, or ask Zamolxis ----------
+  var cmdBar = null;
+  function askZamolxis(text) {
+    var w = launchApp('zamolxis');
+    if (w && w.sendChat) setTimeout(function () { w.sendChat(text); }, 60);
+  }
+  function closeCmdBar() { if (cmdBar) { cmdBar.overlay.remove(); cmdBar = null; } }
+  function openCmdBar() {
+    if (cmdBar) { closeCmdBar(); return; }
+    var overlay = el('div'); overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483645;background:rgba(0,0,0,.35);display:flex;align-items:flex-start;justify-content:center;padding-top:12vh';
+    var box = el('div'); box.style.cssText = 'width:min(640px,92vw);background:var(--panel,#1b1b1f);color:var(--txt,#e8e8ea);border:1px solid var(--line,rgba(255,255,255,.15));border-radius:12px;box-shadow:0 24px 70px rgba(0,0,0,.5);overflow:hidden';
+    var input = el('input'); input.type = 'text'; input.placeholder = T('Search apps and agents, or ask') + ' ' + AGENT_NAME + '...';
+    input.style.cssText = 'width:100%;box-sizing:border-box;padding:16px 18px;font-size:16px;border:0;border-bottom:1px solid var(--line,rgba(255,255,255,.12));background:transparent;color:inherit;outline:none';
+    var list = el('div'); list.style.cssText = 'max-height:46vh;overflow:auto;padding:6px';
+    box.appendChild(input); box.appendChild(list); overlay.appendChild(box); document.body.appendChild(overlay);
+    cmdBar = { overlay: overlay, input: input, sel: 0, items: [] };
+
+    overlay.addEventListener('mousedown', function (e) { if (e.target === overlay) closeCmdBar(); });
+
+    function build() {
+      var q = input.value.trim();
+      var ql = q.toLowerCase();
+      var apps = appList().filter(function (a) { return a.kind !== 'host'; });
+      var matches = apps.filter(function (a) { return (a.name || '').toLowerCase().indexOf(ql) >= 0; });
+      // Rank: names that START with the query first, then the rest, alphabetical within each.
+      matches.sort(function (a, b) {
+        var as = (a.name || '').toLowerCase().indexOf(ql) === 0 ? 0 : 1;
+        var bs = (b.name || '').toLowerCase().indexOf(ql) === 0 ? 0 : 1;
+        return as - bs || (a.name || '').localeCompare(b.name || '');
+      });
+      if (!ql) matches = apps.slice().sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); });
+      matches = matches.slice(0, 8);
+      var items = [];
+      if (q) items.push({ type: 'ask', name: T('Ask') + ' ' + AGENT_NAME + ': ' + q, iconSvg: ICON.zamolxis, hint: T('chat'), run: function () { askZamolxis(q); } });
+      matches.forEach(function (a) {
+        var hint = a.kind === 'agent' ? T('agent') : (a.cat || T('app'));
+        items.push({ type: 'app', name: a.name, iconSvg: a.iconSvg, hint: hint, run: (function (id) { return function () { launchApp(id); }; })(a.id) });
+      });
+      cmdBar.items = items; cmdBar.sel = 0; renderList();
+    }
+    function renderList() {
+      list.innerHTML = '';
+      if (!cmdBar.items.length) { var e = el('div', 'hint', T('No matches.')); e.style.padding = '14px 16px'; list.appendChild(e); return; }
+      cmdBar.items.forEach(function (it, i) {
+        var row = el('div'); row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:8px;cursor:pointer' + (i === cmdBar.sel ? ';background:var(--accent,#d97a2b);color:#fff' : '');
+        var ic = el('div'); ic.style.cssText = 'width:24px;height:24px;flex:0 0 24px'; ic.innerHTML = it.iconSvg || ICON.zamolxis;
+        var nm = el('div'); nm.textContent = it.name; nm.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+        var hn = el('div'); hn.textContent = it.hint || ''; hn.style.cssText = 'font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.4px';
+        row.appendChild(ic); row.appendChild(nm); row.appendChild(hn);
+        row.addEventListener('mouseenter', function () { cmdBar.sel = i; paint(); });
+        row.addEventListener('click', function () { activate(i); });
+        list.appendChild(row);
+      });
+    }
+    function paint() {
+      [].slice.call(list.children).forEach(function (row, i) {
+        if (!row.style) return;
+        row.style.background = i === cmdBar.sel ? 'var(--accent,#d97a2b)' : '';
+        row.style.color = i === cmdBar.sel ? '#fff' : '';
+      });
+    }
+    function activate(i) { var it = cmdBar.items[i]; if (!it) return; closeCmdBar(); it.run(); }
+
+    input.addEventListener('input', build);
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); closeCmdBar(); return; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); cmdBar.sel = Math.min(cmdBar.items.length - 1, cmdBar.sel + 1); paint(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); cmdBar.sel = Math.max(0, cmdBar.sel - 1); paint(); }
+      else if (e.key === 'Enter') { e.preventDefault(); activate(cmdBar.sel); }
+    });
+    build(); input.focus();
+  }
+  // Ctrl+Space (or Ctrl/Cmd+K) opens the command bar from anywhere on the desktop.
+  window.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey && e.code === 'Space') || ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K'))) {
+      e.preventDefault(); openCmdBar();
+    }
+  });
 
   // boot
   applyTheme();

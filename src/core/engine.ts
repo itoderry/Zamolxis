@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import {
   query,
   type Options,
@@ -16,6 +17,7 @@ import { engineEnv, checkAuth, oauthExpiry } from './auth.js';
 import type { MemoryManager } from './memory.js';
 import type { SessionIndex } from './sessionIndex.js';
 import type { UsageTracker } from './usage.js';
+import type { RunHistory, RunOrigin } from './runHistory.js';
 import type { SkillsManager } from '../skills/manager.js';
 import { buildLocalTools, localSearchAvailable, type LocalToolset } from './localTools.js';
 import { compressText } from './toolOutput.js';
@@ -23,6 +25,7 @@ import { effectiveName } from './displayName.js';
 import { pickFreeProvider, freeProviderPool, providerById, recordProviderUse, configuredProviders, type ProviderDef } from './providers.js';
 import type { AgentStore } from './agents.js';
 import { BanStore, isSmartestModel } from './bans.js';
+import { PermissionStore, summarizeToolInput, type PermissionPrompter, type PromptAnswer } from './permissions.js';
 import { haConfigured, fetchHaInventory } from '../tools/homeassistant.js';
 
 export interface RunRequest {
@@ -114,6 +117,10 @@ export interface EngineDeps {
   setAgentSchedulesEnabled?: (name: string, enabled: boolean) => number;
   /** Per-(model, skill) ban list — a banned model refuses that capability. */
   bans?: BanStore;
+  /** Rolling ledger of finished agent runs, powering the observability dashboard. */
+  runs?: RunHistory;
+  /** Remembered tool-permission grants (per chat / skill / agent). */
+  permissions?: PermissionStore;
 }
 
 function buildPersona(name: string): string {
@@ -438,17 +445,80 @@ export class Engine {
     return dir;
   }
 
-  /** Permission policy: never blocks (this is an unattended daemon). Honors denylist. */
-  private readonly canUseTool = async (
+  /** Channel-provided permission prompters (web shows a dialog, CLI asks inline). */
+  private readonly permissionPrompters = new Map<string, PermissionPrompter>();
+
+  /** Channels register how they ask the user a permission question. */
+  registerPermissionPrompter(channel: string, prompter: PermissionPrompter): void {
+    this.permissionPrompters.set(channel, prompter);
+  }
+
+  /**
+   * Permission policy. Always honors the denylist. In the (default) interactive
+   * mode it consults remembered grants — per agent, per skill, per chat, then
+   * global — and otherwise ASKS the user via the channel's prompter, remembering
+   * "always" answers under the most specific scope. Channels without a prompter
+   * (scheduled/headless agent runs on the 'agent' channel, messaging adapters) fall
+   * back to allow so unattended jobs never hang waiting for an answer; pre-grant or
+   * deny their tools per agent/skill to control them. A prompt that gets no answer
+   * (tab closed, no client connected, 5-minute timeout) denies that one call.
+   */
+  private async decideToolUse(
     toolName: string,
     input: Record<string, unknown>,
-  ): Promise<PermissionResult> => {
+    ctx: { conversationKey: string; channel: string; chatId: string; agent?: string; skill?: string },
+  ): Promise<PermissionResult> {
     const denied = this.deps.config.disallowedTools ?? [];
     if (denied.includes(toolName)) {
       return { behavior: 'deny', message: `Tool ${toolName} is disabled by Zamolxis policy.` };
     }
-    return { behavior: 'allow', updatedInput: input };
-  };
+    // Only the interactive posture asks; acceptEdits/bypassPermissions/plan/dontAsk keep their meaning.
+    if (this.deps.config.permissionMode !== 'default') return { behavior: 'allow', updatedInput: input };
+    const perms = this.deps.permissions;
+    if (!perms) return { behavior: 'allow', updatedInput: input };
+
+    const scopes: string[] = [];
+    if (ctx.agent) scopes.push(`agent:${ctx.agent}`);
+    if (ctx.skill) scopes.push(`skill:${ctx.skill}`);
+    scopes.push(`chat:${ctx.conversationKey}`, 'global');
+    const remembered = perms.check(scopes, toolName);
+    if (remembered === 'allow') return { behavior: 'allow', updatedInput: input };
+    if (remembered === 'deny') return { behavior: 'deny', message: `Tool ${toolName} is denied by a remembered permission (revoke it in Settings → Permissions).` };
+
+    const prompter = this.permissionPrompters.get(ctx.channel);
+    if (!prompter) {
+      logger.info({ tool: toolName, channel: ctx.channel, key: ctx.conversationKey }, 'permission auto-allowed (no interactive prompter on this channel)');
+      return { behavior: 'allow', updatedInput: input };
+    }
+    const persistScope = ctx.agent ? `agent:${ctx.agent}` : ctx.skill ? `skill:${ctx.skill}` : `chat:${ctx.conversationKey}`;
+    let answer: PromptAnswer = null;
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      answer = await Promise.race([
+        prompter({ id: randomUUID(), chatId: ctx.chatId, conversationKey: ctx.conversationKey, toolName, detail: summarizeToolInput(input), persistScope }),
+        new Promise<PromptAnswer>((resolve) => {
+          timer = setTimeout(() => resolve(null), 300_000);
+          timer.unref?.();
+        }),
+      ]);
+    } catch (err) {
+      logger.warn({ err: String(err), tool: toolName }, 'permission prompt failed');
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (answer === 'allow') return { behavior: 'allow', updatedInput: input };
+    if (answer === 'allow-always') {
+      perms.set(persistScope, toolName, 'allow');
+      return { behavior: 'allow', updatedInput: input };
+    }
+    if (answer === 'deny-always') {
+      perms.set(persistScope, toolName, 'deny');
+      return { behavior: 'deny', message: `The user denied ${toolName} (remembered for ${persistScope}).` };
+    }
+    if (answer === 'deny') return { behavior: 'deny', message: `The user denied ${toolName} for this request.` };
+    // No answer (timeout / disconnected): deny this one call without remembering anything.
+    return { behavior: 'deny', message: `No permission answer for ${toolName} (request timed out) — ask the user or try a different approach.` };
+  }
 
   /** Per-conversation serialization tail: chains same-key runs so they can't race. */
   private readonly tails = new Map<string, Promise<unknown>>();
@@ -567,9 +637,11 @@ export class Engine {
 
   /** Run a named user-defined agent against a task, on its configured tier with only its tools.
    *  Runs in its own conversation context ("agent:<name>") so it doesn't pollute a user chat. */
-  async runAgent(name: string, task?: string, opts?: { force?: boolean }): Promise<RunResult & { agent?: string }> {
+  async runAgent(name: string, task?: string, opts?: { force?: boolean; origin?: RunOrigin }): Promise<RunResult & { agent?: string }> {
     const def = this.deps.agentStore?.get(name);
     if (!def) return { reply: `No agent named "${name}".`, sessionId: '', costUsd: 0, isError: true, agent: name };
+    // Start the clock only once we know the agent exists, so a bad-name call isn't logged as a run.
+    const startedAt = Date.now();
     // A manual "Run now" (force) executes the job regardless of the schedule being paused or the
     // startup-restore pause — those only gate AUTOMATIC (scheduled) firing. The scheduler/headless
     // path leaves force unset, so a paused agent is still skipped there.
@@ -620,6 +692,17 @@ export class Engine {
     // If this agent publishes to a web page, store its latest result so /<agent-name> shows it.
     // Covers both scheduled fires and manual "Run now" — everything routes through here.
     if (!r.isError && def.deliver?.web) this.deps.pages?.set(def.name, r.reply, r.via);
+    // Log the run to the rolling ledger. A caller that knows the origin (an event trigger, say)
+    // passes it; otherwise a forced run is a manual poke and an unforced one is a scheduled fire.
+    this.deps.runs?.append({
+      agent: def.name,
+      durationMs: Date.now() - startedAt,
+      ok: !r.isError,
+      costUsd: r.costUsd,
+      via: r.via,
+      origin: opts?.origin ?? (opts?.force ? 'manual' : 'schedule'),
+      reply: r.reply,
+    });
     return { ...r, agent: def.name };
   }
 
@@ -931,6 +1014,11 @@ export class Engine {
 
   /** Deliver a message from an agent (or the assistant) to the user or another agent. To the user:
    *  surfaced to the UI/CLI via onAgentMessage. To an agent: bounded follow-up run (loop guard). */
+  /** Where an agent's output should be delivered (chat feed / Slack / web page) — read by the scheduler. */
+  agentDeliver(name: string): { chat?: boolean; slack?: boolean; slackChannel?: string; web?: boolean } | undefined {
+    return this.deps.agentStore?.get(name)?.deliver;
+  }
+
   async sendAgentMessage(from: string, to: string, text: string, via?: string): Promise<string> {
     const t = (text || '').trim();
     if (!t) return 'Nothing to send (empty message).';
@@ -1102,8 +1190,14 @@ export class Engine {
     const noSearchNote =
       'You do NOT have web search. Only http_get a SPECIFIC URL you were given or that a skill provides. Do NOT fetch search engines (google.com, bing.com) or guess/invent URLs. If you do not have the exact URL for what is asked, say you cannot look it up and that web search can be enabled by adding a Tavily or Brave API key in Settings.';
     const toolsLine = `You have TOOLS that fetch REAL data — call them; report ONLY what a tool actually returns; NEVER fabricate results, sources, errors, or actions; and NEVER show raw tool-call JSON to the user (either call the tool, or answer in plain language). Tools: ${tools.names.join(', ')}. http_get(url, headers?) fetches a SPECIFIC URL — public JSON APIs or your local network such as Home Assistant. read_url(url) fetches a web PAGE and returns its READABLE TEXT (HTML stripped) — use it to actually read an article/page (e.g. one web_search returned), instead of http_get on a web page. ${hasSearch ? 'web_search(query) searches the web — ALWAYS use web_search to find information, then read_url the best result; do NOT http_get a search engine like google.com or bing.com.' : noSearchNote} You have no other abilities (no files, no shell, no scheduling, no memory writes).`;
+    // The Prime Directives (Laws) apply to EVERY run — chat or agent, on any model (local, free
+    // provider, or Claude) and also in Privacy Mode (where the local model is the only tier). They
+    // lead the prompt at highest priority. The lighter `safety` line below is a concise reinforcement
+    // for weak local models (and the fallback when the user has turned the Laws off).
+    const laws = config.lawsEnabled ? this.deps.memory.lawsBlock() : '';
     const safety =
-      'Be honest and concise. Refuse ONLY genuinely harmful or illegal requests — do NOT refuse ordinary, harmless questions (sports scores, general facts, casual chat).';
+      'Be honest and concise. Refuse ONLY genuinely harmful or illegal requests — do NOT refuse ordinary, harmless questions (sports scores, general facts, casual chat). ' +
+      'Do routine, reversible work without asking, but STOP and get the user\'s explicit confirmation before any HIGH-RISK or hard-to-undo action: deleting or overwriting data in bulk, wiping/formatting, sending messages or email, spending money, or changing credentials/permissions/system settings. Never take a destructive step the user did not clearly authorise.';
     const escalateRule = allowEscalate
       ? 'IMPORTANT — how to give up: if you cannot fully and confidently DO the request yourself right now (you are unsure, do not know the answer, need info you cannot fetch, need files/shell/scheduling/skills/multi-step reasoning, or a tool call failed), reply with EXACTLY the single word ESCALATE and nothing else. NEVER instead: make excuses, apologize, ask the user to find IDs or create groups or check their setup, or ask a clarifying question and stop — that is forbidden. If you would otherwise ask the user to do part of the work, reply ESCALATE so the smartest Claude model takes over and does it.'
       : 'If you cannot complete the request with your tools, say briefly and honestly that you cannot — do not pretend or guess.';
@@ -1138,8 +1232,8 @@ export class Engine {
     // model already baked any relevant user context into the spec at compile time; a lean prompt keeps
     // weak executors on-task and avoids shipping the user's profile to third-party providers each run.
     const system = (agent?.job
-      ? [agentRole, toolsLine, searchSynth, safety, escalateRule, banNote, forcedNote, nowLine]
-      : [agentRole, toolsLine, searchSynth, safety, escalateRule, banNote, forcedNote, persona, nowLine, profileHint, learned, skillsHint, config.systemPromptAppend])
+      ? [laws, agentRole, toolsLine, searchSynth, safety, escalateRule, banNote, forcedNote, nowLine]
+      : [laws, agentRole, toolsLine, searchSynth, safety, escalateRule, banNote, forcedNote, persona, nowLine, profileHint, learned, skillsHint, config.systemPromptAppend])
       .filter(Boolean)
       .join('\n\n');
     return { system, tools };
@@ -1490,7 +1584,7 @@ export class Engine {
     // configured search provider the agent literally cannot search — make that
     // actionable instead of a vague "I don't have real-time access".
     const searchHint = !localSearchAvailable()
-      ? 'You can WebFetch a specific known URL, but you have NO web-search tool. If a request needs searching the web or current/live info you cannot reach via a known URL, do not guess at bot-blocked sites — briefly tell the user to add a free Tavily or Brave API key in Settings → Credentials to enable web search.'
+      ? 'You can WebFetch a specific known URL, but you have NO web-search tool. If a request needs searching the web or current/live info you cannot reach via a known URL, do not guess at bot-blocked sites — briefly tell the user to add a free Tavily or Brave API key in Settings → Integrations to enable web search.'
       : undefined;
     // Surface the skills relevant to this request (own + external libraries like Hermes), with
     // file paths so the model can read the full SKILL.md if it wants to follow the procedure.
@@ -1546,6 +1640,16 @@ export class Engine {
         ? req.agentTools.map((t) => (/__|^[A-Z]/.test(t) ? t : `mcp__zamolxis__${t}`))
         : undefined;
 
+    // Per-run permission context: which chat (and agent / forced skill) this turn belongs to,
+    // so interactive grants are asked in the right place and remembered under the right scope.
+    const permCtx = {
+      conversationKey: req.conversationKey,
+      channel,
+      chatId,
+      agent: req.conversationKey.startsWith('agent:') ? req.conversationKey.slice('agent:'.length) : undefined,
+      skill: req.forcedSkill,
+    };
+
     const options: Options = {
       model: chosenModel,
       abortController,
@@ -1554,7 +1658,7 @@ export class Engine {
       permissionMode: config.permissionMode,
       allowedTools: agentAllowed ?? config.allowedTools,
       disallowedTools: config.disallowedTools,
-      canUseTool: this.canUseTool,
+      canUseTool: (toolName: string, input: Record<string, unknown>) => this.decideToolUse(toolName, input, permCtx),
       maxTurns: config.maxTurns,
       persistSession: true,
       includePartialMessages: Boolean(req.onProgress),

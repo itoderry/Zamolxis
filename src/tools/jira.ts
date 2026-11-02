@@ -2,7 +2,7 @@ import { logger } from '../logger.js';
 
 /**
  * Minimal Jira Cloud REST v3 client for the built-in Jira tools and the
- * jira-assigned watcher. Credentials (Settings → Credentials, or .env):
+ * jira-assigned watcher. Credentials (Settings → Integrations → Jira, or .env):
  *   JIRA_BASE_URL        https://your-domain.atlassian.net
  *   JIRA_EMAIL           the Atlassian account email
  *   JIRA_API_TOKEN       id.atlassian.com/manage-profile/security/api-tokens
@@ -36,8 +36,8 @@ export function jiraConfigured(): boolean {
 /** Step-by-step connection instructions, shown whenever a Jira tool is used before setup. */
 export const JIRA_SETUP_INSTRUCTIONS =
   'Jira is not connected yet. To link it (about a minute):\n' +
-  '1. Open https://id.atlassian.com/manage-profile/security/api-tokens and click "Create API token", give it a label (e.g. "Giskard"), and copy the token.\n' +
-  '2. In Giskard, open Settings → Credentials → the "jira" group and fill in:\n' +
+  '1. Open https://id.atlassian.com/manage-profile/security/api-tokens and click "Create API token", give it a label (e.g. "Zamolxis"), and copy the token.\n' +
+  '2. In Zamolxis, open Settings → Integrations → Jira and fill in:\n' +
   '   • JIRA_BASE_URL — your site, e.g. https://your-company.atlassian.net\n' +
   '   • JIRA_EMAIL — the email you log in to Jira with\n' +
   '   • JIRA_API_TOKEN — the token from step 1\n' +
@@ -51,7 +51,7 @@ export function jiraDefaultProject(): string {
 
 async function jfetch(pathname: string, init?: RequestInit): Promise<Response> {
   const c = cfg();
-  if (!c) throw new Error('Jira is not configured (set JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN in Settings → Credentials).');
+  if (!c) throw new Error('Jira is not configured (set JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN in Settings → Integrations → Jira).');
   const auth = Buffer.from(`${c.email}:${c.token}`).toString('base64');
   return fetch(c.baseUrl + pathname, {
     ...init,

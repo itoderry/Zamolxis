@@ -113,7 +113,7 @@ async function checkOne(w: WatchedUrl): Promise<UrlCheckResult> {
     const res = await fetch(w.url, {
       redirect: 'follow',
       signal: AbortSignal.timeout(20_000),
-      headers: { 'User-Agent': 'Giskard-SiteSentinel/1.0 (+health check)' },
+      headers: { 'User-Agent': 'Zamolxis-SiteSentinel/1.0 (+health check)' },
     });
     status = res.status;
     ok = res.ok;
