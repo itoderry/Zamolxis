@@ -351,10 +351,21 @@ async function updateCmd() {
   fs.mkdirSync(logDir, { recursive: true });
   fs.appendFileSync(logFile, `\n[update] starting at ${new Date().toISOString()} (cwd ${root})\n`);
   writeUpdateResult({ ok: false, step: 'running', message: 'Update in progress…' });
-  if (!updateStep('git pull', 'git', ['pull', '--ff-only'])) {
-    fs.appendFileSync(logFile, '[update] git pull --ff-only failed (auth to the private repo, diverged history, or no network); aborting, NOT restarting.\n');
-    writeUpdateResult({ ok: false, step: 'git pull', message: 'git pull failed — usually the private repo could not authenticate non-interactively, or the local checkout has diverged. Update manually in the install folder: git pull, npm run build, restart.' });
-    console.error('Update aborted: `git pull --ff-only` failed (see log).');
+  // Fetch and fast-forward as two separate steps instead of `git pull --ff-only`: the daemon's
+  // background update-checker runs `git fetch origin` in this same repo, and a fetch racing a
+  // pull leaves multiple entries in .git/FETCH_HEAD, which pull reads ("Cannot fast-forward to
+  // multiple branches"). Merging @{u} reads the upstream ref, which a concurrent fetch updates
+  // atomically, so the race is gone - and each step now reports its own distinct failure.
+  if (!updateStep('git fetch', 'git', ['fetch', '--quiet', 'origin'])) {
+    fs.appendFileSync(logFile, '[update] git fetch failed (no network, or auth to the private repo); aborting, NOT restarting.\n');
+    writeUpdateResult({ ok: false, step: 'git fetch', message: 'git fetch failed - no network, or the private repo could not authenticate non-interactively. Update manually in the install folder: git pull, npm run build, restart.' });
+    console.error('Update aborted: `git fetch` failed (see log).');
+    process.exit(1);
+  }
+  if (!updateStep('git merge', 'git', ['merge', '--ff-only', '@{u}'])) {
+    fs.appendFileSync(logFile, '[update] git merge --ff-only failed (local checkout has diverged - local commits or edits); aborting, NOT restarting.\n');
+    writeUpdateResult({ ok: false, step: 'git merge', message: 'The local checkout has diverged from the remote (local commits or edits), so it cannot fast-forward. In the install folder run git status to see what changed, then update manually: git pull, npm run build, restart.' });
+    console.error('Update aborted: `git merge --ff-only` failed (see log).');
     process.exit(1);
   }
   // --include=dev: a web-triggered update inherits the daemon's NODE_ENV=production, under which
