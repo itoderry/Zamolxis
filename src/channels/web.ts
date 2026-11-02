@@ -370,6 +370,12 @@ export class WebChannel implements Channel {
     this.wss = new WebSocketServer({ noServer: true });
 
     this.server.on('upgrade', (req, socket, head) => {
+      if (!this.sameOriginOk(req, new URL(req.url ?? '/', 'http://x').pathname)) {
+        logger.warn({ origin: req.headers.origin, host: req.headers.host }, 'refused a cross-site WebSocket');
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return;
+      }
       if (!this.authOk(req)) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
@@ -401,6 +407,51 @@ export class WebChannel implements Channel {
     const a = req.headers.authorization;
     if (typeof a === 'string' && a.startsWith('Bearer ')) return a.slice(7);
     return undefined;
+  }
+
+  /** Host names this server answers to. On a loopback bind only loopback names (so a hostile
+   *  domain re-pointed at 127.0.0.1, DNS rebinding, is refused), plus ZAMOLXIS_WEB_ALLOWED_HOSTS
+   *  for a reverse proxy. On a LAN bind any host (the auth token is required there). */
+  private hostAllowed(hostHeader: string | undefined): boolean {
+    if (!LOOPBACK.includes(this.config.web.bind)) return true;
+    if (!hostHeader) return true; // HTTP/1.0 clients; browsers always send Host
+    let name: string;
+    try {
+      name = new URL(`http://${hostHeader}`).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    } catch {
+      return false;
+    }
+    if (LOOPBACK.includes(name) || name.endsWith('.localhost')) return true;
+    const extra = (process.env.ZAMOLXIS_WEB_ALLOWED_HOSTS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    return extra.includes(name);
+  }
+
+  /** Cross-site request guard for the UI API and the chat WebSocket. Without it any web page open
+   *  in the user's browser could POST to /api/* or open the chat socket (browsers don't apply CORS
+   *  to WebSockets) and drive an agent that runs commands. Browsers send Origin on cross-origin
+   *  requests and Sec-Fetch-Site on all modern ones; non-browser clients (CLI, scheduled tasks,
+   *  Claude Code workers, curl) send neither and pass. Plain cross-site page navigations (a link
+   *  to an agent's page) stay allowed; they can't read anything and don't reach /api/. */
+  private sameOriginOk(req: http.IncomingMessage, pathname: string): boolean {
+    if (!this.hostAllowed(req.headers.host)) return false;
+    const origin = req.headers.origin;
+    if (typeof origin === 'string' && origin) {
+      if (origin === 'null') return false; // sandboxed iframes (e.g. Canvas content) and file:// pages
+      let o: URL;
+      try {
+        o = new URL(origin);
+      } catch {
+        return false;
+      }
+      if (o.host.toLowerCase() !== String(req.headers.host || '').toLowerCase()) return false;
+      if (!this.hostAllowed(o.host)) return false;
+    }
+    const site = req.headers['sec-fetch-site'];
+    if (site === 'cross-site') {
+      const isNavigation = req.method === 'GET' && req.headers['sec-fetch-mode'] === 'navigate' && !req.headers.upgrade;
+      if (!isNavigation || pathname.startsWith('/api/')) return false;
+    }
+    return true;
   }
 
   private authOk(req: http.IncomingMessage): boolean {
@@ -571,6 +622,10 @@ ${dutiesPanel}
     if (url.pathname.startsWith('/anthropic/')) {
       void handleAnthropicProxy(req, res, { secret: PROXY_SECRET, timeoutMs: this.config.turnTimeoutMs });
       return;
+    }
+    if (!this.sameOriginOk(req, url.pathname)) {
+      logger.warn({ path: url.pathname, method: req.method, origin: req.headers.origin, host: req.headers.host }, 'refused a cross-site request');
+      return this.json(res, 403, { error: 'cross-site request refused' });
     }
     // Claude Code delegation status for Settings -> Code: allowed folders, backends usable right
     // now, and the detected claude CLI. (The editable fields themselves go through /api/settings.)

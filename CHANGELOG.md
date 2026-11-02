@@ -2,6 +2,15 @@
 
 ## Unreleased (0.3.x)
 
+- **Web UI refuses cross-site requests.** Before, any web page open in the browser could POST to
+  `/api/*` (a plain-text "simple" request needs no CORS preflight) or open the chat WebSocket
+  (browsers don't apply CORS to WebSockets) and drive the agent, and a hostile domain pointed at
+  127.0.0.1 (DNS rebinding) looked same-site. Now every request is checked: on a loopback bind the
+  `Host` must be a loopback name (add others with `ZAMOLXIS_WEB_ALLOWED_HOSTS`), a browser `Origin`
+  must be Zamolxis's own (`null` from sandboxed frames such as Canvas content is refused), and
+  `Sec-Fetch-Site: cross-site` is refused except plain page navigations outside `/api/`.
+  Non-browser clients (CLI, scheduled tasks, delegated Claude Code workers) send no Origin and are
+  unaffected; the Claude Code translator route keeps its own loopback + secret guard.
 - **Free provider list refreshed (checked 2 Nov 2026).** Groq now defaults to
   `openai/gpt-oss-120b`, OpenRouter to `nvidia/nemotron-3.5-super-vl:free` and NVIDIA NIM to
   `nvidia/nemotron-3-ultra-550b-a55b` (the old Llama 3.3 defaults were retired). Cerebras and
