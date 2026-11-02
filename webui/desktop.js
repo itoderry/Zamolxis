@@ -4136,7 +4136,7 @@
     });
     if (!startMenu.classList.contains('hidden')) renderStart($('#start-search-input').value);
   }
-  // Re-lay out every icon into a tidy grid within the visible area (command bar -> Auto-arrange icons).
+  // Re-lay out every icon into a tidy grid within the visible area (right-click desktop or command bar -> Auto-arrange icons).
   function autoArrangeIcons() {
     var pos = {};
     desktopIcons().forEach(function (a, i) { pos[a.id] = iconGridPos(i); });
@@ -4192,7 +4192,40 @@
     if (!e.target.closest('#startmenu') && !e.target.closest('#start-btn') && !e.target.closest('#apps-btn')) closeStart();
     if (!e.target.closest('.desk-icon') && selectedIcon) { selectedIcon.classList.remove('selected'); selectedIcon = null; }
     if (openDD && !e.target.closest('.menu-dd') && !e.target.closest('.menu-btn')) closeDD();
+    hideDeskMenu();
   });
+
+  // Right-click the empty desktop -> a small menu (Command bar, Auto-arrange icons).
+  // #desktop-icons has pointer-events:none, so empty-area clicks land on #desktop itself.
+  var deskMenu = null;
+  function hideDeskMenu() { if (deskMenu) { deskMenu.remove(); deskMenu = null; } }
+  $('#desktop').addEventListener('contextmenu', function (e) {
+    if (e.target !== this && e.target !== deskIcons) return; // only the empty desktop area
+    e.preventDefault();
+    hideDeskMenu();
+    deskMenu = el('div', 'desk-ctx');
+    deskMenu.style.cssText = 'position:fixed;z-index:2147483646;background:var(--panel,#1b1b1f);color:var(--txt,#e8e8ea);border:1px solid var(--line,rgba(255,255,255,.15));border-radius:8px;padding:4px;min-width:180px;box-shadow:0 10px 30px rgba(0,0,0,.45);font-size:13px;user-select:none';
+    function menuItem(label, onClick) {
+      var item = el('div', null, label);
+      item.style.cssText = 'padding:8px 12px;border-radius:5px;cursor:pointer';
+      item.addEventListener('mouseenter', function () { item.style.background = 'var(--accent,#d97a2b)'; item.style.color = '#fff'; });
+      item.addEventListener('mouseleave', function () { item.style.background = ''; item.style.color = ''; });
+      item.addEventListener('click', function () { onClick(); hideDeskMenu(); });
+      deskMenu.appendChild(item);
+    }
+    menuItem(T('Command bar') + '  (Ctrl+Space)', openCmdBar);
+    menuItem(T('Auto-arrange icons'), autoArrangeIcons);
+    document.body.appendChild(deskMenu);
+    // Clamp to the viewport so it never opens off-screen.
+    var r = deskMenu.getBoundingClientRect();
+    var x = Math.min(e.clientX, window.innerWidth - r.width - 6);
+    var y = Math.min(e.clientY, window.innerHeight - r.height - 6);
+    deskMenu.style.left = Math.max(4, x) + 'px';
+    deskMenu.style.top = Math.max(4, y) + 'px';
+  });
+  window.addEventListener('resize', hideDeskMenu);
+  window.addEventListener('blur', hideDeskMenu);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideDeskMenu(); });
 
   // Easter egg: the clock opens the page about the Dacian god Zamolxis is named after.
   $('#clock').addEventListener('click', function () { window.open('https://en.wikipedia.org/wiki/Zalmoxis', '_blank', 'noopener'); });
