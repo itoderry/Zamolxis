@@ -22,7 +22,9 @@ export interface AuthStatus {
   note: string;
 }
 
-function credentialsPresent(): boolean {
+/** Are Claude subscription credentials available (env token, credentials file, or macOS Keychain)?
+ *  Exported so callers can check without the logging side effects of checkAuth(). */
+export function credentialsPresent(): boolean {
   // 1) A long-lived OAuth token in the env (from `claude setup-token`). This is the most
   //    reliable subscription auth for the SDK, and the recommended path on macOS where
   //    `claude login` stores the token in the Keychain (which a background SDK often can't read).

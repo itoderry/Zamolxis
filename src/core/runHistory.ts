@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** Where a run came from, so the dashboard can tell scheduled work from a manual poke or an event. */
-export type RunOrigin = 'schedule' | 'manual' | 'event' | 'chat' | 'unknown';
+/** Where a run came from, so the dashboard can tell scheduled work from a manual poke or an event.
+ *  'code' / 'cli' are delegated Claude Code runs (SDK runner in a project folder / headless CLI). */
+export type RunOrigin = 'schedule' | 'manual' | 'event' | 'chat' | 'code' | 'cli' | 'unknown';
 
 /** One finished agent run. Deliberately small - this is a rolling ledger, not an archive. */
 export interface RunRecord {

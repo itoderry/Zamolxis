@@ -34,12 +34,15 @@ import { getWatchers, setWatchers } from '../core/watchers.js';
 import { fetchXchangeRates, xchangeTable } from '../core/xchange.js';
 import { butlerAvailable, scanApps, scanNetwork, scanSystem, driverReport, scanDuplicates, latestHealthReport, healthTaskInstalled, installHealthTask, runHealthTaskNow, readButlerConfig, writeButlerConfig } from '../core/butler.js';
 import type { AgentStore } from '../core/agents.js';
+import type { DelegateTaskSpec, DelegateContext, RunPath } from '../core/code/orchestrator.js';
 
 /** Live conversation context, captured per agent turn so tools deliver to the right place. */
 export interface ToolContext {
   conversationKey: string;
   channel: string;
   chatId: string;
+  /** Streams status lines into the chat (delegated subtasks report progress through it). */
+  onProgress?: (chunk: string) => void;
 }
 
 export interface ToolDeps {
@@ -61,6 +64,8 @@ export interface ToolDeps {
   agentStore?: AgentStore;
   /** Run a named user-defined agent (late-bound to the engine). */
   runAgent?: (name: string, task?: string) => Promise<string>;
+  /** Claude Code delegation orchestrator: runs subtasks and returns the aggregated reply. */
+  delegate?: (tasks: DelegateTaskSpec[], ctx: DelegateContext, force?: RunPath) => Promise<string>;
   /** Deliver a message from an agent to another agent or the user (late-bound to the engine). */
   sendAgentMessage?: (from: string, to: string, text: string) => Promise<string>;
   /** Rebuild the Home Assistant device-map skill via the smart model (late-bound to the engine). */
@@ -421,6 +426,60 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
       }
     },
   );
+  // ── Claude Code delegation (src/core/code/orchestrator.ts) ──
+  const backendEnum = z.enum(['auto', 'claude', 'free', 'local']);
+  const delegateCtx: DelegateContext = { conversationKey: ctx.conversationKey, channel: ctx.channel, chatId: ctx.chatId, onProgress: ctx.onProgress };
+  const runDelegate = async (tasks: DelegateTaskSpec[], force?: RunPath) => {
+    if (!deps.delegate) return text('Delegation is not available in this build.');
+    try {
+      return text(await deps.delegate(tasks, delegateCtx, force));
+    } catch (e) {
+      return text('Delegation failed: ' + String(e));
+    }
+  };
+  const delegateTask = tool(
+    'delegate_task',
+    'Hand one or more jobs to Claude Code workers and get their results. Per task: a job that needs code (edits, fixes, refactors, builds, tests) runs as a Claude Code session IN the project folder; any other job (research, analysis, writing) runs on the headless claude CLI with read/web tools only. The model backend (Claude subscription, a free provider, or local Ollama) is picked per task unless you pin one; Privacy Mode keeps everything local. Independent tasks run in PARALLEL, so split a job into separate tasks when its parts do not depend on each other. Code folders must be in the allowed list (Settings -> Code).',
+    {
+      tasks: z
+        .array(
+          z.object({
+            task: z.string().describe('Complete, self-contained instructions for the worker'),
+            folder: z.string().optional().describe('Project folder for a code job (absolute, or relative to the first allowed folder)'),
+            kind: z.enum(['auto', 'code', 'general']).optional().describe('auto (default) decides from the task; code = path 2, general = CLI'),
+            backend: backendEnum.optional().describe('auto (default), or pin claude / free / local'),
+            model: z.string().optional().describe('Optional model override for the chosen backend'),
+          }),
+        )
+        .min(1)
+        .max(8)
+        .describe('The subtasks (1-8)'),
+    },
+    async (args) => runDelegate(args.tasks as DelegateTaskSpec[]),
+  );
+  const claudeCodeTool = tool(
+    'claude_code',
+    'Run ONE coding job as a Claude Code session inside a project folder (it can edit files and run builds/tests, gated by the permission policy). Returns its summary and the files it changed. Use delegate_task to run several jobs in parallel.',
+    {
+      task: z.string().describe('Complete instructions for the coding worker'),
+      folder: z.string().optional().describe('Project folder (must be an allowed folder; default = the first allowed folder)'),
+      backend: backendEnum.optional(),
+      model: z.string().optional(),
+    },
+    async (args) => runDelegate([{ task: args.task, folder: args.folder, backend: args.backend, model: args.model }], 'code'),
+  );
+  const claudeCliTool = tool(
+    'claude_cli',
+    'Run ONE non-code job (research, analysis, writing) on the headless claude CLI with read and web-research tools only (no edits, no shell). Returns its answer.',
+    {
+      task: z.string().describe('Complete instructions for the worker'),
+      folder: z.string().optional().describe('Optional allowed folder the worker may read'),
+      backend: backendEnum.optional(),
+      model: z.string().optional(),
+    },
+    async (args) => runDelegate([{ task: args.task, folder: args.folder, backend: args.backend, model: args.model }], 'cli'),
+  );
+
   const scheduleAgent = tool(
     'schedule_agent',
     'Run an existing agent on a recurring schedule (cron) or once (at an ISO time). Its result is delivered back to this conversation.',
@@ -1001,6 +1060,9 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
         createAgent,
         listAgents,
         runAgentTool,
+        delegateTask,
+        claudeCodeTool,
+        claudeCliTool,
         scheduleAgent,
         sendMessage,
         scheduleTask,

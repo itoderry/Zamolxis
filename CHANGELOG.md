@@ -2,6 +2,26 @@
 
 ## Unreleased (0.3.x)
 
+- **Claude Code as a worker (delegation).** New tools `delegate_task`, `claude_code` and
+  `claude_cli`, on every tier (Claude, free providers, local) and assignable to scheduled agents.
+  A subtask that needs code runs as a Claude Code session (Agent SDK) **inside a project folder**,
+  with the Laws, the permission gate (grants remembered per project as `code:<folder>`) and a
+  `git status` before/after so the reply lists the changed files; any other subtask runs on the
+  installed `claude` CLI headless (`claude -p`, read and web tools only, task passed on stdin).
+  An orchestrator picks the path and the model backend per subtask: **Claude** (subscription),
+  a **free** provider (through a new built-in Anthropic -> OpenAI translator at
+  `/anthropic/<provider>/v1/messages`, loopback-only and secret-protected), or **local** Ollama
+  (its native Anthropic API). Privacy Mode forces local; an automatically chosen free/local run
+  that can't finish is retried once on Claude. Independent subtasks run **in parallel** on their
+  own throttle (default 3, separate from the chat's), and code subtasks on the same folder run one
+  after another. Progress lines stream into the chat; runs show in Agent Activity with new
+  `code` / `cli` badges. Configure it in the new **Settings -> Code** tab (allowed project folders,
+  default backend, local model for code jobs, parallel subtasks, max turns), which also shows the
+  detected `claude` CLI, its login state and which backends are usable right now (`GET /api/code`).
+  Claude Code is now listed among the detected CLI providers, and a **delegate** skill explains
+  when to delegate.
+- **Fix: the Ollama Cloud key is saved.** `OLLAMA_API_KEY` was missing from the credential list,
+  so saving it in Settings silently dropped it.
 - **Settings → Integrations tab.** Jira credentials (base URL, account email, API token, default
   project) had no home in the desktop Settings; the Jira tools and agents now point to
   **Settings → Integrations → Jira**, and the tab also surfaces the optional web-search and plugin

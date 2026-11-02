@@ -27,6 +27,81 @@ import type { AgentStore } from './agents.js';
 import { BanStore, isSmartestModel } from './bans.js';
 import { PermissionStore, summarizeToolInput, type PermissionPrompter, type PromptAnswer } from './permissions.js';
 import { haConfigured, fetchHaInventory } from '../tools/homeassistant.js';
+import type { CodeHost, DelegateTaskSpec, DelegateContext, RunPath } from './code/orchestrator.js';
+
+/** The delegation orchestrator as the engine sees it (late-bound; see src/core/code/orchestrator.ts). */
+export interface Delegator {
+  delegateText(tasks: DelegateTaskSpec[], ctx: DelegateContext, force?: RunPath): Promise<string>;
+  allowedFolders(): string[];
+}
+
+/** OpenAI-format definitions of the delegation tools, for the local / free-provider tool loop. */
+const DELEGATE_TOOL_DEFS: unknown[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'delegate_task',
+      description:
+        'Hand one or more jobs to Claude Code as a worker. A job that needs code (edits, fixes, builds, tests in a project folder) runs as a Claude Code session in that folder; any other job (research, analysis, writing) runs on the headless claude CLI. Split independent parts into separate tasks: they run in parallel. Returns each task\'s outcome.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tasks: {
+            type: 'array',
+            description: 'The subtasks (1-8).',
+            items: {
+              type: 'object',
+              properties: {
+                task: { type: 'string', description: 'Complete, self-contained instructions for the worker' },
+                folder: { type: 'string', description: 'Project folder for code jobs (must be an allowed folder)' },
+                kind: { type: 'string', enum: ['auto', 'code', 'general'], description: 'auto (default) decides by the task' },
+                backend: { type: 'string', enum: ['auto', 'claude', 'free', 'local'], description: 'Model backend; auto (default) picks per task' },
+                model: { type: 'string', description: 'Optional model override' },
+              },
+              required: ['task'],
+            },
+          },
+        },
+        required: ['tasks'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'claude_code',
+      description: 'Run ONE coding job as a Claude Code session inside a project folder (edits files, runs builds/tests). Returns a summary and the changed files.',
+      parameters: {
+        type: 'object',
+        properties: {
+          task: { type: 'string', description: 'Complete instructions for the coding worker' },
+          folder: { type: 'string', description: 'Project folder (must be an allowed folder; default the work dir)' },
+          backend: { type: 'string', enum: ['auto', 'claude', 'free', 'local'] },
+          model: { type: 'string' },
+        },
+        required: ['task'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'claude_cli',
+      description: 'Run ONE non-code job (research, analysis, writing) on the headless claude CLI with read and web-research tools only. Returns its answer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          task: { type: 'string', description: 'Complete instructions for the worker' },
+          folder: { type: 'string', description: 'Optional allowed folder it may read' },
+          backend: { type: 'string', enum: ['auto', 'claude', 'free', 'local'] },
+          model: { type: 'string' },
+        },
+        required: ['task'],
+      },
+    },
+  },
+];
+export const DELEGATE_TOOL_NAMES = ['delegate_task', 'claude_code', 'claude_cli'];
 
 export interface RunRequest {
   /** Stable per-conversation key, e.g. "telegram:12345". */
@@ -71,6 +146,8 @@ export type McpServerBuilder = (ctx: {
   conversationKey: string;
   channel: string;
   chatId: string;
+  /** Streams status lines into the chat (e.g. delegated subtask progress). */
+  onProgress?: (chunk: string) => void;
 }) => Record<string, McpServerConfig>;
 
 export interface RunResult {
@@ -411,9 +488,11 @@ function extractLeakedToolCall(content: string): { name: string; args: Record<st
   return null;
 }
 
-export class Engine {
+export class Engine implements CodeHost {
   /** Set after construction (scheduler/skills depend on the engine, so this breaks the cycle). */
   public buildMcpServers?: McpServerBuilder;
+  /** Claude Code delegation orchestrator. Late-bound: it calls back into the engine for permissions. */
+  public delegator?: Delegator;
 
   constructor(private readonly deps: EngineDeps) {}
 
@@ -462,11 +541,13 @@ export class Engine {
    * back to allow so unattended jobs never hang waiting for an answer; pre-grant or
    * deny their tools per agent/skill to control them. A prompt that gets no answer
    * (tab closed, no client connected, 5-minute timeout) denies that one call.
+   * Delegated Claude Code runs pass a `scope` (e.g. "code:<folder>"): it is checked first and
+   * "always" answers are remembered under it, so a grant applies to that project only.
    */
-  private async decideToolUse(
+  async decideToolUse(
     toolName: string,
     input: Record<string, unknown>,
-    ctx: { conversationKey: string; channel: string; chatId: string; agent?: string; skill?: string },
+    ctx: { conversationKey: string; channel: string; chatId: string; agent?: string; skill?: string; scope?: string },
   ): Promise<PermissionResult> {
     const denied = this.deps.config.disallowedTools ?? [];
     if (denied.includes(toolName)) {
@@ -478,6 +559,7 @@ export class Engine {
     if (!perms) return { behavior: 'allow', updatedInput: input };
 
     const scopes: string[] = [];
+    if (ctx.scope) scopes.push(ctx.scope);
     if (ctx.agent) scopes.push(`agent:${ctx.agent}`);
     if (ctx.skill) scopes.push(`skill:${ctx.skill}`);
     scopes.push(`chat:${ctx.conversationKey}`, 'global');
@@ -490,7 +572,7 @@ export class Engine {
       logger.info({ tool: toolName, channel: ctx.channel, key: ctx.conversationKey }, 'permission auto-allowed (no interactive prompter on this channel)');
       return { behavior: 'allow', updatedInput: input };
     }
-    const persistScope = ctx.agent ? `agent:${ctx.agent}` : ctx.skill ? `skill:${ctx.skill}` : `chat:${ctx.conversationKey}`;
+    const persistScope = ctx.scope ? ctx.scope : ctx.agent ? `agent:${ctx.agent}` : ctx.skill ? `skill:${ctx.skill}` : `chat:${ctx.conversationKey}`;
     let answer: PromptAnswer = null;
     let timer: NodeJS.Timeout | undefined;
     try {
@@ -518,6 +600,50 @@ export class Engine {
     if (answer === 'deny') return { behavior: 'deny', message: `The user denied ${toolName} for this request.` };
     // No answer (timeout / disconnected): deny this one call without remembering anything.
     return { behavior: 'deny', message: `No permission answer for ${toolName} (request timed out) — ask the user or try a different approach.` };
+  }
+
+  /** Register a delegated Claude Code run in the in-flight map (so it can be aborted) and link it to
+   *  its parent turn: aborting the parent (Stop, turn timeout) also stops the delegated run. */
+  trackDelegatedRun(key: string, ac: AbortController, parentKey?: string): () => void {
+    this.inFlight.set(key, ac);
+    const parent = parentKey ? this.inFlight.get(parentKey) : undefined;
+    const onAbort = (): void => ac.abort();
+    if (parent) {
+      if (parent.signal.aborted) ac.abort();
+      else parent.signal.addEventListener('abort', onAbort, { once: true });
+    }
+    return () => {
+      parent?.signal.removeEventListener('abort', onAbort);
+      if (this.inFlight.get(key) === ac) this.inFlight.delete(key);
+    };
+  }
+
+  /** One cheap call on the fast Claude model (used by the orchestrator's code/general classifier). */
+  classifyOneShot(system: string, prompt: string): Promise<string> {
+    return this.oneShotClaude(system, prompt, this.deps.config.fastModel || this.deps.config.model);
+  }
+
+  /** Run a delegation tool call from the local / free-provider tool loop. */
+  private async execDelegateTool(name: string, args: Record<string, unknown>, ctx: DelegateContext): Promise<string> {
+    const d = this.delegator;
+    if (!d) return 'Delegation is not available in this build.';
+    const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+    const one = (o: Record<string, unknown>): DelegateTaskSpec => ({
+      task: String(o.task ?? ''),
+      folder: str(o.folder),
+      kind: o.kind === 'code' || o.kind === 'general' ? o.kind : 'auto',
+      backend: o.backend === 'claude' || o.backend === 'free' || o.backend === 'local' ? o.backend : 'auto',
+      model: str(o.model),
+    });
+    try {
+      if (name === 'delegate_task') {
+        const list = Array.isArray(args.tasks) ? (args.tasks as Array<Record<string, unknown>>) : typeof args.task === 'string' ? [args] : [];
+        return await d.delegateText(list.map(one), ctx);
+      }
+      return await d.delegateText([one(args)], ctx, name === 'claude_code' ? 'code' : 'cli');
+    } catch (err) {
+      return `Delegation failed: ${String(err)}`;
+    }
   }
 
   /** Per-conversation serialization tail: chains same-key runs so they can't race. */
@@ -581,7 +707,7 @@ export class Engine {
 
   /** Every capability the user can ban / invoke with "/": tool names + saved skill names. */
   capabilityNames(): string[] {
-    const tools = buildLocalTools().names;
+    const tools = [...buildLocalTools().names, ...(this.delegator ? DELEGATE_TOOL_NAMES : [])];
     const skills = (this.deps.skills?.list() ?? []).map((s) => s.name);
     return Array.from(new Set([...tools, ...skills]));
   }
@@ -863,7 +989,8 @@ export class Engine {
     const def = store?.get(name);
     if (!store || !def) return { ok: false, note: 'no such agent' };
     const tiers = this.availableTiers();
-    const toolNames = buildLocalTools().names.join(', ');
+    // Scheduled agents may delegate too: delegate_task hands code/research jobs to Claude Code.
+    const toolNames = [...buildLocalTools().names, ...(this.delegator ? ['delegate_task'] : [])].join(', ');
     const skillIndex = (this.deps.skills?.detailsAll() ?? [])
       .slice(0, 40)
       .map((s) => `- ${s.name}: ${(s.description || '').slice(0, 90)}`)
@@ -887,7 +1014,9 @@ export class Engine {
       `AGENT NAME: ${def.name}\nUSER'S JOB DESCRIPTION:\n${def.job}\n\n` +
       (profile ? `USER PROFILE (bake anything relevant into the spec; the executor will NOT see this):\n${profile}\n\n` : '') +
       (learned ? `RELEVANT LEARNINGS (bake in if useful; the executor will NOT see these):\n${learned}\n\n` : '') +
-      `AVAILABLE TOOLS: ${toolNames}\n\nAVAILABLE SKILLS:\n${skillIndex || '(none)'}\n\nAVAILABLE TIERS: ${tiers.join(', ')}\n\n` +
+      `AVAILABLE TOOLS: ${toolNames}\n` +
+      (this.delegator ? `(delegate_task {tasks:[{task, folder?}]} hands a coding job in an allowed project folder (${this.delegator.allowedFolders().join('; ')}) or a research/analysis job to a Claude Code worker and returns its result.)\n` : '') +
+      `\nAVAILABLE SKILLS:\n${skillIndex || '(none)'}\n\nAVAILABLE TIERS: ${tiers.join(', ')}\n\n` +
       'Compile the plan now. Output ONLY the JSON object.';
     const raw = await this.oneShotClaude(system, prompt, this.deps.config.smartModel || this.deps.config.model);
     const plan = this.parseJsonObject(raw);
@@ -1166,9 +1295,20 @@ export class Engine {
    * failure also escalates. Usage is recorded (summed across rounds) as "local:<model>".
    */
   /** Shared assistant system prompt + tools for the tool-using models (local & free cloud). */
-  private buildAssistant(allowEscalate: boolean, query = '', agent?: { job?: string; tools?: string[] }, opts?: { bannedCaps?: string[]; forcedSkill?: string }): { system: string; tools: LocalToolset } {
+  private buildAssistant(allowEscalate: boolean, query = '', agent?: { job?: string; tools?: string[] }, opts?: { bannedCaps?: string[]; forcedSkill?: string; delegateCtx?: DelegateContext }): { system: string; tools: LocalToolset } {
     const { config } = this.deps;
     let tools = buildLocalTools();
+    // Claude Code delegation: the local / free models get delegate_task, claude_code and claude_cli
+    // too. Injected BEFORE the agent allowlist and bans below, so those apply to them as well.
+    const dctx = opts?.delegateCtx;
+    if (this.delegator && dctx) {
+      const baseExec = tools.exec;
+      tools = {
+        names: [...tools.names, ...DELEGATE_TOOL_NAMES],
+        defs: [...tools.defs, ...DELEGATE_TOOL_DEFS],
+        exec: (name: string, args: Record<string, unknown>) => (DELEGATE_TOOL_NAMES.includes(name) ? this.execDelegateTool(name, args, dctx) : baseExec(name, args)),
+      };
+    }
     // Agent tool restriction: expose ONLY the tools this agent is allowed to use.
     if (agent?.tools && agent.tools.length) {
       const allow = new Set(agent.tools);
@@ -1189,7 +1329,7 @@ export class Engine {
     const hasSearch = tools.names.includes('web_search');
     const noSearchNote =
       'You do NOT have web search. Only http_get a SPECIFIC URL you were given or that a skill provides. Do NOT fetch search engines (google.com, bing.com) or guess/invent URLs. If you do not have the exact URL for what is asked, say you cannot look it up and that web search can be enabled by adding a Tavily or Brave API key in Settings.';
-    const toolsLine = `You have TOOLS that fetch REAL data — call them; report ONLY what a tool actually returns; NEVER fabricate results, sources, errors, or actions; and NEVER show raw tool-call JSON to the user (either call the tool, or answer in plain language). Tools: ${tools.names.join(', ')}. http_get(url, headers?) fetches a SPECIFIC URL — public JSON APIs or your local network such as Home Assistant. read_url(url) fetches a web PAGE and returns its READABLE TEXT (HTML stripped) — use it to actually read an article/page (e.g. one web_search returned), instead of http_get on a web page. ${hasSearch ? 'web_search(query) searches the web — ALWAYS use web_search to find information, then read_url the best result; do NOT http_get a search engine like google.com or bing.com.' : noSearchNote} You have no other abilities (no files, no shell, no scheduling, no memory writes).`;
+    const toolsLine = `You have TOOLS that fetch REAL data — call them; report ONLY what a tool actually returns; NEVER fabricate results, sources, errors, or actions; and NEVER show raw tool-call JSON to the user (either call the tool, or answer in plain language). Tools: ${tools.names.join(', ')}. http_get(url, headers?) fetches a SPECIFIC URL — public JSON APIs or your local network such as Home Assistant. read_url(url) fetches a web PAGE and returns its READABLE TEXT (HTML stripped) — use it to actually read an article/page (e.g. one web_search returned), instead of http_get on a web page. ${hasSearch ? 'web_search(query) searches the web — ALWAYS use web_search to find information, then read_url the best result; do NOT http_get a search engine like google.com or bing.com.' : noSearchNote} ${tools.names.includes('delegate_task') ? `You cannot touch files or run a shell yourself, but you can hand work to a Claude Code worker: delegate_task(tasks) for jobs that need code in a project folder (allowed: ${this.delegator?.allowedFolders().join('; ')}) or longer research/analysis jobs; put independent parts in separate tasks so they run in parallel, and report the worker's result. You have no other abilities (no scheduling, no memory writes).` : 'You have no other abilities (no files, no shell, no scheduling, no memory writes).'}`;
     // The Prime Directives (Laws) apply to EVERY run — chat or agent, on any model (local, free
     // provider, or Claude) and also in Privacy Mode (where the local model is the only tier). They
     // lead the prompt at highest priority. The lighter `safety` line below is a concise reinforcement
@@ -1240,7 +1380,7 @@ export class Engine {
   }
 
   /** OpenAI-compatible tool-use loop (local Ollama or a free cloud provider). */
-  private async toolLoop(o: { url: string; model: string; apiKey?: string; system: string; userText: string; tools: LocalToolset; history?: Array<{ role: string; content: string }>; numCtx?: number; keepAlive?: string; temp?: number; images?: string[] }): Promise<{
+  private async toolLoop(o: { url: string; model: string; apiKey?: string; system: string; userText: string; tools: LocalToolset; history?: Array<{ role: string; content: string }>; numCtx?: number; keepAlive?: string; temp?: number; images?: string[]; abort?: AbortController }): Promise<{
     failed: boolean;
     exhausted: boolean;
     finalText: string;
@@ -1267,7 +1407,8 @@ export class Engine {
     let exhausted = false;
     let searched = false; // did the model actually fetch real data (web_search/http_get)?
     const usedTools = new Set<string>();
-    const ac = new AbortController();
+    // Caller-supplied when delegation tools are in play, so this turn's timeout also stops them.
+    const ac = o.abort ?? new AbortController();
     const timeout = setTimeout(() => ac.abort(), this.deps.config.turnTimeoutMs);
     try {
       for (let step = 0; step < MAX_STEPS; step++) {
@@ -1338,6 +1479,12 @@ export class Engine {
 
   /** Decide hand-off vs answer from a tool-loop outcome (shared by local & cloud). */
   private finishAssistantTurn(req: RunRequest, allowEscalate: boolean, r: { failed: boolean; exhausted: boolean; finalText: string; searched?: boolean; usedTools?: string[] }, isLocal = false): { escalate: boolean; result?: RunResult } {
+    // A turn that already handed work to Claude Code workers must not be redone on another tier:
+    // the redo would delegate (and edit the project) a second time.
+    if ((r.usedTools ?? []).some((t) => DELEGATE_TOOL_NAMES.includes(t))) {
+      allowEscalate = false;
+      if (r.failed) r = { ...r, failed: false, finalText: r.finalText || 'The delegated job ran (see Agent Activity for its result), but the model failed while writing the reply.' };
+    }
     if (r.failed) return { escalate: true };
     let finalText = r.finalText;
     if (extractLeakedToolCall(finalText) || looksLikeLeakedCall(finalText)) {
@@ -1368,15 +1515,23 @@ export class Engine {
       .map((t) => ({ role: t.role === 'assistant' ? 'assistant' : 'user', content: t.text.slice(0, maxChars) }));
   }
 
+  /** The conversation context a delegation tool call runs under (permissions, progress, Stop). */
+  private delegateCtx(req: RunRequest, signal?: AbortSignal): DelegateContext {
+    const channel = req.channel ?? req.conversationKey.split(':')[0] ?? 'cli';
+    const chatId = req.chatId ?? req.conversationKey.split(':').slice(1).join(':') ?? req.conversationKey;
+    return { conversationKey: req.conversationKey, channel, chatId, onProgress: req.onProgress, signal };
+  }
+
   /** Answer with the on-device model via the shared tool loop (no subscription used). */
   private async answerLocal(req: RunRequest, allowEscalate: boolean): Promise<{ escalate: boolean; result?: RunResult }> {
     const lm = this.deps.config.localModel!;
     const bannedCaps = this.deps.bans?.bannedSkillsFor('local') ?? [];
-    const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill });
+    const abort = new AbortController();
+    const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill, delegateCtx: this.delegateCtx(req, abort.signal) });
     const history = req.freshContext ? [] : this.recentHistory(req.conversationKey);
     // Agent executions run at temperature 0 for determinism (no fabrication / no chit-chat drift).
     const temp = req.agentJob ? 0 : this.deps.config.localTemp;
-    const r = await this.toolLoop({ url: `${lm.url}/chat/completions`, model: lm.model, system, userText: req.text, tools, history, numCtx: this.deps.config.localContext, keepAlive: this.deps.config.localKeepAlive, temp });
+    const r = await this.toolLoop({ url: `${lm.url}/chat/completions`, model: lm.model, system, userText: req.text, tools, history, numCtx: this.deps.config.localContext, keepAlive: this.deps.config.localKeepAlive, temp, abort });
     if (!r.failed) this.deps.usage?.recordEngine({ [`local:${lm.model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
     const out = this.finishAssistantTurn(req, allowEscalate, r, /* isLocal */ true);
     if (out.result) { out.result.via = `Local (${lm.model})`; out.result.modelToken = 'local'; }
@@ -1388,9 +1543,10 @@ export class Engine {
     const key = process.env[p.envKey];
     if (!key) return { escalate: true };
     const bannedCaps = this.deps.bans?.bannedSkillsFor(p.id) ?? [];
-    const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill });
+    const abort = new AbortController();
+    const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill, delegateCtx: this.delegateCtx(req, abort.signal) });
     const history = req.freshContext ? [] : this.recentHistory(req.conversationKey);
-    const r = await this.toolLoop({ url: `${p.baseUrl}/chat/completions`, model: p.model, apiKey: key, system, userText: req.text, tools, history, temp: req.agentJob ? 0 : undefined, images: p.vision ? req.images : undefined });
+    const r = await this.toolLoop({ url: `${p.baseUrl}/chat/completions`, model: p.model, apiKey: key, system, userText: req.text, tools, history, temp: req.agentJob ? 0 : undefined, images: p.vision ? req.images : undefined, abort });
     recordProviderUse(p.id);
     if (!r.failed) this.deps.usage?.recordEngine({ [`${p.kind}:${p.id}:${p.model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
     if (!r.failed) logger.info({ provider: p.id, kind: p.kind }, 'cloud provider handled the turn');
@@ -1602,13 +1758,17 @@ export class Engine {
       `(documents, exports, outputs, downloads) under "${config.workDir}". Put scripts you install — ` +
       `.bat/.ps1/.sh, e.g. ones a scheduled task runs — under "${config.batDir}". Create these folders if ` +
       `missing. Only use a different path when the user gives an explicit absolute one.`;
-    const append = [agentRole, laws, buildPersona(dispName), this.deps.memory.systemPromptBlock(req.agentName), memoryAware, skillsHint, escalationHint, searchHint, localHint, pathRule, config.systemPromptAppend, nameLock]
+    // Orchestrator hint: project/code work and big independent jobs go to Claude Code workers.
+    const delegateHint = this.delegator
+      ? `DELEGATION — you can hand jobs to Claude Code workers with the \`delegate_task\` tool (or \`claude_code\` / \`claude_cli\` for a single job). For work inside a code project (edits, fixes, refactors, builds, tests) delegate it with the project folder rather than editing files from your own workspace; allowed project folders: ${this.delegator.allowedFolders().join('; ')}. Self-contained research/analysis jobs can go to the headless CLI worker. When a job splits into independent parts, pass them as SEPARATE tasks in ONE delegate_task call so they run in parallel; give each task complete, self-contained instructions, then report the combined results.`
+      : undefined;
+    const append = [agentRole, laws, buildPersona(dispName), this.deps.memory.systemPromptBlock(req.agentName), memoryAware, skillsHint, escalationHint, searchHint, localHint, delegateHint, pathRule, config.systemPromptAppend, nameLock]
       .filter(Boolean)
       .join('\n\n');
 
     const channel = req.channel ?? req.conversationKey.split(':')[0] ?? 'cli';
     const chatId = req.chatId ?? req.conversationKey.split(':').slice(1).join(':') ?? req.conversationKey;
-    const dynamicServers = this.buildMcpServers?.({ conversationKey: req.conversationKey, channel, chatId });
+    const dynamicServers = this.buildMcpServers?.({ conversationKey: req.conversationKey, channel, chatId, onProgress: req.onProgress });
     const mcpServers = { ...this.deps.mcpServers, ...dynamicServers };
 
     // Per-turn wall-clock guard: if a turn hangs (e.g. a wedged child process),
