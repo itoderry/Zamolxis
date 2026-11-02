@@ -71,7 +71,7 @@
 - **Command bar (Ctrl+Space).** A spotlight-style launcher: press Ctrl+Space (or Ctrl/Cmd+K) from
   anywhere on the desktop, start typing, and jump straight to any app or agent, or pick "Ask
   Zamolxis: <your text>" to open the chat and send your question in one step. Arrow keys navigate,
-  Enter selects, Esc closes. The chat window gains a
+  Enter selects, Esc closes. Also on the desktop right-click menu. The chat window gains a
   `sendChat` hook that waits for the socket before sending. Pure front-end.
 - **Privacy dashboard.** A new "Privacy" desktop app (shield icon, kept on the desktop) shows the
   self-hosting posture at a glance: where Zamolxis runs (host, account, data dir), whether the web
@@ -86,11 +86,12 @@
   state) and imported on another machine in one click. The New Agent window gains a "Share agents"
   section for both; import detects a name clash and offers to replace. Backed by new `export` /
   `import` actions on `POST /api/agents`.
-- **Desktop: "Auto-arrange icons" + no more off-screen icons.** "Auto-arrange icons" in the command
-  bar (Ctrl+Space) lays every icon into a tidy grid inside the visible area. The desktop has no
-  custom right-click menu; right-click keeps the browser's own menu. Icons without a saved position
-  now wrap into the next column instead of stacking down a single column past the bottom of the
-  screen.
+- **Desktop: right-click menu, "Auto-arrange icons" + no more off-screen icons.** Right-clicking
+  the empty desktop opens a small menu (Command bar, Auto-arrange icons); "Auto-arrange icons" is
+  also in the command bar (Ctrl+Space). It lays every icon into a tidy grid inside the visible area.
+  The menu listens on the desktop itself, since the icon layer has pointer-events: none (Giskard
+  attached it to that layer, so it never opened). Icons without a saved position now wrap into the
+  next column instead of stacking down a single column past the bottom of the screen.
 - **Pre-made agents: Hide instead of Delete.** A shipped pre-made agent can't be truly deleted (it
   would just re-seed on restart), so its window now offers **Hide** rather than Delete. Hiding takes
   it off the desktop and app list, pauses it and removes its schedules; **Un-hide** from Settings ->
