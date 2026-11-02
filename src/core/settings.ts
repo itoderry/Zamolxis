@@ -45,6 +45,7 @@ const CRED_FIELDS: Array<{ key: string; label: string; group: string; secret: bo
   { key: 'DEEPSEEK_API_KEY', label: 'DeepSeek key (paid, very cheap)', group: 'providers', secret: true },
   { key: 'NVIDIA_API_KEY', label: 'NVIDIA NIM key (free cloud tier — build.nvidia.com)', group: 'providers', secret: true },
   { key: 'SAMBANOVA_API_KEY', label: 'SambaNova key (free fast cloud tier)', group: 'providers', secret: true },
+  { key: 'OLLAMA_API_KEY', label: 'Ollama Cloud key (free hosted tier — ollama.com/settings/keys)', group: 'providers', secret: true },
   { key: 'PERPLEXITY_API_KEY', label: 'Perplexity Sonar key (PAID: search-grounded; not a free tier)', group: 'providers', secret: true },
   // Jira Cloud (Settings → Integrations → Jira): used by the jira_* tools, Jira Sentinel and Jira Watcher.
   { key: 'JIRA_BASE_URL', label: 'Jira base URL (https://your-domain.atlassian.net)', group: 'jira', secret: false },
@@ -78,6 +79,11 @@ interface PersistedSettings {
   lawsEnabled?: boolean;
   agentRestore?: boolean;
   persistAgentCreated?: boolean;
+  codeFolders?: string[];
+  codeDefaultBackend?: 'auto' | 'claude' | 'free' | 'local';
+  codeLocalModel?: string;
+  codeMaxParallel?: number;
+  codeMaxTurns?: number;
   channels?: Partial<Record<(typeof CHANNELS)[number], boolean>>;
   web?: { port?: number; bind?: string; authToken?: string };
   sandbox?: { dockerImage?: string; dockerContainer?: string; sshHost?: string; sshUser?: string; sshPort?: number; sshIdentity?: string };
@@ -147,6 +153,11 @@ export class SettingsManager {
         lawsEnabled: this.config.lawsEnabled,
         agentRestore: this.config.agentRestore,
         persistAgentCreated: this.config.persistAgentCreated,
+        codeFolders: this.config.codeFolders,
+        codeDefaultBackend: this.config.codeDefaultBackend,
+        codeLocalModel: this.config.codeLocalModel ?? '',
+        codeMaxParallel: this.config.codeMaxParallel,
+        codeMaxTurns: this.config.codeMaxTurns,
       },
       // Restart-required sections reflect the PERSISTED intent overlaid on the live
       // config, so a saved change stays shown even before the reload takes effect.
@@ -296,6 +307,30 @@ export class SettingsManager {
     if (typeof live.persistAgentCreated === 'boolean') {
       this.config.persistAgentCreated = live.persistAgentCreated;
       p.persistAgentCreated = live.persistAgentCreated;
+    }
+    // Claude Code delegation (Settings -> Code). All live: the orchestrator reads config per run.
+    if (live.codeFolders !== undefined) {
+      // Accept an array or a newline/semicolon-separated string of absolute folder paths.
+      const raw = Array.isArray(live.codeFolders) ? live.codeFolders : String(live.codeFolders).split(/[\r\n;]+/);
+      const folders = [...new Set(raw.map((t) => String(t).trim()).filter(Boolean).map((t) => path.resolve(t)))];
+      this.config.codeFolders = folders;
+      p.codeFolders = folders;
+    }
+    if (live.codeDefaultBackend === 'auto' || live.codeDefaultBackend === 'claude' || live.codeDefaultBackend === 'free' || live.codeDefaultBackend === 'local') {
+      this.config.codeDefaultBackend = live.codeDefaultBackend;
+      p.codeDefaultBackend = live.codeDefaultBackend;
+    }
+    if (typeof live.codeLocalModel === 'string') {
+      this.config.codeLocalModel = live.codeLocalModel.trim() || undefined;
+      p.codeLocalModel = live.codeLocalModel.trim();
+    }
+    if (typeof live.codeMaxParallel === 'number' && live.codeMaxParallel >= 1) {
+      this.config.codeMaxParallel = Math.min(16, Math.floor(live.codeMaxParallel));
+      p.codeMaxParallel = this.config.codeMaxParallel;
+    }
+    if (typeof live.codeMaxTurns === 'number' && live.codeMaxTurns >= 1) {
+      this.config.codeMaxTurns = Math.min(500, Math.floor(live.codeMaxTurns));
+      p.codeMaxTurns = this.config.codeMaxTurns;
     }
 
     // ── identity: curated SOUL.md / USER.md (live; written to their own files) ──

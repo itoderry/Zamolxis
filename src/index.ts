@@ -42,6 +42,7 @@ import { BanStore, isSmartestModel } from './core/bans.js';
 import { PermissionStore } from './core/permissions.js';
 import { configuredProviders } from './core/providers.js';
 import { buildToolServers } from './tools/index.js';
+import { Orchestrator } from './core/code/orchestrator.js';
 
 /** Print a readiness report (`--doctor`/`--check`) and exit. Used by the installer. */
 function doctor(config: ZamolxisConfig): never {
@@ -224,6 +225,10 @@ async function main(): Promise<void> {
     countAgentSchedules: (name) => scheduler.countByAgent(name),
     setAgentSchedulesEnabled: (name, enabled) => scheduler.setAgentEnabled(name, enabled),
   });
+  // Claude Code delegation: subtasks run as Claude Code workers (SDK in a project folder, or the
+  // headless CLI) on their own throttle. Late-bound both ways: it asks the engine for permissions.
+  const orchestrator = new Orchestrator({ config, memory, runs, bans, usage, host: engine });
+  engine.delegator = orchestrator;
   // Agent-managed dashboard tabs (web UI), with optional periodic refresh.
   const tabs = new TabsManager(config.dataDir);
   tabs.wire(engine);
@@ -248,7 +253,7 @@ async function main(): Promise<void> {
     const sandbox = new SandboxManager(config.sandbox);
     const settings = new SettingsManager(config, sandbox, config.dataDir, () => manager.runningNames(), memory);
     engine.buildMcpServers = (ctx) =>
-      buildToolServers(ctx, { scheduler, skills, sandbox, memory, sessionIndex, tabs, usage, localModel: config.localModel, dataDir: config.dataDir, skillsDir: config.skillsDir, agentStore, runAgent: (n, t) => engine.runAgent(n, t).then((r) => r.reply), sendAgentMessage: (f, t, x) => engine.sendAgentMessage(f, t, x), compileAgent: (n) => engine.compileAgent(n), buildHaMap: () => engine.buildHaDeviceMap() });
+      buildToolServers(ctx, { scheduler, skills, sandbox, memory, sessionIndex, tabs, usage, localModel: config.localModel, dataDir: config.dataDir, skillsDir: config.skillsDir, agentStore, runAgent: (n, t) => engine.runAgent(n, t).then((r) => r.reply), delegate: (tasks, c, force) => orchestrator.delegateText(tasks, c, force), sendAgentMessage: (f, t, x) => engine.sendAgentMessage(f, t, x), compileAgent: (n) => engine.compileAgent(n), buildHaMap: () => engine.buildHaDeviceMap() });
     logger.info({ sandbox: sandbox.listConfigured(), default: sandbox.defaultBackend }, 'sandbox ready');
 
     const factories: Array<[boolean, () => Channel]> = [

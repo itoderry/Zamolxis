@@ -105,6 +105,18 @@ const ConfigSchema = z.object({
    */
   routeChain: z.array(z.string()),
 
+  /** Claude Code delegation: project folders a delegated code run (path 2) may work in.
+   *  Empty = only the work dir. */
+  codeFolders: z.array(z.string()),
+  /** Preferred model backend for delegated runs ('auto' picks per subtask). */
+  codeDefaultBackend: z.enum(['auto', 'claude', 'free', 'local']),
+  /** Ollama model the local backend uses for delegated runs; undefined = the chat local model. */
+  codeLocalModel: z.string().optional(),
+  /** How many delegated subtasks may run at once (own throttle, separate from maxConcurrent). */
+  codeMaxParallel: z.number().int().positive(),
+  /** Turn ceiling for one delegated run. */
+  codeMaxTurns: z.number().int().positive(),
+
   /** Permission posture for the autonomous agent. */
   permissionMode: z.enum(['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk']),
   /** Explicit auto-allow tool list (used with the canUseTool policy). */
@@ -214,6 +226,16 @@ export function loadConfig(): ZamolxisConfig {
     routeChain: process.env.ZAMOLXIS_ROUTE_CHAIN
       ? process.env.ZAMOLXIS_ROUTE_CHAIN.split(',').map((s) => s.trim()).filter(Boolean)
       : ['freecloud', 'local', 'claude'],
+    // Claude Code delegation (Settings -> Code). No folders listed = only the work dir is allowed.
+    codeFolders: process.env.ZAMOLXIS_CODE_FOLDERS
+      ? process.env.ZAMOLXIS_CODE_FOLDERS.split(';').map((s) => s.trim()).filter(Boolean)
+      : [],
+    codeDefaultBackend: (['auto', 'claude', 'free', 'local'].includes(process.env.ZAMOLXIS_CODE_BACKEND || '')
+      ? process.env.ZAMOLXIS_CODE_BACKEND
+      : 'auto') as ZamolxisConfig['codeDefaultBackend'],
+    codeLocalModel: process.env.ZAMOLXIS_CODE_LOCAL_MODEL || undefined,
+    codeMaxParallel: Math.max(1, Number(process.env.ZAMOLXIS_CODE_MAX_PARALLEL ?? 3) || 3),
+    codeMaxTurns: Math.max(1, Number(process.env.ZAMOLXIS_CODE_MAX_TURNS ?? 30) || 30),
     // 'default' = interactive: Zamolxis asks before using a resource (like Claude Code) and
     // remembers grants per chat/skill/agent. Set acceptEdits/bypassPermissions to skip asking.
     // Headless runs (scheduled agents, messaging channels) have no prompter and are never blocked.
@@ -323,6 +345,11 @@ export function applyPersistedSettings(config: ZamolxisConfig): void {
       if (typeof s.localKeepAlive === 'string' && s.localKeepAlive.trim()) config.localKeepAlive = s.localKeepAlive.trim();
       if (typeof s.localTemp === 'number' && s.localTemp >= 0) config.localTemp = s.localTemp;
       if (Array.isArray(s.routeChain) && s.routeChain.length) config.routeChain = s.routeChain.filter((t: unknown) => typeof t === 'string');
+      if (Array.isArray(s.codeFolders)) config.codeFolders = s.codeFolders.filter((t: unknown) => typeof t === 'string' && t.trim()).map((t: string) => t.trim());
+      if (['auto', 'claude', 'free', 'local'].includes(s.codeDefaultBackend)) config.codeDefaultBackend = s.codeDefaultBackend;
+      if (typeof s.codeLocalModel === 'string') config.codeLocalModel = s.codeLocalModel.trim() || undefined;
+      if (typeof s.codeMaxParallel === 'number' && s.codeMaxParallel >= 1) config.codeMaxParallel = Math.min(16, Math.floor(s.codeMaxParallel));
+      if (typeof s.codeMaxTurns === 'number' && s.codeMaxTurns >= 1) config.codeMaxTurns = Math.min(500, Math.floor(s.codeMaxTurns));
 
       if (s.channels && argvChannels === null) {
         for (const k of Object.keys(config.channels) as Array<keyof typeof config.channels>) {

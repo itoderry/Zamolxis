@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { exec } from 'node:child_process';
 import { logger } from '../logger.js';
+import { resolveClaude } from './code/cliRunner.js';
 
 /**
  * Other AI tools that, like Claude Code, run via their OWN CLI on a subscription/login
@@ -22,9 +23,26 @@ export interface CliProviderDef {
   /** Shell command the user runs once to log in. */
   loginCmd: string;
   docs: string;
+  /** Custom install probe (for CLIs that often live off PATH); defaults to a PATH lookup of `bin`. */
+  detect?: () => boolean;
+  /** Env vars that also count as logged in (e.g. a long-lived token). */
+  loginEnv?: string[];
 }
 
 export const CLI_PROVIDERS: CliProviderDef[] = [
+  {
+    // Claude Code itself: Zamolxis delegates non-code jobs to `claude -p` (Settings -> Code). The
+    // native installer puts it in ~/.local/bin, which a daemon's PATH often lacks.
+    id: 'claude-code',
+    name: 'Claude Code (Anthropic)',
+    bin: 'claude',
+    npm: '@anthropic-ai/claude-code',
+    loginFiles: ['.claude/.credentials.json'],
+    loginCmd: 'claude auth login',
+    docs: 'https://docs.claude.com/en/docs/claude-code/overview',
+    detect: () => hasBin('claude') || !!resolveClaude(),
+    loginEnv: ['CLAUDE_CODE_OAUTH_TOKEN'],
+  },
   {
     id: 'gemini-cli',
     name: 'Gemini CLI (Google)',
@@ -71,6 +89,7 @@ export function hasBin(bin: string): boolean {
 }
 
 function loggedIn(p: CliProviderDef): boolean {
+  if (p.loginEnv?.some((k) => Boolean(process.env[k]))) return true;
   const home = os.homedir();
   return p.loginFiles.some((f) => {
     try {
@@ -92,7 +111,7 @@ export interface CliProviderStatus {
 
 export function cliProviderStatus(): CliProviderStatus[] {
   return CLI_PROVIDERS.map((p) => {
-    const installed = hasBin(p.bin);
+    const installed = p.detect ? p.detect() : hasBin(p.bin);
     return { id: p.id, name: p.name, installed, loggedIn: installed && loggedIn(p), loginCmd: p.loginCmd, docs: p.docs };
   });
 }

@@ -883,12 +883,13 @@
     var nav = el('div', 'set-nav');
     var pane = el('div', 'set-pane');
     wrap.appendChild(nav); wrap.appendChild(pane); body.appendChild(wrap);
-    var tabs = [['appearance', T('Appearance')], ['engine', T('Engine')], ['providers', T('Providers')], ['channels', T('Channels')], ['integrations', T('Integrations')], ['skills', T('Skills')], ['agents', T('Sub-agents')], ['permissions', T('Permissions')], ['system', T('System')]];
+    var tabs = [['appearance', T('Appearance')], ['engine', T('Engine')], ['code', T('Code')], ['providers', T('Providers')], ['channels', T('Channels')], ['integrations', T('Integrations')], ['skills', T('Skills')], ['agents', T('Sub-agents')], ['permissions', T('Permissions')], ['system', T('System')]];
     function renderNav() { nav.innerHTML = ''; tabs.forEach(function (t) { var b = el('button', state.tab === t[0] ? 'active' : null, t[1]); b.addEventListener('click', function () { state.tab = t[0]; renderNav(); renderTab(); }); nav.appendChild(b); }); }
     function renderTab() {
       pane.innerHTML = '';
       if (state.tab === 'appearance') tabAppearance(pane);
       else if (state.tab === 'engine') tabEngine(pane);
+      else if (state.tab === 'code') tabCode(pane);
       else if (state.tab === 'providers') tabProviders(pane);
       else if (state.tab === 'channels') tabChannels(pane);
       else if (state.tab === 'integrations') tabIntegrations(pane);
@@ -997,6 +998,67 @@
           .catch(function () { save.disabled = false; status.textContent = T('Failed.'); });
       });
     }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', T('Could not load settings.'))); });
+  }
+
+  // Settings -> Code: Claude Code delegation (allowed project folders, default backend, local model,
+  // parallelism, turn limit) plus live status: the detected claude CLI and which backends work now.
+  function tabCode(pane) {
+    pane.appendChild(el('div', 'hint', T('Loading...')));
+    Promise.all([api('/api/code'), api('/api/settings')]).then(function (res) {
+      var d = res[0] || {}; var live = (res[1] && res[1].live) || {};
+      pane.innerHTML = '';
+      pane.appendChild(el('div', 'hint', T('Zamolxis can hand jobs to Claude Code as a worker: a job that needs code runs as a Claude Code session in a project folder, anything else runs on the headless claude CLI with read and web tools only. Independent parts run in parallel. Ask in chat, e.g. "delegate: fix the failing test in my-project".')));
+
+      // Status: claude CLI + backends (dynamic text always via textContent).
+      var st = el('div', 'prov');
+      var cli = d.cli || {};
+      var cl = el('div'); cl.style.cssText = 'font-size:13px;margin-bottom:6px';
+      cl.textContent = 'claude CLI: ' + (cli.found ? ((cli.version || 'found') + ' (' + cli.path + ')' + (cli.loggedIn ? ', ' + T('logged in') : ', ' + T('not logged in: run') + ' ' + (cli.loginCmd || 'claude auth login'))) : T('not found (install Claude Code; non-code jobs need it)'));
+      if (!(cli.found && cli.loggedIn)) cl.style.color = '#e07a5f';
+      st.appendChild(cl);
+      var names = { claude: 'Claude (subscription)', free: T('Free cloud provider'), local: T('Local (Ollama)') };
+      (d.backends || []).forEach(function (b) {
+        var row = el('div'); row.style.cssText = 'display:flex;gap:8px;align-items:baseline;padding:2px 0;font-size:13px';
+        var tag = el('span', 'tag ' + (b.usable ? 'ok' : 'paid')); tag.textContent = b.usable ? T('usable') : T('unavailable'); row.appendChild(tag);
+        var nm = el('span'); nm.style.fontWeight = '600'; nm.textContent = names[b.id] || b.id; row.appendChild(nm);
+        var info = el('span', 'hint'); info.textContent = [b.provider, b.model, b.usable ? '' : b.reason].filter(Boolean).join(' · '); row.appendChild(info);
+        st.appendChild(row);
+        if (b.warning) { var w = el('div', 'hint'); w.style.cssText = 'margin:0 0 4px 4px;color:#d97a2b'; w.textContent = '⚠ ' + b.warning; st.appendChild(w); }
+      });
+      if (d.privacyMode) { var pm = el('div', 'hint'); pm.textContent = '🔒 ' + T('Privacy Mode is on: delegated runs use the local model only.'); st.appendChild(pm); }
+      pane.appendChild(fld(T('Status'), st));
+
+      var folders = el('textarea', 'inp'); folders.style.cssText = 'width:100%;height:80px';
+      folders.value = (live.codeFolders || []).join('\n'); folders.placeholder = d.workDir || '';
+      pane.appendChild(fld(T('Allowed project folders'), folders, T('One absolute path per line. Code jobs run only inside these folders (and their subfolders); anything else is refused. Empty = only the work dir (shown greyed).')));
+
+      var backend = el('select', 'inp'); backend.style.width = '100%';
+      fillSelect(backend, [['auto', T('Auto (per job)')], ['claude', 'Claude (subscription)'], ['free', T('Free cloud provider')], ['local', T('Local (Ollama)')]], live.codeDefaultBackend || 'auto');
+      pane.appendChild(fld(T('Default backend'), backend, T('Auto: code and complex jobs on Claude, small general jobs on a free provider, else a capable local model, else Claude. A free/local run that cannot finish is retried once on Claude. Privacy Mode always forces local.')));
+
+      var lm = inp(live.codeLocalModel || ''); lm.placeholder = d.localModel || 'e.g. qwen3-coder';
+      var localSt = (d.backends || []).filter(function (b) { return b.id === 'local'; })[0];
+      if (localSt && localSt.installed && localSt.installed.length) {
+        var dl = el('datalist'); dl.id = 'zx-code-models';
+        localSt.installed.forEach(function (n) { var o = el('option'); o.value = n; dl.appendChild(o); });
+        pane.appendChild(dl); lm.setAttribute('list', 'zx-code-models');
+      }
+      pane.appendChild(fld(T('Local model for code jobs'), lm, T('Ollama model used by the local backend. Blank = the chat local model. Claude Code needs a large context (about 32k tokens) and good tool use.')));
+
+      var par = inp(live.codeMaxParallel || 3); par.type = 'number'; par.min = '1'; par.max = '16';
+      var turns = inp(live.codeMaxTurns || 30); turns.type = 'number'; turns.min = '1';
+      var row = el('div', 'row2'); var c1 = el('div'); c1.style.flex = '1'; c1.appendChild(fld(T('Parallel subtasks'), par)); var c2 = el('div'); c2.style.flex = '1'; c2.appendChild(fld(T('Max turns per job'), turns)); row.appendChild(c1); row.appendChild(c2); pane.appendChild(row);
+
+      var status = el('span', 'hint'); var save = el('button', 'btn', T('Save'));
+      var sr = el('div', 'save-row'); sr.appendChild(save); sr.appendChild(status); pane.appendChild(sr);
+      save.addEventListener('click', function () {
+        save.disabled = true; status.textContent = T('Saving...');
+        var list = folders.value.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+        postSettings({ live: { codeFolders: list, codeDefaultBackend: backend.value, codeLocalModel: lm.value.trim(), codeMaxParallel: Number(par.value) || undefined, codeMaxTurns: Number(turns.value) || undefined } })
+          .then(function () { save.disabled = false; status.textContent = T('Saved.'); setTimeout(function () { pane.innerHTML = ''; tabCode(pane); }, 600); })
+          .catch(function () { save.disabled = false; status.textContent = T('Failed.'); });
+      });
+    }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', T('Could not load the Code settings.'))); });
   }
 
   function tabProviders(pane) {
@@ -2977,7 +3039,7 @@
     }
     function fmtDur(ms) { ms = Math.round(ms || 0); if (ms < 1000) return ms + 'ms'; var s = ms / 1000; return s < 60 ? s.toFixed(1) + 's' : Math.floor(s / 60) + 'm ' + Math.round(s % 60) + 's'; }
     function fmtCost(u) { return u ? '$' + (u < 0.01 ? u.toFixed(4) : u.toFixed(3)) : '$0'; }
-    var ORIGIN_COLOR = { schedule: '#3a7bd5', manual: '#d97a2b', event: '#2e9e6b', chat: '#7a5cd0', unknown: '#888' };
+    var ORIGIN_COLOR = { schedule: '#3a7bd5', manual: '#d97a2b', event: '#2e9e6b', chat: '#7a5cd0', code: '#c2410c', cli: '#0e7490', unknown: '#888' };
     function badge(text, color) {
       var b = el('span'); b.textContent = text;
       b.style.cssText = 'display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:600;color:#fff;background:' + color;

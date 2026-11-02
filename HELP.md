@@ -103,6 +103,18 @@ Create one with **+ new agent** (or Zamolxis makes one itself mid-job). Each age
 
 ---
 
+## 5b. Delegating to Claude Code
+
+Zamolxis can hand jobs to **Claude Code as a worker**. Ask in chat ("delegate: fix the failing test in my-app", "research X and, separately, update the README in D:\work\site") or let a scheduled agent use the `delegate_task` tool.
+
+- **Two paths.** A job that **needs code** runs as a Claude Code session **inside a project folder** (it edits files and can run builds/tests; risky tools still go through the permission prompts, and "always" answers are remembered per project). Every other job runs on the installed **`claude` CLI** headless (`claude -p`) with read and web-research tools only. The reply gives, per job: path, backend and model, outcome, the files changed (from `git status` when the folder is a repo) and the cost.
+- **Backends.** **Claude** (your subscription), a **free** provider (Groq, Cerebras, Gemini, ... through Zamolxis's built-in Anthropic-to-OpenAI translator; needs the web channel on), or **local** Ollama. *Auto* sends code and complex jobs to Claude, small general jobs to a free provider, else a capable local model, else Claude; a free/local run that can't finish is retried once on Claude. **Privacy Mode** keeps every delegated run on the local model.
+- **Parallel.** Independent parts of a job run as parallel subtasks (default 3 at a time, separate from the chat's own limit); two code jobs on the same folder run one after another.
+- **Allowed folders.** Code jobs run only in the folders listed in **Settings → Code** (default: the work dir) and their subfolders; anything else is refused with a message saying where to add it.
+- **Settings → Code** also sets the default backend, the Ollama model for code jobs (Claude Code needs a large context, about 32k tokens, and good tool use), parallel subtasks and max turns, and shows the detected `claude` CLI, its login state and which backends are usable now. Delegated runs appear in **Agent Activity** with `code` / `cli` badges.
+
+---
+
 ## 6. Local model
 
 Tools → **Local model**. Install Ollama in place if missing, pull general-chat all-rounders (all tool-capable: llama3.2, mistral, llama3.1, hermes3, mistral-nemo, …) with live progress, keep several and switch the active one any time, and tune routing / context / keep-alive / temperature. The rail shows `Local - <model>`.

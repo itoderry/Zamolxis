@@ -38,6 +38,10 @@ import { effectiveName, tempName } from '../core/displayName.js';
 import { providerStatus } from '../core/providers.js';
 import { searchProviderName } from '../core/localTools.js';
 import { cliProviderStatus, hasDocker, runInstall } from '../core/cliProviders.js';
+import { handleAnthropicProxy } from '../core/code/anthropicProxy.js';
+import { PROXY_SECRET, MIN_CODE_CONTEXT, availableBackends, codeLocalModel } from '../core/code/backends.js';
+import { allowedFolders } from '../core/code/orchestrator.js';
+import { resolveClaude, claudeVersion } from '../core/code/cliRunner.js';
 import { logger } from '../logger.js';
 
 const LOOPBACK = ['127.0.0.1', 'localhost', '::1'];
@@ -562,6 +566,40 @@ ${dutiesPanel}
 
   private onHttp(req: http.IncomingMessage, res: http.ServerResponse): void {
     const url = new URL(req.url ?? '/', 'http://x');
+
+    // Anthropic -> OpenAI translator for the "free" Claude Code backend. Its own guard (loopback
+    // caller + per-process secret) replaces the UI auth check: the caller is a Claude Code child.
+    if (url.pathname.startsWith('/anthropic/')) {
+      void handleAnthropicProxy(req, res, { secret: PROXY_SECRET, timeoutMs: this.config.turnTimeoutMs });
+      return;
+    }
+    // Claude Code delegation status for Settings -> Code: allowed folders, backends usable right
+    // now, and the detected claude CLI. (The editable fields themselves go through /api/settings.)
+    if (url.pathname === '/api/code' && req.method === 'GET') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      void (async () => {
+        try {
+          const bin = resolveClaude(url.searchParams.get('refresh') === '1');
+          const cli = cliProviderStatus().find((p) => p.id === 'claude-code');
+          this.json(res, 200, {
+            folders: allowedFolders(this.config),
+            configuredFolders: this.config.codeFolders,
+            workDir: this.config.workDir,
+            defaultBackend: this.config.codeDefaultBackend,
+            localModel: codeLocalModel(this.config) ?? '',
+            maxParallel: this.config.codeMaxParallel,
+            maxTurns: this.config.codeMaxTurns,
+            privacyMode: !!this.config.privacyMode,
+            minContext: MIN_CODE_CONTEXT,
+            backends: await availableBackends(this.config),
+            cli: { found: !!bin, path: bin?.path ?? null, shell: !!bin?.shell, version: bin ? await claudeVersion() : null, loggedIn: !!cli?.loggedIn, loginCmd: 'claude auth login' },
+          });
+        } catch (err) {
+          this.json(res, 500, { error: String(err) });
+        }
+      })();
+      return;
+    }
 
     // Classic (pre-redesign) UI kept reachable during the native-OS redesign.
     if (req.method === 'GET' && url.pathname === '/classic') {
