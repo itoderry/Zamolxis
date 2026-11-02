@@ -91,6 +91,12 @@ const ConfigSchema = z.object({
    * A per-message route ('local'|'claude') can still override this.
    */
   localRouting: z.enum(['off', 'auto']),
+  /** Privacy Mode: when true, ALL inference is forced to the on-device local model and every cloud
+   *  provider + the Claude subscription are blocked — nothing leaves the machine for a model call. */
+  privacyMode: z.boolean().optional(),
+  /** TokenJuice: cap (in characters) for a single tool's output before it reaches the model.
+   *  Oversized output is truncated (head+tail kept) and the full text saved to disk. 0 = off. */
+  toolOutputCap: z.number().int().optional(),
   /**
    * Ordered routing chain — which backends to try, in order, before giving up.
    * Tokens: 'local' (on-device), 'freecloud' (rotate configured free providers),
@@ -193,6 +199,8 @@ export function loadConfig(): ZamolxisConfig {
     localModel: process.env.ZAMOLXIS_LOCAL_MODEL
       ? { url: process.env.ZAMOLXIS_LOCAL_MODEL_URL || 'http://localhost:11434/v1', model: process.env.ZAMOLXIS_LOCAL_MODEL }
       : undefined,
+    privacyMode: /^(1|true|on|yes)$/i.test(process.env.ZAMOLXIS_PRIVACY_MODE || ''),
+    toolOutputCap: process.env.ZAMOLXIS_TOOL_OUTPUT_CAP ? Number(process.env.ZAMOLXIS_TOOL_OUTPUT_CAP) || undefined : 12000,
     localContext: process.env.ZAMOLXIS_LOCAL_CONTEXT ? Number(process.env.ZAMOLXIS_LOCAL_CONTEXT) || undefined : undefined,
     localKeepAlive: process.env.ZAMOLXIS_LOCAL_KEEPALIVE || undefined,
     localTemp: process.env.ZAMOLXIS_LOCAL_TEMP ? Number(process.env.ZAMOLXIS_LOCAL_TEMP) : undefined,
@@ -206,7 +214,10 @@ export function loadConfig(): ZamolxisConfig {
     routeChain: process.env.ZAMOLXIS_ROUTE_CHAIN
       ? process.env.ZAMOLXIS_ROUTE_CHAIN.split(',').map((s) => s.trim()).filter(Boolean)
       : ['freecloud', 'local', 'claude'],
-    permissionMode: (process.env.ZAMOLXIS_PERMISSION_MODE as ZamolxisConfig['permissionMode']) || 'acceptEdits',
+    // 'default' = interactive: Zamolxis asks before using a resource (like Claude Code) and
+    // remembers grants per chat/skill/agent. Set acceptEdits/bypassPermissions to skip asking.
+    // Headless runs (scheduled agents, messaging channels) have no prompter and are never blocked.
+    permissionMode: (process.env.ZAMOLXIS_PERMISSION_MODE as ZamolxisConfig['permissionMode']) || 'default',
     allowedTools: process.env.ZAMOLXIS_ALLOWED_TOOLS
       ? process.env.ZAMOLXIS_ALLOWED_TOOLS.split(',').map((s) => s.trim()).filter(Boolean)
       : undefined,
@@ -216,7 +227,10 @@ export function loadConfig(): ZamolxisConfig {
     maxConcurrent: Number(process.env.ZAMOLXIS_MAX_CONCURRENT ?? 2),
     systemPromptAppend: process.env.ZAMOLXIS_SYSTEM_APPEND || undefined,
     maxTurns: Number(process.env.ZAMOLXIS_MAX_TURNS ?? 40),
-    turnTimeoutMs: Number(process.env.ZAMOLXIS_TURN_TIMEOUT_SECONDS ?? 300) * 1000,
+    // Wall-clock guard per message. Generous by default so long autonomous turns
+    // (deep web research, multi-tool chains, building a document) aren't cut short;
+    // a genuinely hung turn is still aborted so it can't jam the queue forever.
+    turnTimeoutMs: Number(process.env.ZAMOLXIS_TURN_TIMEOUT_SECONDS ?? 1800) * 1000,
     sandbox: {
       backend: (process.env.ZAMOLXIS_SANDBOX_BACKEND as 'local' | 'docker' | 'ssh' | 'modal') || 'local',
       docker: process.env.ZAMOLXIS_DOCKER_IMAGE
@@ -301,6 +315,8 @@ export function applyPersistedSettings(config: ZamolxisConfig): void {
         const url = config.localModel?.url || process.env.ZAMOLXIS_LOCAL_MODEL_URL || 'http://localhost:11434/v1';
         config.localModel = { url, model: s.localModel.trim() };
       }
+      if (typeof s.privacyMode === 'boolean') config.privacyMode = s.privacyMode;
+      if (typeof s.toolOutputCap === 'number' && s.toolOutputCap >= 0) config.toolOutputCap = Math.floor(s.toolOutputCap);
       if (typeof s.localContext === 'number' && s.localContext > 0) config.localContext = Math.floor(s.localContext);
       if (typeof s.workDir === 'string' && s.workDir.trim()) config.workDir = s.workDir.trim();
       if (typeof s.batDir === 'string' && s.batDir.trim()) config.batDir = s.batDir.trim();

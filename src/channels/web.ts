@@ -15,13 +15,20 @@ import type { TabsManager } from '../core/tabs.js';
 import type { UsageTracker } from '../core/usage.js';
 import type { SkillsManager } from '../skills/manager.js';
 import type { MemoryManager } from '../core/memory.js';
+import { MemoryVault } from '../core/memoryVault.js';
 import type { AgentStore, AgentDef } from '../core/agents.js';
 import { packSetup, type PackParts } from '../core/pack.js';
 import { extractDocText } from '../core/extract.js';
 import { outlookMailData, outlookPimData, outlookOpen } from '../core/outlookLocal.js';
 import { agentPrecheck } from '../core/agentPrecheck.js';
+import { readButlerConfig, writeButlerConfig, BUTLER_DUTIES } from '../core/butler.js';
 import { onenoteData, sqlQueryData, browserHistoryData, sqlConnections, sqlAddConnection, sqlRemoveConnection } from '../core/localApps.js';
+import { RunHistory } from '../core/runHistory.js';
+import { TriggerStore, type TriggerType } from '../core/triggers.js';
+import { loadExternalMcpServers } from '../core/externalMcp.js';
+import { haConfigured } from '../tools/homeassistant.js';
 import { getCanvas } from '../core/canvas.js';
+import { listPlans, getPlan, setPlanStatus, updateStep, deletePlan } from '../core/plans.js';
 import { listApps, rescanApps, launchHostApp, appIconPng } from '../core/appscan.js';
 import { notifsSince } from '../core/notifications.js';
 import { getWatchers, setWatchers } from '../core/watchers.js';
@@ -235,6 +242,47 @@ export class WebChannel implements Channel {
   // Live SSH/SFTP sessions for the SFTP Client app, keyed by an opaque id (idle-reaped).
   private readonly sftpSessions = new Map<string, { conn: { end(): void }; sftp: Record<string, (...a: unknown[]) => unknown>; last: number }>();
 
+  private _vault?: MemoryVault;
+  /** Lazily built Obsidian-style memory vault (null when no memory manager is wired). */
+  private vault(): MemoryVault | null {
+    if (!this.memory) return null;
+    if (!this._vault) {
+      this._vault = new MemoryVault(this.config.dataDir, this.memory, () =>
+        (this.agentStore?.list() || []).map((a) => a.name),
+      );
+    }
+    return this._vault;
+  }
+
+  /** Execute an approved plan's steps in order, writing status + results back live. */
+  private async runPlan(id: string): Promise<void> {
+    const plan = getPlan(id);
+    if (!plan || !this.runPlanStep) return;
+    const convKey = plan.conversationKey || `plan:${id}`;
+    setPlanStatus(id, 'running', 'Running...');
+    for (const step of plan.steps) {
+      const cur = getPlan(id);
+      if (!cur || cur.status === 'rejected') return; // user cancelled mid-run
+      updateStep(id, step.n, { status: 'running' });
+      try {
+        const prompt =
+          `You are executing step ${step.n} of ${plan.steps.length} in an approved plan titled "${plan.title}".\n` +
+          `Overall goal: ${plan.goal || '(none stated)'}\n` +
+          `This step: ${step.title}\n` +
+          `Instruction: ${step.detail}\n\n` +
+          `Do exactly this step now and report the result concisely.`;
+        const r = await this.runPlanStep(prompt, convKey);
+        updateStep(id, step.n, { status: r.isError ? 'error' : 'done', result: r.reply });
+        if (r.isError) { setPlanStatus(id, 'done', `Stopped at step ${step.n} (the step reported an error).`); return; }
+      } catch (err) {
+        updateStep(id, step.n, { status: 'error', result: String(err) });
+        setPlanStatus(id, 'done', `Stopped at step ${step.n} (exception).`);
+        return;
+      }
+    }
+    setPlanStatus(id, 'done', 'All steps completed.');
+  }
+
   constructor(
     private readonly config: ZamolxisConfig,
     private readonly settings: SettingsManager,
@@ -287,6 +335,17 @@ export class WebChannel implements Channel {
     private readonly sendToChannel?: (channel: string, chatId: string, text: string) => Promise<{ ok: boolean; error?: string }>,
     /** Per-agent published "last result" pages, served at /<agent-name>. */
     private readonly agentPages?: { get: (name: string) => { text: string; ts: number; via?: string } | undefined },
+    /** Run one approved workflow step as an engine turn (Workflow Canvas). */
+    private readonly runPlanStep?: (text: string, conversationKey: string) => Promise<{ reply: string; isError?: boolean }>,
+    /** Remembered tool-permission grants (list/revoke for the Settings panel). */
+    private readonly permApi?: {
+      list: () => Array<{ scope: string; tool: string; decision: string; grantedAt: number }>;
+      revoke: (scope: string, tool: string) => boolean;
+      clearScope: (scope: string) => number;
+    },
+    /** Send an agent's reply to its configured channels (chat/Slack) — used for headless
+     *  CLI / Windows-task runs so they deliver like a scheduled run. */
+    private readonly deliverAgentResult?: (agent: string, reply: string, via?: string) => Promise<void>,
   ) {
     const { bind, authToken } = config.web;
     if (!LOOPBACK.includes(bind) && !authToken) {
@@ -353,30 +412,104 @@ export class WebChannel implements Channel {
     res.end(JSON.stringify(body));
   }
 
-  /** Render an agent's latest result as a standalone web page (the "Web page" delivery target). */
+  /** The interactive "duties" panel on John the Butler's page: the user ticks which maintenance
+   *  areas he handles on his own weekly round, and (behind a master opt-in) whether he may apply
+   *  safe fixes. Toggles POST straight to /api/butler; John's round reads the same config. */
+  private butlerDutiesPanel(): string {
+    const cfg = readButlerConfig(this.config.dataDir);
+    const labels: Record<string, [string, string]> = {
+      drivers: ['Device drivers', 'find outdated or problem drivers'],
+      apps: ['Installed apps', 'flag large or long-unused programs'],
+      network: ['Home network', 'see what is connected'],
+      system: ['System & security health', 'startup, security posture, disk health'],
+      cleanup: ['Disk cleanup', 'temporary files and clutter'],
+      duplicates: ['Duplicate photos', 'in the folder below'],
+    };
+    const rows = BUTLER_DUTIES.map((d) => {
+      const [h, sub] = labels[d]!;
+      const on = cfg.duties[d] ? ' checked' : '';
+      return `<div class="duty"><div class="d-name"><b>${h}</b><small>${sub}</small></div><label class="sw"><input type="checkbox" data-duty="${d}"${on}><span></span></label></div>`;
+    }).join('');
+    const dupFolder = cfg.duplicatesFolder ? cfg.duplicatesFolder.replace(/"/g, '&quot;') : '';
+    return `<div class="card duties">
+<h2>John's duties</h2>
+<p class="sub" style="color:#9a9384;margin:2px 0 14px">Tick what I should look after on my own each week. Anything unticked, I only check when you ask me.</p>
+${rows}
+<div class="duty dupfolder"><div class="d-name"><b>Duplicate-photos folder</b><small>where I look for duplicates when that duty is on</small><input id="dupfolder" placeholder="C:\\Users\\you\\Pictures" value="${dupFolder}"></div></div>
+<div class="duty master"><div class="d-name"><b>Also apply safe fixes automatically</b><small class="warn">Off = I only inspect and report. On = I may apply low-risk fixes for the ticked duties (needs the elevated task).</small></div><label class="sw"><input type="checkbox" id="applyFixes"${cfg.applyFixes ? ' checked' : ''}><span></span></label></div>
+<div id="dutymsg"></div>
+</div>
+<script>
+(function(){
+  function save(){
+    var duties={}; document.querySelectorAll('input[data-duty]').forEach(function(c){duties[c.getAttribute('data-duty')]=c.checked;});
+    var body={duties:duties, applyFixes:document.getElementById('applyFixes').checked, duplicatesFolder:document.getElementById('dupfolder').value.trim()};
+    var m=document.getElementById('dutymsg'); m.textContent='Saving...';
+    // Forward the access token the page itself was opened with (?token=...), so saving works when
+    // the web UI is exposed beyond loopback with an auth token set.
+    var tok=new URLSearchParams(location.search).get('token');
+    fetch('/api/butler'+(tok?('?token='+encodeURIComponent(tok)):''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})
+      .then(function(r){if(!r.ok)throw new Error('http '+r.status);return r.json();}).then(function(){m.textContent='Saved. Very good.';setTimeout(function(){m.textContent='';},1600);})
+      .catch(function(){m.textContent='Could not save.';});
+  }
+  document.querySelectorAll('.duties input').forEach(function(c){c.addEventListener('change',save);});
+  document.getElementById('dupfolder').addEventListener('change',save);
+})();
+</script>`;
+  }
+
+  /** Render an agent's latest result as a standalone web page (the "Web page" delivery target).
+   *  John the Butler gets a richer, interactive "duties" dashboard below his latest report. */
   private renderAgentPage(agent: AgentDef, page?: { text: string; ts: number; via?: string }): string {
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const title = esc(agent.label || agent.name);
     const body = page ? this.mdToHtml(page.text) : `<p class="empty">${esc('No result yet — run this agent (or wait for its schedule) and it will appear here.')}</p>`;
     const when = page ? new Date(page.ts).toLocaleString() : '';
     const meta = page ? `<div class="meta">Last updated ${esc(when)}${page.via ? ' · via ' + esc(page.via) : ''}</div>` : '';
-    // Auto-refresh so a left-open page reflects the next run without a manual reload.
-    return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="60"><title>${title}</title>
+    const isJohn = agent.name === 'john-the-butler';
+    // The report is the point of the page. On John's page the duty settings go BELOW it, tucked into
+    // a collapsed panel, so they never get in the way of seeing the latest result.
+    const dutiesPanel = isJohn ? `<details class="duties-wrap"><summary>John's duties - what he looks after on his own</summary>${this.butlerDutiesPanel()}</details>` : '';
+    // Auto-refresh keeps a left-open report current; disabled on John's page so it never interrupts
+    // while you are toggling a duty. (The report still updates on his next run; reload to see it.)
+    const refresh = isJohn ? '' : '<meta http-equiv="refresh" content="60">';
+    return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${refresh}<title>${title}</title>
 <style>
 :root{color-scheme:dark light}
 body{margin:0;background:#0c0a07;color:#e8e2d4;font:15px/1.65 system-ui,Segoe UI,Roboto,sans-serif}
 main{max-width:820px;margin:0 auto;padding:32px 22px 64px}
 h1{font-size:22px;margin:0 0 2px} .meta{color:#9a9384;font-size:12.5px;margin-bottom:22px}
-.card{background:#15110b;border:1px solid #2a2218;border-radius:12px;padding:20px 22px}
+.card{background:#15110b;border:1px solid #2a2218;border-radius:12px;padding:20px 22px;overflow-x:auto}
 .card h2{font-size:18px;margin:18px 0 8px} .card h3{font-size:15.5px;margin:14px 0 6px}
 .card ul{margin:8px 0;padding-left:22px} .card li{margin:4px 0}
 .card a{color:#d4a55a} .card p{margin:10px 0} .empty{color:#9a9384}
 code{background:#1f1810;padding:1px 5px;border-radius:5px}
 .foot{margin-top:20px;font-size:12px;color:#6f6857}
+/* John's duties dashboard */
+.duties h2{margin:0 0 4px;font-size:19px}
+.duty{display:flex;align-items:center;gap:12px;padding:11px 2px;border-top:1px solid #221c13}
+.duty:first-of-type{border-top:0}
+.duty .d-name{flex:1} .duty .d-name b{font-weight:600} .duty .d-name small{display:block;color:#9a9384;font-size:12px}
+.sw{position:relative;width:42px;height:24px;flex:0 0 auto}
+.sw input{opacity:0;width:0;height:0;position:absolute}
+.sw span{position:absolute;inset:0;background:#2a2218;border-radius:24px;transition:.15s;cursor:pointer}
+.sw span:before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;background:#e8e2d4;border-radius:50%;transition:.15s}
+.sw input:checked+span{background:#3f7d4e} .sw input:checked+span:before{transform:translateX(18px)}
+.master{margin-top:6px;border-top:1px solid #221c13;padding-top:12px}
+.master .warn{color:#e0a23a;font-size:12px}
+.dupfolder input{width:100%;background:#0c0a07;border:1px solid #2a2218;border-radius:8px;color:#e8e2d4;padding:7px 10px;margin-top:6px}
+#dutymsg{color:#7fd99a;font-size:12.5px;min-height:16px;margin-top:8px}
+.duties-wrap{margin-top:22px;border:1px solid #2a2218;border-radius:12px;background:#120f0a}
+.duties-wrap>summary{cursor:pointer;list-style:none;padding:13px 18px;color:#d4a55a;font-weight:600;font-size:13px}
+.duties-wrap>summary::-webkit-details-marker{display:none}
+.duties-wrap>summary:before{content:"⚙ "}
+.duties-wrap[open]>summary{border-bottom:1px solid #2a2218}
+.duties-wrap .card.duties{border:0;background:transparent;margin:0}
 </style></head><body><main>
 <h1>${title}</h1>${meta}
 <div class="card">${body}</div>
-<div class="foot">Zamolxis agent page · refreshes automatically · <a href="/">open Zamolxis</a></div>
+${dutiesPanel}
+<div class="foot">Zamolxis agent page${isJohn ? '' : ' · refreshes automatically'} · <a href="/">open Zamolxis</a></div>
 </main></body></html>`;
   }
 
@@ -541,6 +674,132 @@ code{background:#1f1810;padding:1px 5px;border-radius:5px}
     if (url.pathname === '/api/usage' && req.method === 'GET') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
       return this.json(res, 200, this.usage?.snapshot() ?? null);
+    }
+    // John the Butler's autonomous-duties config (read by his dashboard + his weekly round).
+    if (url.pathname === '/api/butler') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      if (req.method === 'GET') return this.json(res, 200, { ok: true, config: readButlerConfig(this.config.dataDir) });
+      if (req.method === 'POST') {
+        let b = '';
+        req.on('data', (c) => { b += c; if (b.length > 20_000) req.destroy(); });
+        req.on('end', () => {
+          let o: Record<string, unknown> = {};
+          try { o = JSON.parse(b || '{}'); } catch { return this.json(res, 400, { error: 'bad json' }); }
+          const cfg = writeButlerConfig(this.config.dataDir, { duties: o.duties as Record<string, boolean> | undefined, applyFixes: o.applyFixes as boolean | undefined, duplicatesFolder: o.duplicatesFolder as string | undefined });
+          return this.json(res, 200, { ok: true, config: cfg });
+        });
+        return;
+      }
+      return this.json(res, 405, { error: 'method' });
+    }
+    // Agent run history + per-agent rollups for the observability dashboard. The engine owns the
+    // ledger and writes it on every run; we read a fresh view each request so it's always current.
+    if (url.pathname === '/api/runs' && req.method === 'GET') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      const hist = new RunHistory(this.config.dataDir);
+      const agent = url.searchParams.get('agent') || undefined;
+      const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 100));
+      return this.json(res, 200, { stats: hist.stats(), runs: hist.list({ agent, limit }) });
+    }
+    // Event-driven triggers (file-landed / resource-threshold). The live watcher reloads this file
+    // on the fly, so writing here arms/disarms a trigger within one poll without a restart.
+    if (url.pathname === '/api/triggers') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      const store = new TriggerStore(this.config.dataDir);
+      if (req.method === 'GET') return this.json(res, 200, { triggers: store.list() });
+      if (req.method === 'POST') {
+        let b = '';
+        req.on('data', (c) => { b += c; if (b.length > 20_000) req.destroy(); });
+        req.on('end', () => {
+          let o: Record<string, unknown> = {};
+          try { o = JSON.parse(b || '{}'); } catch { return this.json(res, 400, { error: 'bad json' }); }
+          const action = String(o.action || 'add');
+          if (action === 'remove') return this.json(res, 200, { ok: store.remove(String(o.id)) });
+          if (action === 'toggle') return this.json(res, 200, { ok: true, trigger: store.setEnabled(String(o.id), !!o.enabled) });
+          // add
+          const type = String(o.type) as TriggerType;
+          if (!['file', 'disk', 'memory'].includes(type)) return this.json(res, 400, { error: 'bad type' });
+          const agent = String(o.agent || '').trim();
+          if (!agent) return this.json(res, 400, { error: 'agent required' });
+          const t = store.add({
+            agent,
+            type,
+            label: o.label ? String(o.label) : undefined,
+            folder: o.folder ? String(o.folder) : undefined,
+            match: o.match ? String(o.match) : undefined,
+            drive: o.drive ? String(o.drive) : undefined,
+            thresholdPct: o.thresholdPct != null ? Number(o.thresholdPct) : undefined,
+            prompt: o.prompt ? String(o.prompt) : undefined,
+          });
+          return this.json(res, 200, { ok: true, trigger: t });
+        });
+        return;
+      }
+      return this.json(res, 405, { error: 'method' });
+    }
+    // Privacy / self-hosting posture: an honest, config-derived picture of what runs locally and the
+    // few places data can leave this machine. Computed fresh from config + host so it can't drift.
+    // Reflects Privacy Mode truthfully: it forces MODEL inference on-device, but tools that reach the
+    // network on purpose (web search, messaging channels, Home Assistant, external MCP) still do.
+    if (url.pathname === '/api/privacy' && req.method === 'GET') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      const c = this.config;
+      const loopback = LOOPBACK.includes(c.web.bind);
+      const privacyOn = !!c.privacyMode;
+      const localModel = c.localModel?.model || null;
+      type Out = { name: string; where: string; status: 'required' | 'active' | 'blocked'; note: string };
+      const outbound: Out[] = [];
+      // Model inference: Claude + any configured cloud providers, unless Privacy Mode blocks them.
+      const claudeInChain = c.routeChain.includes('claude');
+      outbound.push({
+        name: 'Claude (the AI model)',
+        where: 'api.anthropic.com',
+        status: privacyOn ? 'blocked' : claudeInChain ? 'required' : 'active',
+        note: privacyOn
+          ? 'Blocked by Privacy Mode: no prompt or context is sent to Anthropic.'
+          : claudeInChain
+            ? 'Your prompts and the context an agent needs are sent to Anthropic to generate replies when a turn reaches the Claude tier.'
+            : 'Not in your routing chain; only used when you pick Claude explicitly or an agent is allowed to elevate.',
+      });
+      for (const p of providerStatus().filter((x) => x.configured)) {
+        outbound.push({
+          name: 'Cloud model: ' + p.label,
+          where: p.label,
+          status: privacyOn ? 'blocked' : 'active',
+          note: privacyOn ? 'Blocked by Privacy Mode (key configured, but never called).' : 'A key is configured, so turns routed to this provider send their prompt to it.',
+        });
+      }
+      const CHAN: Record<string, string> = { telegram: 'Telegram', discord: 'Discord', slack: 'Slack', whatsapp: 'WhatsApp', signal: 'Signal', email: 'your mail server' };
+      for (const [k, label] of Object.entries(CHAN)) {
+        if ((c.channels as Record<string, boolean>)[k]) outbound.push({ name: 'Messaging: ' + label, where: label, status: 'active', note: 'Enabled delivery channel - messages you route there leave the machine' + (privacyOn ? ' (Privacy Mode does not change this).' : '.') });
+      }
+      const sp = searchProviderName();
+      const spLabel: Record<string, string> = { tavily: 'Tavily', brave: 'Brave Search', searxng: 'your SearXNG instance', duckduckgo: 'DuckDuckGo' };
+      outbound.push({ name: 'Web search', where: spLabel[sp] || sp, status: 'active', note: 'Agents that search the web send their queries to ' + (spLabel[sp] || sp) + '.' + (privacyOn ? ' Privacy Mode keeps the model local but does not disable web search.' : '') });
+      if (haConfigured()) {
+        const haUrl = process.env.ZAMOLXIS_HA_URL || 'http://homeassistant.local:8123';
+        outbound.push({ name: 'Home Assistant', where: haUrl, status: 'active', note: 'Device states and commands go to your Home Assistant server (usually on your own network).' });
+      }
+      for (const s of Object.keys(loadExternalMcpServers(c.dataDir))) outbound.push({ name: 'External MCP: ' + s, where: s, status: 'active', note: 'A tool server you configured; it may reach the network depending on what it does.' });
+      return this.json(res, 200, {
+        host: os.hostname(),
+        platform: process.platform,
+        account: (() => { try { return os.userInfo().username; } catch { return 'unknown'; } })(),
+        dataDir: c.dataDir,
+        web: { bind: c.web.bind, port: c.web.port, loopbackOnly: loopback, exposed: !loopback, authTokenSet: Boolean(c.web.authToken) },
+        model: { claude: c.model || 'default', fast: c.fastModel || null, localModel, localRouting: c.localRouting, routeChain: c.routeChain },
+        // Privacy Mode = all inference on the local model. On without a local model, nothing answers.
+        privacyMode: { on: privacyOn, localModel, effective: privacyOn && Boolean(localModel), blockedNoModel: privacyOn && !localModel },
+        outbound,
+        localOnly: [
+          'Your files, folders, and the documents you open',
+          'Memory, Memory Vault, settings, plans, run history, and notifications (in the data dir)',
+          'Desktop automation actions, workflows, and event triggers',
+          privacyOn
+            ? (localModel ? 'Every model call: answered by ' + localModel + ' on this machine (Privacy Mode)' : 'Every model call: Privacy Mode is on but no local model is set, so nothing is answered')
+            : (localModel ? 'The local model (' + localModel + ') runs on this machine - no cloud' : 'No local model configured (needed for Privacy Mode)'),
+        ],
+      });
     }
     if (url.pathname === '/api/providers' && req.method === 'GET') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
@@ -731,6 +990,13 @@ code{background:#1f1810;padding:1px 5px;border-radius:5px}
             const st = fs.statSync(target);
             if (st.size > 2_000_000) return this.json(res, 413, { error: 'file too large to edit (2 MB)' });
             return this.json(res, 200, { path: target, text: fs.readFileSync(target, 'utf8') });
+          }
+          // Read a local file as base64 — used by the File Transfer app to push a local file up to
+          // a remote SFTP server (binary-safe, unlike the utf8 'read' the editor uses).
+          if (op === 'readB64') {
+            const st = fs.statSync(target);
+            if (st.size > 50_000_000) return this.json(res, 413, { error: 'file too large to transfer (50 MB)' });
+            return this.json(res, 200, { path: target, name: path.basename(target), size: st.size, b64: fs.readFileSync(target).toString('base64') });
           }
           if (op === 'write') {
             fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -1047,6 +1313,107 @@ $out | ConvertTo-Json -Compress`, 40000));
       });
       return;
     }
+    // Stock Game — the desktop app drives the stock-game engine (real market data + paper ledger)
+    // by shelling out to skills-seed/stock-game/stockgame.mjs. Read ops (portfolio/track/quote/
+    // history) and user actions (buy/sell/evaluate/watchlist/reset) all go through here.
+    if (url.pathname === '/api/stockgame' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      let body = ''; req.on('data', (c) => { body += c; if (body.length > 100_000) req.destroy(); });
+      req.on('end', () => {
+        try {
+          const o = JSON.parse(body || '{}') as { op?: string; args?: unknown[] };
+          const ALLOWED = new Set(['portfolio', 'track', 'quote', 'history', 'evaluate', 'buy', 'sell', 'watchlist', 'reset']);
+          const op = String(o.op || '');
+          if (!ALLOWED.has(op)) return this.json(res, 400, { error: 'unknown op' });
+          const args = Array.isArray(o.args) ? o.args.map((x) => String(x)).slice(0, 20) : [];
+          const script = path.join(REPO_ROOT, 'skills-seed', 'stock-game', 'stockgame.mjs');
+          const r = spawnSync(process.execPath, [script, op, ...args], { encoding: 'utf8', windowsHide: true, timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
+          let data: unknown; try { data = JSON.parse(((r.stdout || '').trim().split('\n').pop()) || 'null'); } catch { data = null; }
+          if (data == null) return this.json(res, 200, { ok: false, error: ((r.stderr || r.stdout || '').trim().slice(0, 400)) || 'no output from engine' });
+          return this.json(res, 200, data);
+        } catch (err) { return this.json(res, 400, { error: String(err) }); }
+      });
+      return;
+    }
+    // Memory Vault — the Obsidian-style browsable view of everything the assistant remembers.
+    // The desktop app lists/reads notes; "add" writes a memory entry; "open" reveals the folder.
+    if (url.pathname === '/api/vault' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      const vault = this.vault();
+      if (!vault) return this.json(res, 200, { ok: false, error: 'memory not available' });
+      let body = ''; req.on('data', (c) => { body += c; if (body.length > 200_000) req.destroy(); });
+      req.on('end', () => {
+        try {
+          const o = JSON.parse(body || '{}') as { action?: string; rel?: string; text?: string; scope?: string };
+          switch (o.action) {
+            case 'list': {
+              vault.sync();
+              return this.json(res, 200, { ok: true, dir: vault.dir, uri: vault.obsidianUri(), notes: vault.list() });
+            }
+            case 'read': {
+              const content = vault.read(String(o.rel || ''));
+              if (content == null) return this.json(res, 200, { ok: false, error: 'not found' });
+              return this.json(res, 200, { ok: true, rel: o.rel, content });
+            }
+            case 'resolve': {
+              return this.json(res, 200, { ok: true, rel: vault.resolve(String(o.rel || '')) });
+            }
+            case 'add': {
+              const r = vault.addNote(String(o.text || ''), o.scope === 'profile' ? 'profile' : 'memory');
+              return this.json(res, 200, { ok: r.ok, message: r.message });
+            }
+            case 'open': {
+              let opened = false;
+              try {
+                const cmd = process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+                spawnSync(cmd, [vault.dir], { windowsHide: true, timeout: 5000 });
+                opened = true;
+              } catch { opened = false; }
+              return this.json(res, 200, { ok: true, opened, dir: vault.dir, uri: vault.obsidianUri() });
+            }
+            default:
+              return this.json(res, 400, { ok: false, error: 'unknown action' });
+          }
+        } catch (err) { return this.json(res, 400, { ok: false, error: String(err) }); }
+      });
+      return;
+    }
+    // Workflow Canvas — the agent proposes multi-step plans; the user reviews and approves here,
+    // then the steps run in order through the engine with live per-step status/results.
+    if (url.pathname === '/api/plans' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      let body = ''; req.on('data', (c) => { body += c; if (body.length > 100_000) req.destroy(); });
+      req.on('end', () => {
+        try {
+          const o = JSON.parse(body || '{}') as { action?: string; id?: string };
+          switch (o.action) {
+            case 'list':
+              return this.json(res, 200, { ok: true, plans: listPlans() });
+            case 'get': {
+              const p = getPlan(String(o.id || ''));
+              return this.json(res, 200, p ? { ok: true, plan: p } : { ok: false, error: 'not found' });
+            }
+            case 'reject':
+              setPlanStatus(String(o.id || ''), 'rejected', 'Rejected by user.');
+              return this.json(res, 200, { ok: true });
+            case 'delete':
+              return this.json(res, 200, { ok: deletePlan(String(o.id || '')) });
+            case 'approve': {
+              const p = getPlan(String(o.id || ''));
+              if (!p) return this.json(res, 200, { ok: false, error: 'not found' });
+              if (p.status !== 'proposed') return this.json(res, 200, { ok: false, error: `plan is ${p.status}` });
+              if (!this.runPlanStep) return this.json(res, 200, { ok: false, error: 'execution not available' });
+              // Kick off async; the UI polls 'get' to watch progress.
+              void this.runPlan(p.id);
+              return this.json(res, 200, { ok: true, running: true });
+            }
+            default:
+              return this.json(res, 400, { ok: false, error: 'unknown action' });
+          }
+        } catch (err) { return this.json(res, 400, { ok: false, error: String(err) }); }
+      });
+      return;
+    }
     // Agent canvas — latest agent-pushed HTML for the Canvas desktop app to render/poll.
     if (url.pathname === '/api/canvas' && req.method === 'GET') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
@@ -1220,6 +1587,74 @@ $out | ConvertTo-Json -Compress`, 40000));
             if (action === 'delete') {
               return this.json(res, 200, { ok: this.agentStore.remove(String(o.name || '')), agents: this.agentStore.list() });
             }
+            if (action === 'hide') {
+              // Hide takes the agent off the desktop and drops its schedules, but keeps it in the
+              // store so it can be un-hidden from Settings. (Used for pre-made agents, which can't be
+              // truly deleted since they re-seed, and optionally for user-created ones.)
+              const def = this.agentStore.get(String(o.name || ''));
+              if (!def) return this.json(res, 400, { error: 'no such agent' });
+              if (this.listAgentSchedules && this.cancelSchedule) {
+                for (const s of this.listAgentSchedules().filter((x) => x.agent === def.name)) this.cancelSchedule(s.id);
+              }
+              if (this.stopAgent) await this.stopAgent(def.name, true);
+              this.agentStore.setHidden(def.name, true);
+              return this.json(res, 200, { ok: true, agents: this.agentStore.list(), schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
+            }
+            if (action === 'unhide') {
+              // Comes back paused with no schedule; the user resumes / re-schedules it from its window.
+              const a = this.agentStore.setHidden(String(o.name || ''), false);
+              return this.json(res, 200, { ok: !!a, agents: this.agentStore.list() });
+            }
+            if (action === 'export') {
+              // A portable "agent card" - just the shareable definition, no machine-specific state
+              // (no compiled spec, session, lastVia, premade/hidden flags). Includes the cron so a
+              // scheduled agent travels with its schedule.
+              const def = this.agentStore.get(String(o.name || ''));
+              if (!def) return this.json(res, 400, { error: 'no such agent' });
+              const cron = this.listAgentSchedules ? (this.listAgentSchedules().find((s) => s.agent === def.name && s.cron)?.cron || undefined) : undefined;
+              const card = {
+                zamolxisAgentCard: 1,
+                name: def.name,
+                label: def.label,
+                job: def.job,
+                tools: def.tools,
+                model: def.model,
+                open: def.open,
+                help: def.help,
+                guide: def.guide,
+                deliver: def.deliver,
+                schedule: cron ? { cron } : undefined,
+              };
+              return this.json(res, 200, { ok: true, card });
+            }
+            if (action === 'import') {
+              const card = (o.card && typeof o.card === 'object' ? o.card : {}) as Record<string, unknown>;
+              const name = String(card.name || '').trim();
+              const job = String(card.job || '').trim();
+              if (!name || !job) return this.json(res, 400, { error: 'That does not look like an agent card (missing name/job).' });
+              const existing = this.agentStore.get(name);
+              if (existing && !o.overwrite) return this.json(res, 200, { ok: false, conflict: true, name: existing.name });
+              const stored = this.agentStore.upsert({
+                name,
+                label: card.label ? String(card.label) : undefined,
+                job,
+                tools: Array.isArray(card.tools) ? (card.tools as unknown[]).filter((t): t is string => typeof t === 'string') : undefined,
+                model: card.model ? String(card.model) : undefined,
+                canElevate: true,
+                open: typeof card.open === 'boolean' ? card.open : undefined,
+                help: card.help ? String(card.help) : undefined,
+                guide: card.guide ? String(card.guide) : undefined,
+                createdBy: 'user',
+              });
+              // An imported card is a user agent: make it visible even if it replaced a hidden one.
+              if (this.agentStore.get(stored)?.hidden) this.agentStore.setHidden(stored, false);
+              if (card.deliver && typeof card.deliver === 'object') this.agentStore.setDeliver(stored, card.deliver as { chat?: boolean; slack?: boolean; slackChannel?: string; web?: boolean });
+              const sched = card.schedule as { cron?: string } | undefined;
+              if (sched?.cron && this.scheduleAgent && !(this.listAgentSchedules && this.listAgentSchedules().some((s) => s.agent === stored))) {
+                this.scheduleAgent(stored, String(sched.cron), undefined);
+              }
+              return this.json(res, 200, { ok: true, name: stored, agents: this.agentStore.list() });
+            }
             if (action === 'run') {
               if (!this.runAgent) return this.json(res, 400, { error: 'cannot run agents here' });
               const name = String(o.name || '');
@@ -1245,6 +1680,9 @@ $out | ConvertTo-Json -Compress`, 40000));
               // leaves force off, so a paused agent is still skipped there.
               const manual = o.deliver !== true;
               const r = await this.runAgent(name, task, manual);
+              // When triggered headlessly (CLI / Windows Task Scheduler), send the reply to the
+              // agent's configured channels (chat feed + Slack) just like a scheduled run would.
+              if (o.deliver && this.deliverAgentResult) await this.deliverAgentResult(name, r.reply, r.via);
               return this.json(res, 200, { ok: !r.isError, error: r.isError ? r.reply : undefined, reply: r.reply, via: r.via, scheduled, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
             }
             if (action === 'schedule') {
@@ -1286,7 +1724,8 @@ $out | ConvertTo-Json -Compress`, 40000));
               if (!this.stopAgent) return this.json(res, 400, { error: 'stop unavailable' });
               const stop = action === 'stopall';
               let affected = 0;
-              for (const a of this.agentStore.list()) { const r = await this.stopAgent(a.name, stop); if (r.ok) affected++; }
+              // Hidden agents stay paused on "Resume all" - they come back only via Un-hide.
+              for (const a of this.agentStore.list()) { if (!stop && a.hidden) continue; const r = await this.stopAgent(a.name, stop); if (r.ok) affected++; }
               return this.json(res, 200, { ok: true, affected, stopped: stop, agents: this.agentStore.list(), schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
             }
             if (action === 'model') {
@@ -1446,6 +1885,28 @@ $out | ConvertTo-Json -Compress`, 40000));
         return;
       }
     }
+    if (url.pathname === '/api/permissions') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      if (req.method === 'GET') return this.json(res, 200, { grants: this.permApi?.list() ?? [], mode: this.config.permissionMode });
+      if (req.method === 'POST') {
+        let body = '';
+        req.on('data', (c) => (body += c));
+        req.on('end', () => {
+          try {
+            const { action, scope, tool } = JSON.parse(body || '{}');
+            let ok = false;
+            if (this.permApi && typeof scope === 'string') {
+              if (action === 'revoke' && typeof tool === 'string') ok = this.permApi.revoke(scope, tool);
+              else if (action === 'clearScope') ok = this.permApi.clearScope(scope) > 0;
+            }
+            this.json(res, 200, { ok, grants: this.permApi?.list() ?? [] });
+          } catch (err) {
+            this.json(res, 400, { error: String(err) });
+          }
+        });
+        return;
+      }
+    }
     if (url.pathname === '/api/forget' && req.method === 'POST') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
       let body = '';
@@ -1504,6 +1965,37 @@ $out | ConvertTo-Json -Compress`, 40000));
     ws.on('close', () => { try { sock.destroy(); } catch { /* */ } });
   }
 
+  /** Pending interactive permission prompts, keyed by request id. */
+  private readonly pendingPerms = new Map<string, (answer: 'allow' | 'allow-always' | 'deny' | 'deny-always' | null) => void>();
+
+  /**
+   * Engine prompter: ask the user (over the chat's live WebSocket) whether a tool may run.
+   * Resolves null when no client is connected or the tab closes — the engine then denies
+   * that single call without remembering anything (so nothing ever hangs on a closed tab).
+   */
+  promptPermission(ask: { id: string; chatId: string; conversationKey: string; toolName: string; detail: string; persistScope: string }): Promise<'allow' | 'allow-always' | 'deny' | 'deny-always' | null> {
+    const ws = this.sockets.get(ask.chatId);
+    if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      // Settle once: on the user's answer, the tab closing, or the engine's 5-minute prompt
+      // window passing. Each path drops the close listener and the timer, so a long-lived chat
+      // socket doesn't pile up listeners (MaxListenersExceededWarning) or stale entries.
+      const onClose = () => settle(null);
+      const timer = setTimeout(() => settle(null), 305_000);
+      timer.unref?.();
+      const settle = (answer: 'allow' | 'allow-always' | 'deny' | 'deny-always' | null) => {
+        if (!this.pendingPerms.has(ask.id)) return;
+        this.pendingPerms.delete(ask.id);
+        clearTimeout(timer);
+        ws.off('close', onClose);
+        resolve(answer);
+      };
+      this.pendingPerms.set(ask.id, settle);
+      ws.once('close', onClose);
+      this.safeSend(ws, { type: 'permission', id: ask.id, tool: ask.toolName, detail: ask.detail, scope: ask.persistScope });
+    });
+  }
+
   private onWs(ws: WebSocket, req: http.IncomingMessage): void {
     const url = new URL(req.url ?? '/', 'http://x');
     const chatId = url.searchParams.get('cid') || randomUUID();
@@ -1517,6 +2009,13 @@ $out | ConvertTo-Json -Compress`, 40000));
       let images: unknown;
       try {
         const parsed = JSON.parse(data.toString());
+        // Permission prompt answer from the UI: resolve the pending request and stop here.
+        if (typeof parsed.permission_id === 'string') {
+          const resolver = this.pendingPerms.get(parsed.permission_id);
+          const d = parsed.decision;
+          if (resolver) resolver(d === 'allow' || d === 'allow-always' || d === 'deny' || d === 'deny-always' ? d : null);
+          return;
+        }
         text = parsed.text;
         route = parsed.route;
         model = parsed.model;
@@ -1983,11 +2482,13 @@ function modelWhy(tok){var d=RAIL||{};tok=tok||'auto';
   if(tok==='claude'||/claude|opus|sonnet|haiku/i.test(tok))return (d.claude&&d.claude.expired)?'Your Claude subscription login expired \\u2014 run "claude auth login" on the host (older CLI: "claude login"). Or switch this agent.':'Claude is not logged in.';
   return 'The model "'+tok+'" is unavailable \\u2014 its provider key is missing in AI Providers (or switch this agent).'}
 function renderAgents(){var box=el('agentrail');if(!box)return;
-  if(!AGENTS.length){box.innerHTML='<div style="color:var(--mut);font-size:11px;padding:2px 7px">none yet</div>';return}
-  box.innerHTML=AGENTS.map(function(a){
+  /* Hidden agents (Hide in the desktop / here) stay off the rail; Un-hide them from desktop Settings -> Sub-agents. */
+  var VIS=AGENTS.filter(function(a){return !a.hidden});
+  if(!VIS.length){box.innerHTML='<div style="color:var(--mut);font-size:11px;padding:2px 7px">none yet</div>';return}
+  box.innerHTML=VIS.map(function(a){
     var sl=schedsFor(a.name).map(function(s){return '<div style="font-size:10px;color:var(--mut);margin-left:8px;margin-top:1px">\\u23F0 '+esc(s.cron||s.at||'')+' <span class="ascd" data-id="'+esc(s.id)+'" title="cancel" style="color:#e88;cursor:pointer">\\u00d7</span></div>'}).join('');
     var avail=modelAvail(a.model);var why=avail?'':modelWhy(a.model);
-    return '<div style="padding:4px 7px"><div style="font-size:12px" title="'+esc(a.job)+'"><span class="aopen" data-n="'+esc(a.name)+'" style="cursor:pointer;text-decoration:underline" title="open '+esc(a.name)+' chat">'+esc(a.label||a.name)+'</span> <span style="color:var(--mut);font-size:10px" title="'+esc(a.lastVia?('last ran on '+a.lastVia):('configured: '+a.model))+'">['+esc(a.model)+(a.canElevate?'\\u2191':'')+(a.lastVia?(' \\u2192 '+esc(viaShort(a.lastVia))):'')+']</span>'+(a.createdBy==='agent'?' <span title="Created by Zamolxis. Temporary unless you enable persistence in Settings." style="color:var(--mut);font-size:9px">auto</span>':'')+(!avail?(' <span title="'+esc(why)+'" style="color:#e06a5f;font-size:10px">[inactive]</span>'):'')+((a.risk&&a.risk.level&&a.risk.level!=='low')?(' <span title="'+esc(a.risk.note||'')+'" style="color:'+(a.risk.level==='high'?'#e06a5f':'#e0a55f')+';font-size:10px">\\u26A0 '+esc(a.risk.level)+'</span>'):'')+((a.stopped)?' <span style="color:var(--mut);font-size:10px">[stopped]</span>':'')+'</div><div style="margin-top:1px">'+(!avail?'<span class="afix" data-n="'+esc(a.name)+'" title="'+esc(why)+'" style="color:#e0a55f;cursor:pointer;font-size:11px;margin-right:10px;font-weight:600">fix</span>':'')+'<span class="arun" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px">run</span><span class="ajob" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">job</span><span class="aana" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">analyze</span><span class="asch" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">schedule</span><span class="astp" data-n="'+esc(a.name)+'" data-stop="'+(a.stopped?'0':'1')+'" style="color:'+(a.stopped?'#7dd08a':'#e0a55f')+';cursor:pointer;font-size:11px;margin-left:10px">'+(a.stopped?'resume':'stop')+'</span><span class="adel" data-n="'+esc(a.name)+'" style="color:#e88;cursor:pointer;font-size:11px;margin-left:10px">delete</span></div>'+sl+'</div>'}).join('');
+    return '<div style="padding:4px 7px"><div style="font-size:12px" title="'+esc(a.job)+'"><span class="aopen" data-n="'+esc(a.name)+'" style="cursor:pointer;text-decoration:underline" title="open '+esc(a.name)+' chat">'+esc(a.label||a.name)+'</span> <span style="color:var(--mut);font-size:10px" title="'+esc(a.lastVia?('last ran on '+a.lastVia):('configured: '+a.model))+'">['+esc(a.model)+(a.canElevate?'\\u2191':'')+(a.lastVia?(' \\u2192 '+esc(viaShort(a.lastVia))):'')+']</span>'+(a.createdBy==='agent'?' <span title="Created by Zamolxis. Temporary unless you enable persistence in Settings." style="color:var(--mut);font-size:9px">auto</span>':'')+(!avail?(' <span title="'+esc(why)+'" style="color:#e06a5f;font-size:10px">[inactive]</span>'):'')+((a.risk&&a.risk.level&&a.risk.level!=='low')?(' <span title="'+esc(a.risk.note||'')+'" style="color:'+(a.risk.level==='high'?'#e06a5f':'#e0a55f')+';font-size:10px">\\u26A0 '+esc(a.risk.level)+'</span>'):'')+((a.stopped)?' <span style="color:var(--mut);font-size:10px">[stopped]</span>':'')+'</div><div style="margin-top:1px">'+(!avail?'<span class="afix" data-n="'+esc(a.name)+'" title="'+esc(why)+'" style="color:#e0a55f;cursor:pointer;font-size:11px;margin-right:10px;font-weight:600">fix</span>':'')+'<span class="arun" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px">run</span><span class="ajob" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">job</span><span class="aana" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">analyze</span><span class="asch" data-n="'+esc(a.name)+'" style="color:var(--accent);cursor:pointer;font-size:11px;margin-left:10px">schedule</span><span class="astp" data-n="'+esc(a.name)+'" data-stop="'+(a.stopped?'0':'1')+'" style="color:'+(a.stopped?'#7dd08a':'#e0a55f')+';cursor:pointer;font-size:11px;margin-left:10px">'+(a.stopped?'resume':'stop')+'</span><span class="ahide" data-n="'+esc(a.name)+'" style="color:var(--mut);cursor:pointer;font-size:11px;margin-left:10px">hide</span>'+(a.premade?'':('<span class="adel" data-n="'+esc(a.name)+'" style="color:#e88;cursor:pointer;font-size:11px;margin-left:10px">delete</span>'))+'</div>'+sl+'</div>'}).join('');
   [].slice.call(box.querySelectorAll('.afix')).forEach(function(x){x.onclick=function(){openJobModal(x.getAttribute('data-n'))}});
   [].slice.call(box.querySelectorAll('.arun')).forEach(function(x){x.onclick=function(){runAgentUI(x.getAttribute('data-n'))}});
   [].slice.call(box.querySelectorAll('.aopen')).forEach(function(x){x.onclick=function(){openAgentChat(x.getAttribute('data-n'))}});
@@ -1996,6 +2497,7 @@ function renderAgents(){var box=el('agentrail');if(!box)return;
   [].slice.call(box.querySelectorAll('.asch')).forEach(function(x){x.onclick=function(){scheduleAgentUI(x.getAttribute('data-n'))}});
   [].slice.call(box.querySelectorAll('.astp')).forEach(function(x){x.onclick=function(){stopAgentUI(x.getAttribute('data-n'),x.getAttribute('data-stop')==='1')}});
   [].slice.call(box.querySelectorAll('.ascd')).forEach(function(x){x.onclick=function(){cancelSched(x.getAttribute('data-id'))}});
+  [].slice.call(box.querySelectorAll('.ahide')).forEach(function(x){x.onclick=function(){var n=x.getAttribute('data-n');if(!confirm('Hide agent "'+n+'"? It leaves the list and its schedules are removed. Un-hide it from Settings -> Sub-agents on the desktop.'))return;fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'hide',name:n})}).then(function(){loadAgents()})}});
   [].slice.call(box.querySelectorAll('.adel')).forEach(function(x){x.onclick=function(){var n=x.getAttribute('data-n');if(!confirm('Delete agent "'+n+'"?'))return;fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'delete',name:n})}).then(function(){var tid='agent:'+n;threads=threads.filter(function(t){return t.id!==tid});if(cid===tid){loadThread('main')}else{saveThreads();renderThreads()}loadAgents()})}})}
 function scheduleAgentUI(name){var when=prompt('When should "'+name+'" run? Say it in plain language:\\n  "every 5 minutes"\\n  "every day at noon"\\n  "weekdays at 9am"\\n  "every hour"');if(!when)return;var task=prompt('What should it do each time? (blank = its standard job)','');if(task===null)return;
   showToast('Working out the schedule...');
@@ -2070,6 +2572,7 @@ function showToast(msg){var t=el('toast');t.textContent=msg;t.classList.add('sho
 function hideToast(){el('toast').classList.remove('show')}
 function hdrs(){var h={'content-type':'application/json'};if(token)h['x-zamolxis-token']=token;return h}
 function esc(v){return v==null?'':String(v).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;')}
+function linkifyHtml(s){return esc(s).replace(/(https?:\\/\\/[^\\s<]+[^\\s<.,;:!?)\\]}'"]|\\/api\\/[^\\s<]+[^\\s<.,;:!?)\\]}'"])/g,function(u){return '<a href="'+u+'" target="_blank" rel="noopener">'+u+'</a>'})}
 function fmtTime(ts){try{return new Date(Number(ts)).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}catch(e){return ''}}
 /* The "who" line carries a timestamp (always) + gen time/tokens (for replies), and
    is re-renderable so a name change relabels every past bubble too. */
@@ -2097,10 +2600,25 @@ function openWs(){
   sock.onclose=function(){if(myGen!==gen)return;setStatus('disconnected - retrying');setTimeout(function(){if(myGen===gen)openWs()},2000)};
   sock.onmessage=function(ev){if(myGen!==gen)return;var m=JSON.parse(ev.data);
     if(m.type==='chunk'){if(!cur)cur=add('bot',BOT_LABEL,'');if(!curStarted){cur.textContent='';curStarted=true}cur.textContent+=m.text;el('log').scrollTop=el('log').scrollHeight}
-    else if(m.type==='reply'){if(!cur)cur=add('bot',BOT_LABEL,'');cur.textContent=m.text;var w=cur.whoEl,secs=stopGen();setMeta(w,secs,null);cur=null;curStarted=false;setStatus('connected');
+    else if(m.type==='reply'){if(!cur)cur=add('bot',BOT_LABEL,'');cur.innerHTML=linkifyHtml(m.text);var w=cur.whoEl,secs=stopGen();setMeta(w,secs,null);cur=null;curStarted=false;setStatus('connected');
       fetch('/api/status',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(!d)return;renderModels(d);if(d.last&&w){w.dataset.vid=d.last.model||'';setMeta(w,secs,d.last.total,viaLabel(d.last.model))}if(d.last)maybeStick(d.last.model)}).catch(function(){})}
-    else if(m.type==='status'){setStatus(m.text)}};
+    else if(m.type==='status'){setStatus(m.text)}
+    else if(m.type==='permission'){showPermCard(m,sock)}};
 }
+/* Interactive tool-permission prompt: inline card with allow/deny buttons.
+   "Always" answers are remembered server-side per chat / skill / agent. */
+function showPermCard(m,sock){
+  var c=add('bot',BOT_LABEL+' \\u00b7 permission','');
+  c.textContent='Wants to use "'+m.tool+'"'+(m.detail?('\\n'+m.detail):'');
+  var row=document.createElement('div');row.style.cssText='display:flex;gap:6px;margin-top:8px;flex-wrap:wrap';
+  var done=false;
+  [['allow','Allow once'],['allow-always','Always allow'],['deny','Deny'],['deny-always','Always deny']].forEach(function(o){
+    var b=document.createElement('button');b.textContent=o[1];
+    b.style.cssText='padding:4px 10px;border:1px solid var(--line);border-radius:8px;background:'+(o[0].indexOf('allow')===0?'var(--accent)':'transparent')+';color:'+(o[0].indexOf('allow')===0?'#14100a':'var(--mut)')+';cursor:pointer;font-size:12px';
+    b.onclick=function(){if(done)return;done=true;try{sock.send(JSON.stringify({permission_id:m.id,decision:o[0]}))}catch(e){}
+      row.innerHTML='';var s=document.createElement('span');s.style.cssText='font-size:11px;color:var(--mut)';s.textContent=o[1]+(o[0].indexOf('always')>=0?(' \\u00b7 '+(m.scope||'')):'');row.appendChild(s)};
+    row.appendChild(b)});
+  c.appendChild(row);el('log').scrollTop=el('log').scrollHeight}
 var routes={};try{routes=JSON.parse(localStorage.zx_routes||'{}')}catch(e){}
 function curRoute(){return routes[cid]||'auto'}
 function applyRoute(){var r=el('route');if(r)r.value=curRoute();updateModelVis()}
@@ -2514,7 +3032,7 @@ function renderSettings(s){var L=s.live,m=s.meta,h='';
   h+='<label>Default sandbox backend</label>'+sel('live_sandboxBackend',m.configuredBackends,L.sandboxBackend);
   h+='<label>Max turns per message</label>'+inp('live_maxTurns',L.maxTurns,'number');
   h+='<label>Max concurrent (restart)</label>'+inp('live_maxConcurrent',L.maxConcurrent,'number');
-  h+='<label>Turn timeout (seconds) - how long one turn may run before it is stopped (e.g. 3600 = 1h)</label>'+inp('live_turnTimeoutSeconds',L.turnTimeoutSeconds,'number');
+  h+='<label>Turn timeout (seconds) - how long one turn may run before it is stopped (default 1800 = 30 min; e.g. 3600 = 1h)</label>'+inp('live_turnTimeoutSeconds',L.turnTimeoutSeconds,'number');
   h+='<label>System prompt append</label><textarea id="s_live_systemPromptAppend" rows="3">'+esc(L.systemPromptAppend)+'</textarea>';
   if(s.identity){h+=sec('Identity & memory (applies next message)');
     h+='<label class="chk"><input type="checkbox" id="s_live_lawsEnabled"'+(L.lawsEnabled?' checked':'')+'> Enforce safety laws (uncheck to A/B test speed &amp; behavior)</label>';

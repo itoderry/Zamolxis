@@ -119,8 +119,9 @@ export class Scheduler {
         await channel.send({ chatId: job.chatId, text: job.agent ? `[agent ${job.agent}] ${result.reply}` : result.reply });
       } else if (job.agent) {
         // Agent-scheduled jobs carry channel:'agent', which is not a real channel — deliver the
-        // result back through the agent message bus (surfaced to the web UI + CLI, mirrored into chat).
-        await this.engine.sendAgentMessage(job.agent, 'user', result.reply, (result as { via?: string }).via);
+        // result to wherever the agent is configured to send: the chat/agent feed (default, surfaced
+        // to the web UI + CLI and mirrored into chat) and/or a Slack channel.
+        await this.deliverToChannels(job.agent, result.reply, (result as { via?: string }).via);
       }
     } catch (err) {
       logger.error({ id, err: String(err) }, 'job failed');
@@ -131,6 +132,21 @@ export class Scheduler {
         this.disarm(job.id);
       }
       this.persist();
+    }
+  }
+
+  /** Send an agent's reply to its configured communication channels: the chat/agent feed
+   *  (default) and/or a Slack channel. Public so a one-shot CLI / Windows-task run delivers the
+   *  same way a scheduled run does. (Output *format* — documents etc. — is the agent's own job.) */
+  async deliverToChannels(agent: string, reply: string, via?: string): Promise<void> {
+    if (!this.engine || !this.channels) return;
+    const deliver = this.engine.agentDeliver?.(agent);
+    if (!deliver || deliver.chat !== false) {
+      await this.engine.sendAgentMessage(agent, 'user', reply, via);
+    }
+    if (deliver && deliver.slack && deliver.slackChannel) {
+      const r = await this.channels.sendToChannel('slack', deliver.slackChannel, `[${agent}] ${reply}`);
+      if (!r.ok) logger.warn({ agent, err: r.error }, 'agent Slack delivery failed');
     }
   }
 

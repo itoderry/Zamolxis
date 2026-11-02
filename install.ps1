@@ -309,12 +309,14 @@ if ($Service) {
   Mark-Installed service $true
 }
 
-# Put the `zamolxis` command on PATH so the user doesn't have to use `npm run ...`.
-Step "Linking the 'zamolxis' command"
+# Put the `zamolxis` / `zam` commands on PATH automatically, so `zamolxis start` just works.
+# Uses Zamolxis's own setup-path (writes .cmd shims to a PATH dir and adds to the user PATH) -
+# more reliable than `npm link`, and needs no admin rights.
+Step "Adding the 'zamolxis' command to your PATH"
 $linked = $false
-try { npm link 2>&1 | Out-Null; if ($LASTEXITCODE -eq 0) { $linked = $true } } catch {}
-if ($linked) { Mark-Installed globalLink $true; Write-Host "    'zamolxis' is now on your PATH." }
-else { Warn "Could not link 'zamolxis' globally - use 'npm run web' / 'npm run cli', or run 'npm link' once." }
+try { node (Join-Path $root "bin\zamolxis.mjs") setup-path; if ($LASTEXITCODE -eq 0) { $linked = $true } } catch {}
+if ($linked) { Mark-Installed globalLink $true }
+else { Warn "Could not add 'zamolxis' to PATH automatically - run:  node bin\zamolxis.mjs setup-path" }
 
 Step "Readiness check"
 $ok = $true
@@ -336,7 +338,7 @@ if ($linked) {
   Write-Host "  Chat in CLI:  npm run cli"
   Write-Host "  Background:   npm start         (or, with -Service: npm run service:start)"
   Write-Host "  Re-check:     npm run doctor"
-  Write-Host "  Tip: run 'npm link' once to enable the shorter 'zamolxis' command."
+  Write-Host "  Tip: if 'zamolxis' is not found in a new terminal, run:  node bin\zamolxis.mjs setup-path"
 }
 
 if ($Web -and $Open) {

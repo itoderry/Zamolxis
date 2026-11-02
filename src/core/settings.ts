@@ -4,6 +4,7 @@ import type { ZamolxisConfig } from '../config.js';
 import type { SandboxManager, BackendName } from '../sandbox/backends.js';
 import type { MemoryManager } from './memory.js';
 import { searchProviderName } from './localTools.js';
+import { setToolOutputCap } from './toolOutput.js';
 import { configuredProviders } from './providers.js';
 import { claudeModels } from './claudeModels.js';
 import { logger } from '../logger.js';
@@ -16,6 +17,9 @@ const CHANNELS = ['cli', 'telegram', 'discord', 'slack', 'whatsapp', 'signal', '
 /** Channel credential fields. `secret: true` => write-only (never echoed back to the browser). */
 const CRED_FIELDS: Array<{ key: string; label: string; group: string; secret: boolean }> = [
   { key: 'CLAUDE_CODE_OAUTH_TOKEN', label: 'Claude subscription token — paste from `claude setup-token` (required on macOS)', group: 'claude', secret: true },
+  // Optional metered Claude API key. By default Zamolxis hides ANTHROPIC_API_KEY so the flat-rate
+  // subscription is used; it is only honoured when ZAMOLXIS_ALLOW_API_KEY=1 (see auth.ts).
+  { key: 'ANTHROPIC_API_KEY', label: 'Claude API key (sk-ant-…; metered API billing — only used if ZAMOLXIS_ALLOW_API_KEY=1, otherwise the subscription is used)', group: 'claude', secret: true },
   { key: 'TELEGRAM_BOT_TOKEN', label: 'Telegram bot token', group: 'telegram', secret: true },
   { key: 'TELEGRAM_ALLOWED_USERS', label: 'Telegram allowed usernames/ids (comma-sep, blank = all)', group: 'telegram', secret: false },
   { key: 'DISCORD_BOT_TOKEN', label: 'Discord bot token', group: 'discord', secret: true },
@@ -42,6 +46,11 @@ const CRED_FIELDS: Array<{ key: string; label: string; group: string; secret: bo
   { key: 'NVIDIA_API_KEY', label: 'NVIDIA NIM key (free cloud tier — build.nvidia.com)', group: 'providers', secret: true },
   { key: 'SAMBANOVA_API_KEY', label: 'SambaNova key (free fast cloud tier)', group: 'providers', secret: true },
   { key: 'PERPLEXITY_API_KEY', label: 'Perplexity Sonar key (PAID: search-grounded; not a free tier)', group: 'providers', secret: true },
+  // Jira Cloud (Settings → Integrations → Jira): used by the jira_* tools, Jira Sentinel and Jira Watcher.
+  { key: 'JIRA_BASE_URL', label: 'Jira base URL (https://your-domain.atlassian.net)', group: 'jira', secret: false },
+  { key: 'JIRA_EMAIL', label: 'Jira account email', group: 'jira', secret: false },
+  { key: 'JIRA_API_TOKEN', label: 'Jira API token (id.atlassian.com/manage-profile/security/api-tokens)', group: 'jira', secret: true },
+  { key: 'JIRA_DEFAULT_PROJECT', label: 'Jira default project key (e.g. PROJ)', group: 'jira', secret: false },
 ];
 
 interface PersistedSettings {
@@ -57,6 +66,8 @@ interface PersistedSettings {
   systemPromptAppend?: string;
   sandboxBackend?: string;
   localRouting?: 'off' | 'auto';
+  privacyMode?: boolean;
+  toolOutputCap?: number;
   localModel?: string;
   localContext?: number;
   localKeepAlive?: string;
@@ -130,6 +141,8 @@ export class SettingsManager {
         localKeepAlive: this.config.localKeepAlive ?? '',
         localTemp: this.config.localTemp ?? null,
         localRouting: this.config.localRouting,
+        privacyMode: !!this.config.privacyMode,
+        toolOutputCap: this.config.toolOutputCap ?? 12000,
         routeChain: this.config.routeChain,
         lawsEnabled: this.config.lawsEnabled,
         agentRestore: this.config.agentRestore,
@@ -220,6 +233,13 @@ export class SettingsManager {
     if (live.localRouting === 'off' || live.localRouting === 'auto') {
       this.config.localRouting = live.localRouting;
       p.localRouting = live.localRouting;
+    }
+    if (typeof live.privacyMode === 'boolean') {
+      this.config.privacyMode = live.privacyMode; p.privacyMode = live.privacyMode;
+    }
+    if (typeof live.toolOutputCap === 'number' && live.toolOutputCap >= 0) {
+      const cap = Math.floor(live.toolOutputCap);
+      this.config.toolOutputCap = cap; p.toolOutputCap = cap; setToolOutputCap(cap);
     }
     // Local model selection — applies LIVE (the engine reads config.localModel per turn). Setting a
     // model also ENABLES the local tier even if none was configured at boot (keeps the URL or default).

@@ -35,9 +35,19 @@ zam status        # is it running? which port?
 zam update        # git pull + npm install + build + restart (git installs only)
 zam --doctor      # readiness report (Node, login, channels, sandbox, local model)
 zam setup-path    # put the `zam` / `zamolxis` commands on your PATH
+zam run-agent <name>        # run one agent now (what each Windows agent task calls)
+zam install-agent-tasks     # Windows: let Task Scheduler trigger your scheduled agents
+zam remove-agent-tasks      # Windows: delete those tasks, back to the in-process timer
+zam list-agent-tasks        # Windows: list the agent tasks under Task Scheduler \ Zamolxis
 zam help          # this help summary
 ```
 `zamolxis` is an alias for `zam`. The web UI is at **http://127.0.0.1:8787** when `ZAMOLXIS_CHANNEL_WEB=true`.
+
+`install-agent-tasks` creates one task per scheduled agent (folder **Zamolxis** in Task Scheduler) and sets `ZAMOLXIS_AGENT_TRIGGER=windows` in `.env`, so agents fire even when Zamolxis is closed and the in-process timer doesn't double-fire them. `remove-agent-tasks` reverses it.
+
+> **Separate OS user (enhanced security):** `scripts\service-install.ps1 -RunAsUser <account>` runs the background service under a dedicated low-privilege Windows account (starts at boot; that account needs its own `claude setup-token` token in `.env` and its own `ZAMOLXIS_DATA_DIR`). On Linux, set `User=` plus the hardening lines in `scripts/zamolxis.service`. See the README.
+
+> **Long tasks:** the per-message wall-clock timeout defaults to **30 minutes** (`ZAMOLXIS_TURN_TIMEOUT_SECONDS=1800`), so long autonomous jobs (research, building a document, multi-tool chains) aren't cut short. Raise it in Settings → Engine → *Turn timeout* (e.g. 3600 = 1 hour) for exceptionally long work.
 
 > If `zam stop`/`restart` says *"port 8787 is STILL held — kill manually"*, an elevated/old copy is squatting the port: kill it from an **Administrator** terminal (`taskkill /F /PID <pid>`) or reboot, then `zam start`.
 
@@ -63,6 +73,10 @@ zam help          # this help summary
 - `/ban <skill> <model>` / `/unban <skill> <model>` — manage the ban list (see §7).
 - `/hasync` — scan Home Assistant and (re)build the `home-assistant-devices` skill.
 
+**Permissions:** in the `default` permission mode Zamolxis **asks before using a tool or resource**: an inline card in the chat with **Allow once · Always allow · Deny · Always deny** (the CLI asks `[y] [a] [n] [d]`). "Always" answers are remembered per **chat**, per **skill** (when you forced one with `/skill`), and per **sub-agent**, and can be reviewed/revoked in **Settings → Permissions**. Grants persist in `<data dir>/permissions.json`. Scheduled/unattended runs follow the remembered grants and otherwise proceed, so they never wait on a prompt; an unanswered prompt (5 minutes, or the tab closed) denies just that one call. Switch the posture in **Settings → Engine → Permission mode** or `ZAMOLXIS_PERMISSION_MODE` in `.env` (acceptEdits / bypassPermissions skip asking).
+
+**Desktop alerts:** every proactive alert (watchers, Site Sentinel, Jira, triggers) also pops a **native OS notification** (Windows toast / macOS / Linux notify-send). Turn it off in **Settings → System → Proactive**.
+
 ---
 
 ## 4. How answers are routed (the ladder)
@@ -72,6 +86,8 @@ Every message stops at the first tier that can handle it: **Calculator** (pure m
 ---
 
 ## 5. Sub-agents
+
+The **pre-made agents** (Mail Sentinel, Jira Sentinel, Jira Watcher, News Brief, Chief of Staff, ...) are seeded once and run **headless by default**: each has its own schedule and an activity feed, and you flip the **Chat window** toggle in its app if you want to talk to one directly.
 
 Create one with **+ new agent** (or Zamolxis makes one itself mid-job). Each agent row has: **run · job · analyze · schedule · stop/resume · delete**, plus a **fix** link when it's inactive.
 
@@ -101,4 +117,8 @@ A `(model, skill)` ban makes that model refuse that capability (`"I can't, I am 
 
 ## 8. Memory & channels
 
-Persistent files (in your data dir): **LAWS.md** (inviolable safety rules), **SOUL.md** (persona, you own it), **USER.md** (your profile, agent-maintained), **MEMORY.md** (working notes), **LEARNINGS.md** (lessons captured when the smart model rescues a failure). Connect Telegram/Discord/Slack/WhatsApp/Signal/Email in Settings; all feed and mirror the one Main chat.
+Persistent files (in your data dir): **LAWS.md** (inviolable safety rules, applied to every chat and agent run on every model, local and provider models included), **SOUL.md** (persona, you own it), **USER.md** (your profile, agent-maintained), **MEMORY.md** (working notes), **LEARNINGS.md** (lessons captured when the smart model rescues a failure). Connect Telegram/Discord/Slack/WhatsApp/Signal/Email in Settings; all feed and mirror the one Main chat.
+
+**Slack** runs in Socket Mode (no public URL). Quick path: create an app at api.slack.com/apps → enable Socket Mode (gives the `xapp-` App-Level token, scope `connections:write`) → add bot scopes `app_mentions:read`, `chat:write`, `im:history`, `im:read`, `im:write` → subscribe to events `app_mention` + `message.im` → Install to Workspace (gives the `xoxb-` Bot token). Paste `SLACK_BOT_TOKEN` (xoxb-) and `SLACK_APP_TOKEN` (xapp-) in Settings → Channels → Slack, enable the Slack channel, restart. Then DM the bot or `/invite @Zamolxis` to a channel and @-mention it. Ask Zamolxis **"connect slack"** to be walked through it (the connect-slack skill).
+
+**Jira** is configured in Settings → Integrations → Jira (base URL, account email, API token from id.atlassian.com, optional default project key); the Jira tools and the Jira Sentinel / Jira Watcher agents use it.

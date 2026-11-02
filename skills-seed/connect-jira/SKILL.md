@@ -1,11 +1,11 @@
 ---
 name: connect-jira
-description: Connect Giskard to Jira Cloud so it can create issues, list your assigned tasks, and alert you when something is assigned to you. Use when the user says "connect jira", "set up jira", or asks for Jira features before credentials exist.
+description: Connect Zamolxis to Jira Cloud so it can create issues, list your assigned tasks, and alert you when something is assigned to you. Use when the user says "connect jira", "set up jira", or asks for Jira features before credentials exist.
 ---
 
 # Connect Jira
 
-Giskard talks to Jira Cloud over its REST API with an API token. Three credentials are needed (plus an optional default project):
+Zamolxis talks to Jira Cloud over its REST API with an API token. Three credentials are needed (plus an optional default project):
 
 1. **JIRA_BASE_URL** — the site URL, e.g. `https://your-company.atlassian.net`.
 2. **JIRA_EMAIL** — the Atlassian account email.
@@ -15,7 +15,7 @@ Giskard talks to Jira Cloud over its REST API with an API token. Three credentia
 ## Steps
 
 1. Ask the user for the four values above (the token is secret — never echo it back).
-2. Have them paste the values in **Settings → Credentials** (group "jira"), or set them in `.env`. Saved credentials apply live.
+2. Have them paste the values in **Settings → Integrations → Jira**, or set them in `.env`. Saved credentials apply live.
 3. Verify with the `jira_my_issues` tool — it should list the user's open issues.
 4. Tell the user what is now available:
    - `jira_create_issue` — create a task/bug/story (defaults: project = JIRA_DEFAULT_PROJECT, type = Task).

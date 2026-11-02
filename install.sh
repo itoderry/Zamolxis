@@ -279,15 +279,14 @@ if [ "$SHOULD_INSTALL" -eq 1 ]; then
   fi
 fi
 
-# Put the `zamolxis` command on PATH so the user doesn't have to use `npm run ...`.
-step "Linking the 'zamolxis' command"
+# Put the `zamolxis` / `zam` commands on PATH automatically, so `zamolxis start` just works.
+# Uses Zamolxis's own setup-path (a wrapper script in a PATH dir) - no sudo / npm link needed.
+step "Adding the 'zamolxis' command to your PATH"
 LINKED=0
-if npm link >/dev/null 2>&1; then
-  LINKED=1; mark_installed globalLink true; echo "    'zamolxis' is now on your PATH."
-elif sudo -n npm link >/dev/null 2>&1; then
-  LINKED=1; mark_installed globalLink true; echo "    'zamolxis' linked (with sudo)."
+if node bin/zamolxis.mjs setup-path; then
+  LINKED=1; mark_installed globalLink true
 else
-  warn "Could not link 'zamolxis' globally - use 'npm run web' / 'npm run cli', or run 'sudo npm link' once."
+  warn "Could not add 'zamolxis' to PATH automatically - run:  node bin/zamolxis.mjs setup-path"
 fi
 
 step "Readiness check"
@@ -314,7 +313,7 @@ else
   echo "  Chat in CLI:  npm run cli"
   echo "  Background:   npm start"
   echo "  Re-check:     npm run doctor"
-  echo "  Tip: run 'npm link' once to enable the shorter 'zamolxis' command."
+  echo "  Tip: if 'zamolxis' is not found in a new shell, run:  node bin/zamolxis.mjs setup-path"
 fi
 
 if [ "$WEB" -eq 1 ] && [ "$OPEN" -eq 1 ]; then

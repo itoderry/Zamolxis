@@ -317,6 +317,13 @@ export async function browserHistoryData(args: { what?: string; query?: string; 
 // ───────────────────────── Open in Excel (real spreadsheet, real app) ─────────────────────────
 
 export function dataDir(): string { return appDataDir; }
+/** Where files Zamolxis makes FOR THE USER (Word/Excel/PowerPoint exports) are saved — a
+ *  discoverable Documents\Zamolxis folder, not the hidden data dir. Created on demand. */
+export function docsDir(): string {
+  const d = path.join(os.homedir(), 'Documents', 'Zamolxis');
+  try { fs.mkdirSync(d, { recursive: true }); } catch { /* best-effort */ }
+  return d;
+}
 export function openWithOs(file: string): void {
   if (process.platform === 'win32') spawn('cmd', ['/c', 'start', '', file], { detached: true, windowsHide: true }).unref();
   else if (process.platform === 'darwin') spawn('open', [file], { detached: true }).unref();
@@ -340,8 +347,7 @@ export async function openInExcel(args: { columns?: string[]; rows?: string[][];
     const ws = XLSX.utils.aoa_to_sheet([cols, ...rows]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, (args.title || 'Data').slice(0, 31));
-    const dir = path.join(appDataDir || os.tmpdir(), 'exports');
-    fs.mkdirSync(dir, { recursive: true });
+    const dir = docsDir();
     const safe = (args.title || 'table').replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 50);
     const file = path.join(dir, `${safe}-${Date.now()}.xlsx`);
     fs.writeFileSync(file, XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));

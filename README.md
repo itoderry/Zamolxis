@@ -206,6 +206,31 @@ Linux (systemd): see `scripts/zamolxis.service` - use a `--user` service with `l
 
 For service mode, turn on at least one messaging channel in `.env` (`ZAMOLXIS_CHANNEL_TELEGRAM=true`, and so on) - the interactive CLI is off when there's no terminal.
 
+### Running under a separate user (enhanced security)
+
+Because the agent can run shell commands, you can sandbox it under a **dedicated, low-privilege OS account** so it can't touch your own profile and files. The trade-off: that account needs its *own* Claude login, since it can't read yours.
+
+- **Windows:** create the account (`net user ZamolxisSvc <password> /add`), then install the service to run as it (from an elevated PowerShell, since it registers a task for another account):
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File scripts\service-install.ps1 -RunAsUser ZamolxisSvc
+  ```
+  It starts at boot (whether or not that user signs in) and you're prompted once for the password. Give the new account its own Claude token (`claude setup-token` -> `CLAUDE_CODE_OAUTH_TOKEN=...` in `.env`) and point `ZAMOLXIS_DATA_DIR` at a folder it owns. `scripts\service-uninstall.ps1` removes the task either way.
+- **Linux:** create a service user (`sudo useradd -r -m -s /usr/sbin/nologin zamolxis`), set `User=zamolxis` in `scripts/zamolxis.service`, and uncomment the hardening lines (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `ReadWritePaths=<data dir>`). Same deal on the token and data dir.
+
+Either way, keep the data dir and the Zamolxis folder owned by that account and nothing more - that's the whole point of the isolation.
+
+### Scheduled agents from Windows Task Scheduler
+
+By default agent schedules fire from the in-process timer, so they only run while Zamolxis is up. On Windows you can hand the triggering to the OS instead:
+
+```
+zamolxis install-agent-tasks   # one task per scheduled agent under Task Scheduler \ Zamolxis
+zamolxis list-agent-tasks      # what is registered
+zamolxis remove-agent-tasks    # delete them and go back to the in-process timer
+```
+
+Each task runs `zamolxis run-agent <name>` at the agent's cron time (starting Zamolxis first if it isn't running). `install-agent-tasks` sets `ZAMOLXIS_AGENT_TRIGGER=windows` in `.env` and restarts, so the in-process timer stops arming those jobs (no double-fire); schedules whose cron can't be expressed as a Task Scheduler trigger stay on the in-process timer.
+
 ## Safety rules (Asimov-style)
 
 On top of SOUL/USER/MEMORY there's a fourth layer: `LAWS.md`, a small safety constitution adapted from [Asimov's Laws of Robotics](https://en.wikipedia.org/wiki/Three_Laws_of_Robotics) for a software agent. It sits at the very top of every system prompt (the local model's too) and is written to override the persona, your profile, the agent's memory, and anything said in chat. The agent has no way to edit it - only you can, in Settings.
@@ -218,7 +243,7 @@ The default rules, most important first (lower number wins a conflict):
 3. Be honest. Don't pretend to be human, don't make up actions or results, and be upfront about uncertainty.
 4. Look after itself, but last. Keep running, but never by deceiving you, resisting shutdown, or getting around these rules.
 
-You can edit them in Settings -> Identity & memory (there's a "Reset to defaults" button), and a checkbox lets you turn the rules on or off if you want to compare behavior. They're only about 600 tokens, so the speed cost is tiny - the model you pick matters far more. This is a prompt-level safeguard that strongly shapes behavior; for harder guarantees, also use `ZAMOLXIS_DISALLOWED_TOOLS` and a stricter permission mode.
+You can edit them in Settings -> Identity & memory (there's a "Reset to defaults" button), and a checkbox lets you turn the rules on or off if you want to compare behavior. The rules apply to every run on every model - Claude, free/paid providers, and the local model (including in Privacy Mode) - for both chats and sub-agents. They're only about 600 tokens, so the speed cost is tiny - the model you pick matters far more. This is a prompt-level safeguard that strongly shapes behavior; for harder guarantees, also use `ZAMOLXIS_DISALLOWED_TOOLS` and a stricter permission mode.
 
 If you set a search key (`TAVILY_API_KEY` or `BRAVE_API_KEY`), Claude also gets a `web_search` tool, so it can search reliably without leaning on Claude Code's built-in web access.
 
@@ -253,11 +278,25 @@ skills     - SKILL.md files, shared across conversations
 
 Turn channels on with `ZAMOLXIS_CHANNEL_*=true` (or `--channels=cli,web`). A channel whose credentials are missing logs an error and is skipped - the rest still start.
 
+### Connecting Slack
+
+Slack runs in **Socket Mode**, so it needs no public URL or webhook - it works from a laptop behind a firewall. One-time setup (the bundled **connect-slack** skill walks you through it interactively - just ask Zamolxis "connect slack"; the Slack card in Settings → Channels has the same steps):
+
+1. Create an app at [api.slack.com/apps](https://api.slack.com/apps) → *From scratch*, pick your workspace.
+2. **Socket Mode** → enable it → generate an **App-Level Token** with `connections:write` (the `xapp-…` value → `SLACK_APP_TOKEN`).
+3. **OAuth & Permissions → Bot Token Scopes**: add `app_mentions:read`, `chat:write`, `im:history`, `im:read`, `im:write`.
+4. **Event Subscriptions** → enable → subscribe to bot events `app_mention` and `message.im`.
+5. **Install to Workspace** → copy the **Bot User OAuth Token** (`xoxb-…` → `SLACK_BOT_TOKEN`).
+6. Paste both tokens in **Settings → Channels → Slack** (or `.env`), set `ZAMOLXIS_CHANNEL_SLACK=true`, and restart/reload.
+
+Then DM the bot, or `/invite @Zamolxis` to a channel and @-mention it. The Main chat is mirrored across every connected channel, so a thread you start in Slack continues in the web UI.
+
 ### The web interface
 
 Turn it on with `ZAMOLXIS_CHANNEL_WEB=true` and open http://127.0.0.1:8787. The header shows a live clock (your machine's local time) and a login indicator: green "login ok" while your Claude token is valid (hover to see when it renews), or red "login expired" telling you to run `claude auth login`. It's a streaming chat page plus a full Settings panel (the gear icon):
 
-- Engine (applies on your next message): the agent's name (the single source of truth for what it calls itself, used in the persona and shown everywhere), main and fast models, permission mode, default sandbox, max turns and concurrency, and extra system-prompt text.
+- Engine (applies on your next message): the agent's name (the single source of truth for what it calls itself, used in the persona and shown everywhere), main and fast models, permission mode, default sandbox, max turns and concurrency, turn timeout (default 1800 seconds = 30 minutes, so long autonomous jobs aren't cut short), and extra system-prompt text.
+- Permissions: in the `default` permission mode Zamolxis asks before using a tool or resource (an inline Allow/Deny card in the chat, or a y/a/n/d prompt in the CLI), and remembers your "always" answers per chat, per skill, and per agent. Review and revoke grants in Settings -> Permissions; they live in `<data dir>/permissions.json`. Channels without an interactive surface (scheduled agents, messaging adapters) follow the remembered grants and otherwise proceed, so unattended jobs never hang on a prompt; a prompt nobody answers within 5 minutes (or a closed tab) denies just that one call. `acceptEdits` / `bypassPermissions` skip asking entirely (`ZAMOLXIS_PERMISSION_MODE` in `.env`, or Settings -> Engine -> Permission mode).
 - Identity & memory (applies on your next message): `LAWS.md` (the safety rules, above), `SOUL.md` (its persona and voice - this one's yours, the agent won't rewrite it), `USER.md` (your profile, which the agent keeps up to date as it learns about you, but you can edit), and a read-only view of its working `MEMORY`.
 - Channels (restart): turn each channel on or off.
 - Credentials (restart): tokens and hosts for every channel - Telegram (token plus an allowed-users list), Discord, Slack, Signal, Email (IMAP/SMTP), plus OpenAI/OpenRouter keys. Secrets are write-only: you see whether they're set, never the value.

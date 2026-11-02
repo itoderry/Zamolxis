@@ -2,6 +2,166 @@
 
 ## Unreleased (0.3.x)
 
+- **Settings → Integrations tab.** Jira credentials (base URL, account email, API token, default
+  project) had no home in the desktop Settings; the Jira tools and agents now point to
+  **Settings → Integrations → Jira**, and the tab also surfaces the optional web-search and plugin
+  keys with Save buttons.
+- **Clearer toggles, connector setup guides, and an easter egg.** The on/off switches show an
+  **ON/OFF** label so their state is unmistakable; each **Channels** connector has a step-by-step
+  "How to set up" (with a full **Slack** Socket-Mode walkthrough and a link to the setup page); and
+  clicking the taskbar clock opens the page about the Dacian god Zamolxis is named after.
+- **Slack connector guide.** README, HELP, `.env.example` and the **connect-slack** skill document
+  the Socket-Mode setup (app, scopes, event subscriptions, where the `xoxb-`/`xapp-` tokens go).
+- **File Transfer (a FileZilla-style client).** The old single-pane SFTP Client is now a two-pane
+  file-transfer window: **Local site** (the machine Zamolxis runs on, browsed via `/api/fs`) on the
+  left, **Remote site** (an SSH/SFTP server) on the right, with a status log narrating each
+  connection and transfer. Move files with the ↥/↧ arrows (binary-safe, up to 50 MB; new
+  `/api/fs readB64` op), make folders, rename and delete on either side. It has a desktop icon.
+- **Clickable links everywhere.** Bot replies render http(s) and `/api/...` links as clickable
+  anchors (desktop and classic UIs, HTML-escaped), so Outlook-open, Jira browse and watched-site
+  links work with a click. **Settings → System → Proactive** gained rows for the followed-Jira-tasks
+  and site-health watchers next to the Outlook one.
+- **Model pickers show the real Claude models, including Fable.** The Route / agent model pickers
+  list the live model list (Fable, Opus, Sonnet, Haiku and dated ids, de-duped by family) after the
+  Auto / Free cloud / provider entries, and **Local** is offered only when a local model is actually
+  installed (a stale saved choice falls back to Auto).
+- **`zamolxis` is added to PATH automatically by the installers** (via `zamolxis setup-path`
+  instead of `npm link`), so `zamolxis start` works straight after install.
+- **Polish and Ukrainian** interface languages (Settings → Appearance → Language), including the
+  translated UI strings and Help guide.
+- **Claude API key** can now be entered in Settings → Providers (optional metered billing; used
+  only when `ZAMOLXIS_ALLOW_API_KEY=1`, otherwise the subscription is used).
+- **Agents are headless by default** (the chat window starts OFF; flip the toggle to talk to one).
+- **Agent output format is the agent's choice; Chat / Slack / Web page are just its channels.** The
+  agent app's delivery row now shows **Chat**, **Slack** (with the channel/ID) and **Web page**
+  together, auto-saving on change (no Save button); how a result is shaped (a Word/Excel document,
+  etc.) is decided by the agent's own instructions — tell it in chat ("save the briefing as a Word
+  doc"). Generated Word/Excel/PowerPoint documents now save to a discoverable
+  **Documents\Zamolxis** folder (not the hidden data dir) and open automatically. The digest/report
+  agents (News Brief, Chief of Staff, Scrum Sentinel, Review Radar) gained the document tools. A
+  headless `zamolxis run-agent` / Windows-task run now delivers the reply to the agent's channels
+  (chat feed + Slack) exactly like a scheduled run (`Scheduler.deliverToChannels`); the Slack
+  delivery setting is honoured by scheduled runs too.
+- **Appearance simplified.** The desktop-theme picker is gone (Zamolxis is the only theme); the
+  Classic UI moved to a link at the bottom of the System tab.
+- **New pre-made agent: John the Butler**, a courteous PC-maintenance butler for Windows. He keeps
+  the machine in order (drivers, apps, network, system/security health, disk clutter, duplicate
+  photos) and reports in plain language, proposing fixes but never making risky changes without a
+  yes. Ask "John, check the house" or let him do a silent weekly round (seeded paused, Monday 09:00).
+  - Driven by a bundled native maintenance **engine** (`butler-engine/`, built into `bin/`): John
+    runs it headless and parses its JSON, so the scans are fully deterministic; the model only
+    picks the scan and phrases the result. Every read-only scan (drivers, system health, apps,
+    network, duplicates) uses the standard-user build `butler-scan.exe` with **no UAC prompt**; the
+    driver report (`--export`, HTML) is returned as readable text. The elevated build
+    `butler-core.exe` backs fixes and the silent weekly scheduled task. Both binaries are built
+    locally from `butler-engine/` (see its README) and gitignored.
+  - **Silent automation:** "set up automatic maintenance" registers a highest-privilege weekly
+    scheduled task `Butler_Health` (created elevated via a single UAC prompt, prompt-free
+    thereafter) that writes a full `--dumpsys` health report, including deep disk S.M.A.R.T., which
+    `pc_health` prefers over a live scan. Elevation is asked for only there and when applying a fix.
+  - **A duties dashboard.** John's page at `/john-the-butler` (Web-page delivery is seeded on) shows
+    his latest report first, with a collapsed "John's duties" panel below it: tick which areas he
+    handles on his own each week, set the duplicate-photos folder, and, behind a master opt-in that
+    is **off by default**, let him apply safe fixes rather than only reporting. His weekly round
+    reads those choices and does only the ticked duties. Backed by `GET`/`POST /api/butler` (config
+    in `<dataDir>/butler-duties.json`) and a `pc_config` tool.
+  - Tools: `pc_health`, `pc_drivers`, `pc_apps`, `pc_network`, `pc_duplicates`, `pc_config`,
+    `pc_maintain`. Pre-made agents gain a `webPage` seed flag.
+
+- **Command bar (Ctrl+Space).** A spotlight-style launcher: press Ctrl+Space (or Ctrl/Cmd+K) from
+  anywhere on the desktop, start typing, and jump straight to any app or agent, or pick "Ask
+  Zamolxis: <your text>" to open the chat and send your question in one step. Arrow keys navigate,
+  Enter selects, Esc closes. Also on the desktop right-click menu. The chat window gains a
+  `sendChat` hook that waits for the socket before sending. Pure front-end.
+- **Privacy dashboard.** A new "Privacy" desktop app (shield icon, kept on the desktop) shows the
+  self-hosting posture at a glance: where Zamolxis runs (host, account, data dir), whether the web
+  UI is local-only or exposed, the live **Privacy Mode** state with an on/off switch (the same
+  setting as Settings -> Engine), the places data can leave the machine (Claude and any configured
+  cloud model providers, shown as *blocked* while Privacy Mode is on; enabled messaging channels;
+  web search; Home Assistant; external MCP servers), and what never leaves. It states plainly that
+  Privacy Mode keeps model inference local but does not switch off tools that reach the network on
+  purpose. All derived live from configuration via `GET /api/privacy`; no telemetry.
+- **Share agents (export / import cards).** Any agent can be exported as a small, portable JSON
+  "card" (name, label, job, tools, model, help, guide, delivery, schedule; no machine-specific
+  state) and imported on another machine in one click. The New Agent window gains a "Share agents"
+  section for both; import detects a name clash and offers to replace. Backed by new `export` /
+  `import` actions on `POST /api/agents`.
+- **Desktop: right-click "Auto-arrange icons" + no more off-screen icons.** Right-clicking the empty
+  desktop offers "Auto-arrange icons", which lays every icon into a tidy grid inside the visible
+  area. Icons without a saved position now wrap into the next column instead of stacking down a
+  single column past the bottom of the screen.
+- **Pre-made agents: Hide instead of Delete.** A shipped pre-made agent can't be truly deleted (it
+  would just re-seed on restart), so its window now offers **Hide** rather than Delete. Hiding takes
+  it off the desktop and app list, pauses it and removes its schedules; **Un-hide** from Settings ->
+  Sub-agents brings it back (paused, no schedule). Agents you created yourself keep both Hide and
+  Delete. Agents carry new `premade` / `hidden` flags (existing pre-made agents are tagged at
+  startup), `/api/agents` gains `hide` / `unhide` actions, "Resume all" skips hidden agents, and the
+  classic UI's agent rail hides them too.
+
+- **The Laws now govern every run, on every model.** The full Prime Directives block (`LAWS.md`)
+  was injected only into Claude-tier runs; it now also leads, at highest priority, the lean prompt
+  used for local and free/paid provider models (chats and agent runs alike), including in Privacy
+  Mode where the local model is the only tier. The concise safety line for local/provider models
+  also gained the destructive-action guard: routine reversible work proceeds, but high-risk or
+  irreversible steps (bulk delete/overwrite, wipe/format, sending messages, spending money,
+  changing credentials/settings) need the user's explicit confirmation. It stays as reinforcement
+  for weak models and as the fallback when the Laws are switched off.
+- **Desktop Automation binds explicitly to the Laws.** Its job/help/guide now state that it operates
+  under Zamolxis's Prime Directives (Law 1 above all) instead of a vague "pauses before destructive";
+  a one-time migration (`.premade-laws-v1`) refreshes that agent's text on existing installs,
+  keeping its model, paused state and schedule.
+- **Interactive tool permissions with remembered grants.** In the `default` permission mode, Zamolxis
+  asks before a tool or resource is used: an inline Allow once / Always allow / Deny / Always deny
+  card in the web chat (desktop and classic UI) or a y/a/n/d prompt in the CLI. "Always" answers are
+  remembered per agent, per forced skill, per chat (or globally) in `<dataDir>/permissions.json`, and
+  are listed and revocable in the new Settings -> Permissions tab (`GET/POST /api/permissions`).
+  Channels with no prompter (scheduled/headless agent runs, messaging adapters) follow remembered
+  grants and otherwise proceed, so unattended jobs never hang; an unanswered prompt (5 minutes, or the
+  tab closed) denies just that call. The built-in default is now `default` (interactive); installs
+  whose `.env` sets `ZAMOLXIS_PERMISSION_MODE=acceptEdits` (as `.env.example` does) keep never-ask
+  behaviour. Change it in Settings -> Engine -> Permission mode or in `.env`.
+- **Native OS notifications.** Every alert (watchers, Site Sentinel, Jira, triggers) also pops a
+  Windows toast / macOS notification / Linux notify-send, not just the in-app feed
+  (`src/core/hostNotify.ts`). On by default; toggle in Settings -> System -> Proactive (saved as
+  `osNotify` in `watchers.json`); `ZAMOLXIS_OS_NOTIFICATIONS=0` flips the startup default.
+- **Run under a separate OS user (enhanced security).** `scripts/service-install.ps1 -RunAsUser <account>`
+  registers the service under a dedicated low-privilege Windows account (starts at boot, password
+  stored by Task Scheduler); `scripts/zamolxis.service` documents a dedicated `User=` plus systemd
+  hardening for Linux. Documented in the README and HELP.
+- **Longer default turn timeout.** `ZAMOLXIS_TURN_TIMEOUT_SECONDS` now defaults to 1800 (30 minutes)
+  instead of 300, so long autonomous jobs (research, document building, multi-tool chains) aren't
+  cut short; a hung turn is still aborted. Existing `.env` / saved settings values are respected.
+- **CLI: `install-agent-tasks`, `remove-agent-tasks`, `list-agent-tasks`.** On Windows,
+  `zamolxis install-agent-tasks` mirrors every scheduled agent into Task Scheduler (folder
+  `Zamolxis`, each task running `zamolxis run-agent <name>`), sets `ZAMOLXIS_AGENT_TRIGGER=windows`
+  and restarts so the in-process timer stops double-firing; `remove-agent-tasks` deletes the tasks
+  and switches back to `internal`; `list-agent-tasks` shows what is registered.
+- **New pre-made agent: Desktop Automation (plain-English Windows RPA).** Describe a repetitive
+  desktop task in ordinary words and it carries it out on this machine - launching apps, sending
+  keystrokes/clicks via AutoHotkey, driving your browser through a web flow, running PowerShell,
+  arranging files - then reports what it did. On-demand (open agent), top Claude tier, and careful
+  by design: it does only what was asked and pauses before anything destructive. Pairs with an
+  Automation (trigger) so a desktop task can fire when a file lands.
+- **External MCP servers.** Zamolxis now loads extra MCP servers from `<dataDir>/mcp.json` and merges
+  them alongside the built-in `zamolxis` tool server, so an agent can use tools from any MCP server
+  the user wires up (a Windows automation server, desktop-commander, a DB gateway) by listing
+  `mcp__<server>__<tool>` in its tools. Optional - no file means no change.
+- **Event-driven automations (triggers).** Agents can now fire on something happening on this
+  machine, not just on a clock: a file landing in (or changing under) a watched folder, a drive's
+  free space dropping below a threshold, or memory use climbing above one. A new "Automations"
+  desktop app creates and toggles triggers; each fire runs the chosen agent, delivers its reply
+  through the agent message bus, and raises a native OS notification. The watcher lives in the
+  Zamolxis process and reacts to this desktop's own filesystem. Backed by `triggers.json` and the
+  new `GET/POST /api/triggers`; the file watcher reloads config on the fly, so adding a trigger
+  takes effect without a restart. Trigger-fired runs are recorded in the Agent Activity dashboard
+  with an "event" badge.
+- **New "Agent Activity" dashboard (run history + cost observability).** Every agent run - scheduled,
+  manual, or event-triggered - is now recorded to a rolling local ledger (`runs.json`, last 1000 runs)
+  with its duration, outcome, cost, backend, and a short preview of what it did. A new desktop app
+  (System category) shows per-agent rollups (runs, success rate, total cost, average time, last run)
+  and a live recent-runs feed with trigger badges. Served from the new `GET /api/runs` endpoint; the
+  ledger stays entirely on this machine.
+
 - Files: configurable **Work folder** (default `C:\Zamolxis`) for user outputs and **Scripts folder**
   (default `C:\bat`) for installed .bat/.ps1 — the agent is instructed to use these instead of the
   Desktop, and the planner bakes them into agent specs. Settings panel + auto-created on boot.

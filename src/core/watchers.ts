@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { logger } from '../logger.js';
-import { pushNotif } from './notifications.js';
+import { pushNotif, setOsNotify, getOsNotify } from './notifications.js';
 import { outlookMailData } from './outlookLocal.js';
 import { checkAllUrls, listWatchedUrls } from './urlwatch.js';
 import { checkWatchedIssues, listWatchedIssues } from './jirawatch.js';
@@ -21,9 +21,10 @@ import { jiraConfigured } from '../tools/jira.js';
 interface OutlookWatch { enabled: boolean; intervalMin: number }
 interface UrlWatch { enabled: boolean; intervalMin: number }
 interface JiraTasksWatch { enabled: boolean; intervalMin: number }
-interface WatchConfig { outlookUnread?: OutlookWatch; urlHealth?: UrlWatch; jiraTasks?: JiraTasksWatch }
+interface OsNotifyCfg { enabled: boolean }
+interface WatchConfig { outlookUnread?: OutlookWatch; urlHealth?: UrlWatch; jiraTasks?: JiraTasksWatch; osNotify?: OsNotifyCfg }
 
-type Watchers = { outlookUnread: OutlookWatch; urlHealth: UrlWatch; jiraTasks: JiraTasksWatch };
+type Watchers = { outlookUnread: OutlookWatch; urlHealth: UrlWatch; jiraTasks: JiraTasksWatch; osNotify: OsNotifyCfg };
 
 let cfgFile = '';
 const timers: NodeJS.Timeout[] = [];
@@ -42,6 +43,8 @@ export function getWatchers(): Watchers {
     outlookUnread: c.outlookUnread || { enabled: false, intervalMin: 5 },
     urlHealth: c.urlHealth || { enabled: true, intervalMin: 60 },
     jiraTasks: c.jiraTasks || { enabled: true, intervalMin: 10 },
+    // Native OS notifications for every alert — on by default (ZAMOLXIS_OS_NOTIFICATIONS=0 flips the default).
+    osNotify: c.osNotify || { enabled: getOsNotify() },
   };
 }
 export function setWatchers(patch: WatchConfig): Watchers {
@@ -49,7 +52,9 @@ export function setWatchers(patch: WatchConfig): Watchers {
   if (patch.outlookUnread) c.outlookUnread = { enabled: !!patch.outlookUnread.enabled, intervalMin: clampMin(patch.outlookUnread.intervalMin, 5, 120) };
   if (patch.urlHealth) c.urlHealth = { enabled: !!patch.urlHealth.enabled, intervalMin: clampMin(patch.urlHealth.intervalMin, 60) };
   if (patch.jiraTasks) c.jiraTasks = { enabled: !!patch.jiraTasks.enabled, intervalMin: clampMin(patch.jiraTasks.intervalMin, 10) };
+  if (patch.osNotify) c.osNotify = { enabled: !!patch.osNotify.enabled };
   try { fs.writeFileSync(cfgFile, JSON.stringify(c, null, 2)); } catch (e) { logger.warn({ err: String(e) }, 'watchers config write failed'); }
+  setOsNotify(getWatchers().osNotify.enabled); // keep the live notifier in sync
   primed = false; // re-baseline on config change so we don't alert the backlog
   schedule();
   return getWatchers();
@@ -120,5 +125,6 @@ function schedule(): void {
 
 export function initWatchers(dataDir: string): void {
   cfgFile = path.join(dataDir, 'watchers.json');
+  setOsNotify(getWatchers().osNotify.enabled); // apply the saved host-OS-notification preference
   schedule();
 }

@@ -1,9 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { tool, type SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
+import { tool as sdkTool, type SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
 import type { UsageTracker } from '../core/usage.js';
+import { compressToolResult } from '../core/toolOutput.js';
 import { logger } from '../logger.js';
+
+// TokenJuice: cap oversized tool output before the model sees it (see tools/index.ts).
+const tool = ((name: string, description: string, inputSchema: unknown, handler: (...a: unknown[]) => unknown) =>
+  sdkTool(name as never, description as never, inputSchema as never, (async (...a: unknown[]) =>
+    compressToolResult(name, await handler(...a))) as never)) as unknown as typeof sdkTool;
 
 /** OpenAI-compatible usage block (chat completions + images all return this shape). */
 interface ApiUsage {

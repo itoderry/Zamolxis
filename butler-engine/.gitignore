@@ -1,0 +1,8 @@
+# Build artifacts — the shipped binaries live in ../bin (butler-core.exe, butler-scan.exe).
+app.res
+*.obj
+Butler.exe
+butler-core.exe
+butler-scan.exe
+# NuGet-restored WebView2 SDK (restore locally; see README).
+packages/

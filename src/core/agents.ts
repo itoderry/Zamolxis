@@ -40,6 +40,12 @@ export interface AgentDef {
   compiledAt?: number;
   /** Stopped by the user: schedules suspended and manual/scheduled runs refused until resumed. */
   stopped?: boolean;
+  /** A shipped pre-made agent (seeded by Zamolxis). Pre-made agents can be Hidden, not Deleted
+   *  (they would just re-seed); user-created agents can be both hidden and deleted. */
+  premade?: boolean;
+  /** Hidden by the user: removed from the desktop + app list (and its schedules dropped). Kept in
+   *  the store so it can be un-hidden from Settings. */
+  hidden?: boolean;
   /** Open agent: created WITHOUT fixed instructions — Run prompts for a task each time.
    *  Dedicated agents (open=false/undefined) Run their standing job with no prompt. */
   open?: boolean;
@@ -120,6 +126,7 @@ export class AgentStore {
     createdBy?: 'user' | 'agent';
     help?: string;
     guide?: string;
+    premade?: boolean;
   }): string {
     const name = slug(input.name);
     if (!name) throw new Error('invalid agent name');
@@ -139,6 +146,7 @@ export class AgentStore {
       createdAt: existing?.createdAt ?? Date.now(),
       help: input.help ?? existing?.help,
       guide: input.guide ?? existing?.guide,
+      premade: typeof input.premade === 'boolean' ? input.premade : existing?.premade,
     };
     if (existing) Object.assign(existing, def);
     else this.agents.push(def);
@@ -235,6 +243,27 @@ export class AgentStore {
     a.stopped = stopped;
     this.persist();
     logger.info({ name: a.name, stopped }, stopped ? 'agent stopped' : 'agent resumed');
+    return a;
+  }
+
+  /** Hide (or un-hide) an agent: removed from the desktop/app list but kept in the store. Returns
+   *  the stored def, or undefined if not found. */
+  setHidden(name: string, hidden: boolean): AgentDef | undefined {
+    const a = this.get(name);
+    if (!a) return undefined;
+    a.hidden = hidden;
+    this.persist();
+    logger.info({ name: a.name, hidden }, hidden ? 'agent hidden' : 'agent un-hidden');
+    return a;
+  }
+
+  /** Tag an agent as a shipped pre-made one (so the UI offers Hide instead of Delete). */
+  setPremade(name: string, premade = true): AgentDef | undefined {
+    const a = this.get(name);
+    if (!a) return undefined;
+    if (a.premade === premade) return a;
+    a.premade = premade;
+    this.persist();
     return a;
   }
 

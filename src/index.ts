@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { loadConfig, applyPersistedSettings, type ZamolxisConfig } from './config.js';
 import { logger } from './logger.js';
+import { setToolOutputCap } from './core/toolOutput.js';
 import { checkAuth, oauthExpiry } from './core/auth.js';
 import { SessionStore } from './core/session.js';
 import { AgentStore } from './core/agents.js';
@@ -24,6 +25,10 @@ import { MemoryManager } from './core/memory.js';
 import { SessionIndex } from './core/sessionIndex.js';
 import { TabsManager } from './core/tabs.js';
 import { UsageTracker } from './core/usage.js';
+import { RunHistory } from './core/runHistory.js';
+import { TriggerStore, TriggerWatcher } from './core/triggers.js';
+import { pushNotif } from './core/notifications.js';
+import { loadExternalMcpServers } from './core/externalMcp.js';
 import { initProviders } from './core/providers.js';
 import { initClaudeModels } from './core/claudeModels.js';
 import { initLocalApps } from './core/localApps.js';
@@ -34,6 +39,7 @@ import { initJiraWatch } from './core/jirawatch.js';
 import { PREMADE_AGENTS } from './core/premadeAgents.js';
 import { AgentPages } from './core/agentPages.js';
 import { BanStore, isSmartestModel } from './core/bans.js';
+import { PermissionStore } from './core/permissions.js';
 import { configuredProviders } from './core/providers.js';
 import { buildToolServers } from './tools/index.js';
 
@@ -88,6 +94,7 @@ async function main(): Promise<void> {
   process.on('uncaughtException', (err) => logger.error({ err: String(err) }, 'uncaughtException'));
 
   const config = loadConfig();
+  setToolOutputCap(config.toolOutputCap ?? 12000); // TokenJuice: sync tool-output cap from config
   if (process.argv.includes('--doctor') || process.argv.includes('--check')) doctor(config);
   initProviders(config.dataDir); // free-cloud provider rotation: daily usage tracking
   initClaudeModels(config.dataDir); // live Claude model list from the API (cached; falls back offline)
@@ -139,12 +146,16 @@ async function main(): Promise<void> {
   // Sonnet, which is plenty for routine watch/triage work and a fraction of the token cost. New
   // agents are seeded PAUSED so a fresh install doesn't quietly burn the model budget — the user
   // turns on the ones they actually want from the Sub-agents panel.
-  const TOP_TIER = new Set(['research-analyst', 'pr-reviewer']);
+  const TOP_TIER = new Set(['research-analyst', 'pr-reviewer', 'desktop-automation']);
   for (const pre of PREMADE_AGENTS) {
     try {
-      if (agentStore.get(pre.name)) continue;
-      agentStore.upsert({ name: pre.name, label: pre.label, job: pre.job, tools: pre.tools, model: TOP_TIER.has(pre.name) ? 'claude' : 'sonnet', canElevate: true, open: pre.open, createdBy: 'user', help: pre.help, guide: pre.guide });
+      // Already present: just make sure it is tagged as pre-made (idempotent; tags installs seeded
+      // before the flag existed) so the UI offers Hide instead of Delete for it.
+      if (agentStore.get(pre.name)) { agentStore.setPremade(pre.name, true); continue; }
+      agentStore.upsert({ name: pre.name, label: pre.label, job: pre.job, tools: pre.tools, model: TOP_TIER.has(pre.name) ? 'claude' : 'sonnet', canElevate: true, open: pre.open, createdBy: 'user', help: pre.help, guide: pre.guide, premade: true });
       agentStore.setStopped(pre.name, true);
+      // Agents with their own page (John the Butler's duties dashboard) seed with Web-page delivery on.
+      if (pre.webPage) agentStore.setDeliver(pre.name, { chat: true, web: true });
       if (pre.cron && scheduler.countByAgent(pre.name) === 0) {
         scheduler.add({ name: `agent:${pre.name}`, agent: pre.name, prompt: '', cron: pre.cron, channel: 'agent', chatId: pre.name, conversationKey: `agent:${pre.name}` });
         scheduler.setAgentEnabled(pre.name, false); // seeded paused: schedule defined but disarmed
@@ -165,7 +176,7 @@ async function main(): Promise<void> {
     const pathmod = await import('node:path');
     const usageMarker = pathmod.join(config.dataDir, '.premade-usage-v1');
     if (!fsmod.existsSync(usageMarker)) {
-      const keepTopTier = new Set(['research-analyst', 'pr-reviewer']);
+      const keepTopTier = new Set(['research-analyst', 'pr-reviewer', 'desktop-automation']);
       const recadence: Record<string, string> = { 'jira-watcher': '0 8-17 * * 1-5', 'meeting-prep': '0 */3 * * 1-5' };
       for (const pre of PREMADE_AGENTS) {
         const a = agentStore.get(pre.name);
@@ -182,6 +193,16 @@ async function main(): Promise<void> {
       fsmod.writeFileSync(usageMarker, new Date().toISOString());
       logger.info('one-time pre-made agent usage clamp applied (Sonnet tier + paused)');
     }
+    // One-time refresh: Desktop Automation's job/help/guide now bind it explicitly to the Laws
+    // (Prime Directives). upsert preserves the user-controllable bits (model, paused state, schedule).
+    const lawsMarker = pathmod.join(config.dataDir, '.premade-laws-v1');
+    if (!fsmod.existsSync(lawsMarker)) {
+      for (const pre of PREMADE_AGENTS.filter((p) => p.name === 'desktop-automation')) {
+        if (!agentStore.get(pre.name)) continue;
+        agentStore.upsert({ name: pre.name, label: pre.label, job: pre.job, tools: pre.tools, help: pre.help, guide: pre.guide });
+      }
+      fsmod.writeFileSync(lawsMarker, new Date().toISOString());
+    }
   } catch (err) {
     logger.warn({ err: String(err) }, 'usage-clamp migration skipped');
   }
@@ -189,8 +210,16 @@ async function main(): Promise<void> {
   const bans = new BanStore(config.dataDir);
   // Per-agent published "last result" pages, served at /<agent-name> when web delivery is on.
   const agentPages = new AgentPages(config.dataDir);
+  // Rolling ledger of finished agent runs (cost, duration, outcome) for the observability dashboard.
+  const runs = new RunHistory(config.dataDir);
+  // Remembered tool-permission grants (per chat / skill / agent) for the interactive posture.
+  const permissions = new PermissionStore(config.dataDir);
   const engine = new Engine({
-    config, sessions, throttle, memory, sessionIndex, usage, skills, agentStore, bans, pages: agentPages, onAgentMessage: pushAgentMsg,
+    config, sessions, throttle, memory, sessionIndex, usage, skills, agentStore, bans, pages: agentPages, runs, permissions,
+    // External MCP servers the user wired up in <dataDir>/mcp.json (merged alongside the built-in
+    // `zamolxis` server at query time); lets agents like Desktop Automation reach extra toolsets.
+    mcpServers: loadExternalMcpServers(config.dataDir),
+    onAgentMessage: pushAgentMsg,
     scheduleAgent: (name, cron, task) => void scheduler.add({ name: `agent:${name}`, agent: name, prompt: task || '', cron, channel: 'agent', chatId: name, conversationKey: `agent:${name}` }),
     countAgentSchedules: (name) => scheduler.countByAgent(name),
     setAgentSchedulesEnabled: (name, enabled) => scheduler.setAgentEnabled(name, enabled),
@@ -223,14 +252,18 @@ async function main(): Promise<void> {
     logger.info({ sandbox: sandbox.listConfigured(), default: sandbox.defaultBackend }, 'sandbox ready');
 
     const factories: Array<[boolean, () => Channel]> = [
-      [config.channels.cli, () => new CliChannel()],
+      [config.channels.cli, () => {
+        const cli = new CliChannel();
+        engine.registerPermissionPrompter('cli', (ask) => cli.promptPermission(ask));
+        return cli;
+      }],
       [config.channels.telegram, () => new TelegramChannel()],
       [config.channels.discord, () => new DiscordChannel()],
       [config.channels.slack, () => new SlackChannel()],
       [config.channels.whatsapp, () => new WhatsAppChannel(config.dataDir)],
       [config.channels.signal, () => new SignalChannel()],
       [config.channels.email, () => new EmailChannel()],
-      [config.channels.web, () => new WebChannel(config, settings, reload, (key) => sessions.purge(key), tabs, usage, skills, memory, agentStore, (n, t, force) => engine.runAgent(n, t, { force }).then((r) => ({ reply: r.reply, via: r.via, isError: r.isError })), agentMsgs,
+      [config.channels.web, () => { const web = new WebChannel(config, settings, reload, (key) => sessions.purge(key), tabs, usage, skills, memory, agentStore, (n, t, force) => engine.runAgent(n, t, { force }).then((r) => ({ reply: r.reply, via: r.via, isError: r.isError })), agentMsgs,
         (name, cron, task) => scheduler.add({ name: `agent:${name}`, agent: name, prompt: task || '', cron, channel: 'agent', chatId: name, conversationKey: `agent:${name}` }),
         () => scheduler.list().filter((j) => j.agent).map((j) => ({ id: j.id, agent: j.agent, cron: j.cron, at: j.at, prompt: j.prompt })),
         (id) => scheduler.cancel(id),
@@ -249,7 +282,17 @@ async function main(): Promise<void> {
         () => manager.connectedChannels(),
         (name) => manager.channelMessages(name),
         (name, chatId, text) => manager.sendToChannel(name, chatId, text),
-        agentPages)],
+        agentPages,
+        (text, conversationKey) => engine.run({ conversationKey, text }).then((r) => ({ reply: r.reply, isError: r.isError })),
+        {
+          list: () => permissions.list(),
+          revoke: (scope: string, tool: string) => permissions.revoke(scope, tool),
+          clearScope: (scope: string) => permissions.clearScope(scope),
+        },
+        (agent, reply, via) => scheduler.deliverToChannels(agent, reply, via));
+        engine.registerPermissionPrompter('web', (ask) => web.promptPermission(ask));
+        return web;
+      }],
     ];
     for (const [enabled, make] of factories) {
       if (!enabled) continue;
@@ -287,6 +330,18 @@ async function main(): Promise<void> {
   scheduler.start();
   engine.applyAgentStartupPolicy(); // pause agents per the restore setting / per-agent autostart
   tabs.start();
+  // Event-driven triggers: fire an agent when a file lands or a resource threshold is crossed -
+  // the reactive counterpart to the scheduler's clock. Reloads triggers.json on the fly so the
+  // web UI can add/toggle triggers without a restart. The reply goes back through the agent
+  // message bus, the same path an agent-scheduled job uses.
+  const triggerStore = new TriggerStore(config.dataDir);
+  const triggerWatcher = new TriggerWatcher(triggerStore, {
+    runAgent: (name, task) => engine.runAgent(name, task, { force: true, origin: 'event' }).then((r) => ({ reply: r.reply, via: r.via, isError: r.isError })),
+    deliver: async (agent, reply, via) => { await engine.sendAgentMessage(agent, 'user', reply, via); },
+    isRunnable: (name) => engine.isAgentRunnable(name),
+    notify: (title, body, kind) => void pushNotif(title, body, kind),
+  });
+  triggerWatcher.start();
   logger.info('Zamolxis up');
 
   // Keep-alive heartbeat: guarantees the event loop stays alive even with no
@@ -298,6 +353,7 @@ async function main(): Promise<void> {
     logger.info({ sig }, 'shutting down');
     clearInterval(heartbeat);
     scheduler.stop();
+    triggerWatcher.stop();
     tabs.stop();
     sessionIndex.close();
     await manager.stopAll();

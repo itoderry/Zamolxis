@@ -4,3 +4,10 @@ dist/
 *.log
 # local runtime data (default lives in ~/.zamolxis, but ignore any in-repo copy)
 .zamolxis/
+# John the Butler: the native maintenance-engine binaries are built locally from
+# butler-engine/ into bin/ (see butler-engine/README.md), not committed to keep the repo lean.
+bin/butler-core.exe
+bin/butler-scan.exe
+# stray run logs from local starts
+.run-out.log
+.run-err.log
