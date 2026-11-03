@@ -2,7 +2,7 @@
   "name": "zamolxis",
   "version": "0.4.0",
   "private": true,
-  "description": "Zamolxis - self-hosted, multi-channel autonomous agent on the Claude Agent SDK (subscription-funded). An autonomous personal agent.",
+  "description": "Self-hosted personal AI agent on your Claude subscription: a desktop-style web UI, voice, Telegram/Discord/Slack/WhatsApp/Signal/email, Claude Code delegation, scheduled agents, and routing to free and local models.",
   "type": "module",
   "engines": {
     "node": ">=20"
