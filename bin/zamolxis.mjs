@@ -22,6 +22,15 @@ import os from 'node:os';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
+let startArgs = process.argv.slice(3);
+// Started by the \Zamolxis\Launch task (see startViaTask): take over the caller's ZAMOLXIS_* variables.
+const fromTask = startArgs.indexOf('--from-task');
+if (fromTask >= 0) {
+  try { Object.assign(process.env, JSON.parse(fs.readFileSync(startArgs[fromTask + 1], 'utf8'))); } catch {}
+  process.env.ZAMOLXIS_LAUNCHED_BY_TASK = '1';
+  startArgs = startArgs.filter((_, i) => i !== fromTask && i !== fromTask + 1);
+}
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const entry = path.join(root, 'dist', 'index.js');
 const dataDir = process.env.ZAMOLXIS_DATA_DIR || path.join(os.homedir(), '.zamolxis');
@@ -98,6 +107,60 @@ function runForeground(extra) {
   child.on('exit', (code) => process.exit(code ?? 0));
 }
 
+// Run a PowerShell script without any quoting trouble (-EncodedCommand takes UTF-16LE base64).
+function powershell(script, timeout = 60000) {
+  const enc = Buffer.from(script, 'utf16le').toString('base64');
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', enc], { encoding: 'utf8', windowsHide: true, timeout });
+  return { ok: r.status === 0, out: String(r.stdout || '').trim(), err: String(r.stderr || '').trim() };
+}
+const psq = (s) => `'${String(s).replace(/'/g, "''")}'`;
+
+// Are this process's AppData writes redirected into an app package's cache? That happens when it
+// was started from a tool of the Claude desktop app (an MSIX package): it and every child see
+// AppData merged with %LOCALAPPDATA%\Packages\<app>\LocalCache, and what they write lands there,
+// invisible to anything the user or Windows starts. The package identity APIs report no package
+// for these processes, so this checks the effect: a probe file that shows up in a package cache.
+function appDataRedirected() {
+  if (process.platform !== 'win32' || process.env.ZAMOLXIS_LAUNCHED_BY_TASK || !process.env.LOCALAPPDATA) return false;
+  const la = process.env.LOCALAPPDATA;
+  const name = `.zamolxis-probe-${process.pid}`;
+  const probe = path.join(la, 'Zamolxis', name);
+  try {
+    fs.mkdirSync(path.dirname(probe), { recursive: true });
+    fs.writeFileSync(probe, '');
+    return fs.readdirSync(path.join(la, 'Packages')).some((p) => fs.existsSync(path.join(la, 'Packages', p, 'LocalCache', 'Local', 'Zamolxis', name)));
+  } catch {
+    return false;
+  } finally {
+    try { fs.unlinkSync(probe); } catch {}
+  }
+}
+
+// Start through Task Scheduler (task \Zamolxis\Launch, no trigger, reused), so the daemon runs
+// outside the package with the user's real AppData. ZAMOLXIS_* variables travel in a file in the
+// install folder (not in TEMP, which is under the redirected AppData). Returns false when the task
+// could not run (the caller then starts it directly).
+function startViaTask(extra) {
+  const envFile = path.join(root, `.launch-env-${process.pid}.json`);
+  fs.writeFileSync(envFile, JSON.stringify(Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('ZAMOLXIS_')))));
+  const args = [path.join(root, 'bin', 'zamolxis.mjs'), 'start', '--from-task', envFile, ...extra].map((a) => `"${a}"`).join(' ');
+  const old = readPid();
+  const r = powershell(
+    `$a = New-ScheduledTaskAction -Execute ${psq(process.execPath)} -Argument ${psq(args)} -WorkingDirectory ${psq(root)}\n` +
+      `$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 5)\n` +
+      `Register-ScheduledTask -TaskPath '\\Zamolxis\\' -TaskName 'Launch' -Action $a -Settings $s -Description 'Starts Zamolxis outside the Claude app package (no trigger; run by zamolxis start/restart).' -Force | Out-Null\n` +
+      `Start-ScheduledTask -TaskPath '\\Zamolxis\\' -TaskName 'Launch'\n` +
+      `$pf = ${psq(pidFile)}\n` +
+      `for ($i = 0; $i -lt 60; $i++) { Start-Sleep -Milliseconds 500; if ((Test-Path $pf) -and ((Get-Content $pf -Raw).Trim() -ne ${psq(String(old || ''))})) { (Get-Content $pf -Raw).Trim(); exit 0 } }\n` +
+      `exit 3`,
+    60000,
+  );
+  try { fs.unlinkSync(envFile); } catch {}
+  if (!r.ok) return false;
+  console.log(`Zamolxis started outside the Claude app package (pid ${r.out}).\n  logs: ${logFile}`);
+  return true;
+}
+
 function start(extra) {
   const port = webPort();
   const existing = readPid();
@@ -109,6 +172,10 @@ function start(extra) {
   // Clear any stale/zombie instance still holding the port so the new process can bind.
   freePort(port);
   ensureBuilt();
+  if (appDataRedirected()) {
+    if (startViaTask(extra)) return;
+    console.log('Could not start through Task Scheduler; starting here (inside the Claude app package).');
+  }
   fs.mkdirSync(logDir, { recursive: true });
   const out = fs.openSync(logFile, 'a');
   const args = ['--enable-source-maps', entry, ...(extra.length ? extra : ['--web'])];
@@ -618,7 +685,7 @@ async function listAgentTasksCmd() {
 }
 
 const cmd = process.argv[2];
-const extra = process.argv.slice(3);
+const extra = startArgs;
 switch (cmd) {
   case 'run-agent':
     await runAgentCmd(extra[0]);
