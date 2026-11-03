@@ -2,6 +2,14 @@
 
 ## Unreleased (0.3.x)
 
+- **Voice: no more "speech recognition is falling behind".** When large-v3 did not fit on the GPU
+  (Claude Voice or another program holding the VRAM), whisper-server fell back to large-v3 on the
+  CPU, about 45 s per clip, so utterances queued up past the limit; and it stayed on the CPU until
+  Zamolxis restarted, even after the GPU was free. Now a lighter installed model (base) runs on the
+  GPU instead (about 1 s per clip), large-v3 is tried on the GPU again after 10 minutes during a
+  pause and after every idle unload, and CPU is the last resort. Device -> CPU only still runs the
+  chosen model on CPU. An unexpected whisper-server exit is logged with its exit code and the last
+  error lines. Measured: large-v3 on the GPU 1.9 s per clip warm (6.8 s including the load).
 - **Voice: raw audio from the same microphone as Claude Voice, plus recent recordings.** Capture
   asked the browser for echo cancellation, noise suppression and auto-gain, which are tuned for
   calls and garble speech for Whisper, and always used the browser's default input (on a PC with

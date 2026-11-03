@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { logger } from '../../logger.js';
 import {
-  claudeVoicePaths, voiceStateDir, whisperModelPath, whisperRuntimeOptions, whisperRuntimeSources,
+  claudeVoicePaths, listWhisperModels, voiceStateDir, whisperModelPath, whisperRuntimeOptions, whisperRuntimeSources,
   WHISPER_URL, WHISPER_ZIP, type VoiceSettings,
 } from './claudeVoiceConfig.js';
 import { describe as describeRuntime, formatBytes, freeBytes, runtimeDir, runtimeInfo, runtimeSetupRunning, setupRuntime, type SetupResult } from './whisperRuntime.js';
@@ -17,8 +17,10 @@ import { describe as describeRuntime, formatBytes, freeBytes, runtimeDir, runtim
  * (local Whisper)" speech engine. One instance is shared by every window:
  *  - started lazily on the first transcription, bound to 127.0.0.1 on a free port;
  *  - stopped after `idleMinutes` without a request, which frees the model's VRAM;
- *  - when the GPU load fails (e.g. Claude Voice already holds the VRAM) it says so and retries once
- *    on CPU (-ng); a server that crashes mid-request on the GPU is restarted on CPU the same way;
+ *  - when the full model does not fit on the GPU (e.g. Claude Voice already holds the VRAM), a
+ *    lighter model runs on the GPU instead (large-v3 on CPU is ~45 s per clip, so dictation fell
+ *    behind); the full model is tried again in a quiet moment, then CPU is the last resort. A
+ *    server that crashes mid-request on the GPU falls back the same way;
  *  - restarted on the next request when the model or the start flags changed.
  * The binaries live in one runtime folder shared by every data dir (whisperRuntime.ts): the server
  * exe from Claude Voice's release zip, its DLLs hard-linked to Claude Voice's install (no extra disk),
@@ -33,6 +35,18 @@ const LANG_CODES: Record<string, string> = {
   english: 'en', romanian: 'ro', french: 'fr', german: 'de', spanish: 'es', italian: 'it', portuguese: 'pt',
   dutch: 'nl', polish: 'pl', ukrainian: 'uk', russian: 'ru', japanese: 'ja', chinese: 'zh', hindi: 'hi',
 };
+
+/** After the full model failed on the GPU, try it there again after this long (during a pause). */
+const GPU_RETRY_MS = 10 * 60_000;
+
+/** Fast, small fallbacks, best first. Only offered when the configured model is not one of them. */
+const LIGHT_MODELS = ['base', 'base.en', 'small', 'small.en', 'tiny', 'tiny.en'];
+/** An installed model lighter than `model` to run when `model` does not fit (undefined: none). */
+export function lighterModel(model: string): string | undefined {
+  if (LIGHT_MODELS.includes(model)) return undefined;
+  const have = listWhisperModels();
+  return LIGHT_MODELS.find((m) => have.includes(m));
+}
 
 const instances = new Set<WhisperServer>();
 /** Stop every whisper-server this process started (shutdown path). */
@@ -65,8 +79,12 @@ export class WhisperServer {
   private stderrTail: string[] = [];
   private starting: Promise<void> | null = null;
   private queue: Promise<unknown> = Promise.resolve();
-  /** Start signature whose GPU load failed: stay on CPU for it until the settings change. */
+  /** Start signature whose full model last failed on the GPU (e.g. another program, such as Claude
+   *  Voice, holds the VRAM), and when. A lighter model then runs on the GPU instead of the full
+   *  model on the CPU (~45 s per clip for large-v3, so dictation fell behind); the full model is
+   *  tried again after GPU_RETRY_MS, on an idle unload, or when the settings change. */
   private gpuFailedSig = '';
+  private gpuFailedAt = 0;
   private preparing: Promise<SetupResult> | null = null;
   private prepareMsg = '';
   private prepareNeedsSpace = false;
@@ -177,11 +195,23 @@ export class WhisperServer {
 
   private checkIdle(): void {
     if (this.state !== 'running' || !this.child) return;
-    const idleMs = this.settings().idleMinutes * 60_000;
+    const s = this.settings();
+    const idleMs = s.idleMinutes * 60_000;
     if (this.busy === 0 && Date.now() - this.lastUsed > idleMs) {
-      logger.info({ idleMinutes: this.settings().idleMinutes }, 'voice: whisper-server idle, stopping to free memory');
-      this.note = `unloaded after ${this.settings().idleMinutes} idle minutes`;
+      logger.info({ idleMinutes: s.idleMinutes }, 'voice: whisper-server idle, stopping to free memory');
+      this.note = `unloaded after ${s.idleMinutes} idle minutes`;
       this.stop('idle');
+      this.gpuFailedSig = ''; // the next start tries the full model on the GPU again
+      return;
+    }
+    // Running a lighter model (or on CPU) because the GPU was full: during a quiet moment, try the
+    // full model on the GPU again (another program may have freed the VRAM).
+    const degraded = this.model !== s.model || (this.device === 'cpu' && s.device !== 'cpu' && !runtimeInfo().cpuOnly);
+    if (degraded && !this.starting && this.busy === 0 && Date.now() - this.lastUsed > 20_000 && Date.now() - this.gpuFailedAt > GPU_RETRY_MS) {
+      logger.info({ running: this.model, wanted: s.model, device: this.device }, 'voice: trying the full whisper model on the GPU again');
+      this.gpuFailedSig = '';
+      this.stop('restart');
+      this.ensure().catch(() => undefined);
     }
   }
 
@@ -232,17 +262,40 @@ export class WhisperServer {
       await this.killStale();
       const model = whisperModelPath(s.model);
       if (!fs.existsSync(model)) throw new Error(`whisper model not found: ${model}`);
-      const wantGpu = s.device !== 'cpu' && this.gpuFailedSig !== sig && !runtimeInfo().cpuOnly;
-      try {
-        await this.launch(s, sig, !wantGpu);
-      } catch (err) {
-        if (!wantGpu) throw err;
-        const why = String((err as Error).message || err);
-        logger.warn({ err: why }, 'voice: whisper-server failed to load on the GPU, retrying on CPU');
-        this.gpuFailedSig = sig;
-        this.note = `GPU load failed (${why.slice(0, 200)}); running on CPU`;
-        await this.launch(s, sig, true);
+      const gpuOk = s.device !== 'cpu' && !runtimeInfo().cpuOnly;
+      const fullFailedRecently = this.gpuFailedSig === sig && Date.now() - this.gpuFailedAt < GPU_RETRY_MS;
+      const light = lighterModel(s.model);
+      // Order: full model on the GPU; when that does not fit, a lighter model on the GPU (fast, a
+      // little less accurate), then the lighter model on CPU, and the full model on CPU last.
+      // A user who set Device -> CPU only keeps the chosen model on CPU (their choice); a CPU-only
+      // runtime (no CUDA files) prefers the lighter model, which keeps up on a CPU.
+      const plan: Array<{ model: string; cpu: boolean }> = [];
+      if (s.device === 'cpu') plan.push({ model: s.model, cpu: true });
+      else {
+        if (gpuOk && !fullFailedRecently) plan.push({ model: s.model, cpu: false });
+        if (gpuOk && light) plan.push({ model: light, cpu: false });
+        if (light) plan.push({ model: light, cpu: true });
+        plan.push({ model: s.model, cpu: true });
       }
+      let lastErr: unknown;
+      for (const step of plan) {
+        try {
+          await this.launch(s, sig, step.cpu, step.model);
+          if (step.model !== s.model || step.cpu !== !gpuOk) {
+            this.note = `${s.model} ${gpuOk ? 'did not fit on the GPU (another program may be using it)' : 'is set to CPU'}; running ${step.model} on ${step.cpu ? 'CPU' : 'the GPU'} for now${gpuOk ? `, ${s.model} is tried again in a quiet moment` : ''}`;
+          } else this.note = '';
+          return;
+        } catch (err) {
+          lastErr = err;
+          const why = String((err as Error).message || err);
+          if (step.model === s.model && !step.cpu) {
+            this.gpuFailedSig = sig;
+            this.gpuFailedAt = Date.now();
+          }
+          logger.warn({ model: step.model, cpu: step.cpu, err: why.slice(0, 300) }, 'voice: whisper-server failed to load, trying the next option');
+        }
+      }
+      throw lastErr;
     })();
     try {
       await this.starting;
@@ -255,14 +308,14 @@ export class WhisperServer {
     }
   }
 
-  private async launch(s: VoiceSettings, sig: string, cpu: boolean): Promise<void> {
+  private async launch(s: VoiceSettings, sig: string, cpu: boolean, modelName = s.model): Promise<void> {
     const exe = runtimeInfo().exe;
     if (!exe) throw new Error('whisper-server runtime is not set up');
     const o = whisperRuntimeOptions(s);
     const p = claudeVoicePaths();
     const port = await freePort();
     const threads = Math.max(2, Math.min(8, os.cpus().length - 2));
-    const args = ['-m', whisperModelPath(s.model), '--host', '127.0.0.1', '--port', String(port), '-t', String(threads),
+    const args = ['-m', whisperModelPath(modelName), '--host', '127.0.0.1', '--port', String(port), '-t', String(threads),
       '-l', 'auto', '-bs', String(o.beamSize), '-nth', String(o.noSpeechThreshold)];
     if (o.prompt) args.push('--prompt', o.prompt);
     // Silero VAD with faster-whisper's vad_filter defaults, as Claude Voice runs it.
@@ -271,9 +324,9 @@ export class WhisperServer {
     this.state = 'starting';
     this.lastError = '';
     this.stderrTail = [];
-    this.model = s.model;
+    this.model = modelName;
     let sawCuda = false;
-    logger.info({ model: s.model, port, cpu }, 'voice: starting whisper-server');
+    logger.info({ model: modelName, port, cpu }, 'voice: starting whisper-server');
     const child = spawn(exe, args, { cwd: path.dirname(exe), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     this.child = child;
     const onLine = (d: Buffer) => {
@@ -291,7 +344,12 @@ export class WhisperServer {
       exited = true;
       if (this.child === child) {
         this.child = null;
-        if (this.state === 'running') { this.state = 'stopped'; this.note = `whisper-server exited (${code})`; }
+        if (this.state === 'running') {
+          this.state = 'stopped';
+          this.note = `whisper-server exited (${code})`;
+          // Not stopped by us: say why, so a restart loop is diagnosable from the log.
+          logger.warn({ code, model: this.model, device: this.device, why: this.failReason().slice(0, 400) }, 'voice: whisper-server exited unexpectedly');
+        }
         this.port = 0;
       }
     });
@@ -320,7 +378,7 @@ export class WhisperServer {
     this.lastUsed = Date.now();
     try { fs.mkdirSync(path.dirname(this.pidFile()), { recursive: true }); fs.writeFileSync(this.pidFile(), JSON.stringify({ pid: child.pid, port })); } catch { /* best effort */ }
     if (!cpu) this.note = '';
-    logger.info({ model: s.model, port, device: this.device, pid: child.pid }, 'voice: whisper-server ready');
+    logger.info({ model: modelName, port, device: this.device, pid: child.pid }, 'voice: whisper-server ready');
   }
 
   private failReason(): string {
@@ -364,10 +422,10 @@ export class WhisperServer {
       const c = this.child;
       if (c && c.exitCode === null) await new Promise<void>((r) => { const t = setTimeout(r, 1500); c.once('exit', () => { clearTimeout(t); r(); }); });
       if (mayRetry && !this.child) {
-        if (this.device !== 'cpu' && s.device !== 'cpu') {
+        if (this.device !== 'cpu' && s.device !== 'cpu' && this.model === s.model) {
           this.gpuFailedSig = this.startSig(s);
-          this.note = `whisper-server crashed on the GPU (${this.failReason().slice(0, 200)}); running on CPU`;
-          logger.warn({ err: String(err) }, 'voice: whisper-server crashed on the GPU, retrying on CPU');
+          this.gpuFailedAt = Date.now();
+          logger.warn({ err: String(err), why: this.failReason().slice(0, 300) }, 'voice: whisper-server crashed on the GPU, using a lighter model');
         }
         return this.transcribeNow(wav, false);
       }
