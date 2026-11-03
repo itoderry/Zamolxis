@@ -2,6 +2,15 @@
 
 ## Unreleased (0.3.x)
 
+- **`zamolxis start` / `restart` launch outside the Claude desktop app's package.** Processes started
+  from a Claude Code tool see AppData merged with the app package's cache and write into it, so files
+  they create (models, configs, endpoint files) were invisible to anything the user or Windows starts.
+  The CLI now checks for that redirection (a probe file that shows up under
+  `%LOCALAPPDATA%\Packages\*\LocalCache`; the package identity APIs report no package for these
+  processes) and, when found, starts the daemon through Task Scheduler (task `\Zamolxis\Launch`, no
+  trigger, re-registered on use), passing the caller's `ZAMOLXIS_*` variables along. The restart and
+  update buttons inherit it, since the daemon itself then runs outside the package. If the task
+  cannot run, it starts directly as before.
 - **Desktop fixed after the speech-service change.** The "Runs on" help text added to Settings ->
   Voice had unescaped apostrophes in a single-quoted string, so `webui/desktop.js` failed to parse
   and the desktop came up empty (no icons, no chat). The string is fixed, and `npm run build` now

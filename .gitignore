@@ -11,3 +11,4 @@ bin/butler-scan.exe
 # stray run logs from local starts
 .run-out.log
 .run-err.log
+.launch-env-*.json
