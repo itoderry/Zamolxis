@@ -1769,6 +1769,11 @@ export class Engine implements CodeHost {
       untrack();
     }
     if (req.turn?.stopped) return { escalate: false, result: this.stoppedResult() };
+    // Say WHY this provider is being left, so the next "handed off" line isn't a mystery.
+    if (r.failed) {
+      const why = !r.status ? 'did not respond' : r.status === 429 ? 'hit its rate limit (HTTP 429)' : r.status === 402 ? 'needs payment (HTTP 402)' : r.status === 401 ? 'rejected the key (HTTP 401)' : `failed (HTTP ${r.status})`;
+      req.turn?.emit({ kind: 'retry', text: `${p.label} ${why}` });
+    }
     if (!r.failed) {
       markProviderOk(p.id);
       recordProviderUse(p.id); // only successful calls count toward the daily quota
