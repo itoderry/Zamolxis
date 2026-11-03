@@ -2,6 +2,12 @@
 
 ## Unreleased (0.3.x)
 
+- **Desktop fixed after the speech-service change.** The "Runs on" help text added to Settings ->
+  Voice had unescaped apostrophes in a single-quoted string, so `webui/desktop.js` failed to parse
+  and the desktop came up empty (no icons, no chat). The string is fixed, and `npm run build` now
+  syntax-checks every script in `webui/` (`scripts/check-webui.mjs`) so a bad quote fails the build
+  instead of the desktop. The synchronous `reg query` that checks whether the speech service is
+  installed is cached for a minute; it ran on every voice status call and every settings snapshot.
 - **Dictation uses the shared speech service.** Claude Voice now ships `SpeechService.exe`, one whisper
   model on 127.0.0.1 shared by Claude Voice, the meeting listener and Zamolxis. Before, each app loaded
   large-v3 itself, and the last one to start found the GPU full and fell back to a lighter or CPU model.

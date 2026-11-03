@@ -129,11 +129,19 @@ export function claudeVoiceEngineAvailability(): { ok: boolean; reason: string }
   return { ok: true, reason: `${exe ? 'whisper-server ready' : 'whisper-server zip found'}, models: ${models.join(', ')}` };
 }
 
-/** SpeechService.exe registered and present (sync: the endpoint file or the registry's install folder). */
+/** SpeechService.exe registered and present (sync: the endpoint file or the registry's install folder).
+ *  The registry answer is kept for a minute: this runs on every voice status call and every settings
+ *  snapshot, and a synchronous `reg query` blocks the whole server while it runs. */
+let installedCache = { at: 0, value: false };
 function speechServiceInstalled(): boolean {
   if (process.platform !== 'win32') return false;
   const dir = process.env.SPEECHSERVICE_HOME || path.join(localAppDataDir(), 'SpeechService');
   if (fs.existsSync(path.join(dir, 'endpoint.json'))) return true;
+  if (Date.now() - installedCache.at < 60_000) return installedCache.value;
+  installedCache = { at: Date.now(), value: speechServiceRegistered() };
+  return installedCache.value;
+}
+function speechServiceRegistered(): boolean {
   try {
     const out = execFileSync('reg', ['query', 'HKCU\\Software\\SpeechService', '/v', 'InstallDir'], { windowsHide: true, timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
     const m = /InstallDir\s+REG_SZ\s+(.+)/.exec(out);
