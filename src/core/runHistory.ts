@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { TurnReport } from './activity.js';
 
 /** Where a run came from, so the dashboard can tell scheduled work from a manual poke or an event.
  *  'code' / 'cli' are delegated Claude Code runs (SDK runner in a project folder / headless CLI). */
@@ -24,6 +25,8 @@ export interface RunRecord {
   origin: RunOrigin;
   /** First line or two of the reply, so the dashboard can show what happened without the full text. */
   preview: string;
+  /** The turn's finish report (steps capped), when the run went through the engine. */
+  report?: TurnReport;
 }
 
 /** Rolled-up numbers for one agent, computed from its recent runs. */
@@ -39,6 +42,8 @@ export interface AgentRunStats {
 }
 
 const MAX_RECORDS = 1000;
+/** Steps kept per stored report (the ledger stays small). */
+const MAX_REPORT_STEPS = 30;
 
 /** Trim a reply down to a short, single-line preview for the runs list. */
 function toPreview(text: string): string {
@@ -95,6 +100,7 @@ export class RunHistory {
       via: rec.via,
       origin: rec.origin,
       preview,
+      ...(rec.report ? { report: { ...rec.report, steps: rec.report.steps.slice(0, MAX_REPORT_STEPS), ...(rec.report.filesChanged ? { filesChanged: rec.report.filesChanged.slice(0, 50) } : {}) } } : {}),
     };
     this.records.push(row);
     if (this.records.length > MAX_RECORDS) this.records = this.records.slice(-MAX_RECORDS);

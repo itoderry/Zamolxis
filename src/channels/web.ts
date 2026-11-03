@@ -24,6 +24,7 @@ import { agentPrecheck } from '../core/agentPrecheck.js';
 import { readButlerConfig, writeButlerConfig, BUTLER_DUTIES } from '../core/butler.js';
 import { onenoteData, sqlQueryData, browserHistoryData, sqlConnections, sqlAddConnection, sqlRemoveConnection } from '../core/localApps.js';
 import { RunHistory } from '../core/runHistory.js';
+import type { TurnReport } from '../core/activity.js';
 import { TriggerStore, type TriggerType } from '../core/triggers.js';
 import { loadExternalMcpServers } from '../core/externalMcp.js';
 import { haConfigured } from '../tools/homeassistant.js';
@@ -322,7 +323,7 @@ export class WebChannel implements Channel {
     private readonly skills?: SkillsManager,
     private readonly memory?: MemoryManager,
     private readonly agentStore?: AgentStore,
-    private readonly runAgent?: (name: string, task?: string, force?: boolean) => Promise<{ reply: string; via?: string; isError?: boolean }>,
+    private readonly runAgent?: (name: string, task?: string, force?: boolean) => Promise<{ reply: string; via?: string; isError?: boolean; report?: TurnReport }>,
     /** Live agent-message log (agent->agent and agent->user), polled by the Agents chat. */
     private readonly agentMsgs?: Array<{ from: string; to: string; text: string; ts: number; via?: string }>,
     /** Schedule a named agent on a cron expression (deterministic — does not rely on the model). */
@@ -375,6 +376,8 @@ export class WebChannel implements Channel {
     /** Send an agent's reply to its configured channels (chat/Slack) — used for headless
      *  CLI / Windows-task runs so they deliver like a scheduled run. */
     private readonly deliverAgentResult?: (agent: string, reply: string, via?: string) => Promise<void>,
+    /** Stop the running turn(s) of a conversation (an agent chat's Stop). */
+    private readonly cancelTurn?: (conversationKey: string) => boolean,
   ) {
     const { bind, authToken } = config.web;
     if (!LOOPBACK.includes(bind) && !authToken) {
@@ -1949,7 +1952,12 @@ $out | ConvertTo-Json -Compress`, 40000));
               // When triggered headlessly (CLI / Windows Task Scheduler), send the reply to the
               // agent's configured channels (chat feed + Slack) just like a scheduled run would.
               if (o.deliver && this.deliverAgentResult) await this.deliverAgentResult(name, r.reply, r.via);
-              return this.json(res, 200, { ok: !r.isError, error: r.isError ? r.reply : undefined, reply: r.reply, via: r.via, scheduled, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
+              return this.json(res, 200, { ok: !r.isError, error: r.isError ? r.reply : undefined, reply: r.reply, via: r.via, report: r.report, scheduled, schedules: this.listAgentSchedules ? this.listAgentSchedules() : [] });
+            }
+            // Stop the agent's running turn (its chat's Stop) without stopping the agent itself.
+            if (action === 'cancel') {
+              if (!this.cancelTurn) return this.json(res, 400, { error: 'cannot cancel here' });
+              return this.json(res, 200, { ok: true, cancelled: this.cancelTurn(`agent:${String(o.name || '')}`) });
             }
             if (action === 'schedule') {
               if (!this.scheduleAgent) return this.json(res, 400, { error: 'scheduling unavailable' });
@@ -2273,6 +2281,8 @@ $out | ConvertTo-Json -Compress`, 40000));
     const chatId = url.searchParams.get('cid') || randomUUID();
     this.sockets.set(chatId, ws);
     this.safeSend(ws, { type: 'status', text: 'connected' });
+    // This socket's running turns, so a {cancel:true} message can stop them.
+    const running = new Set<AbortController>();
 
     ws.on('message', async (data) => {
       let text: unknown;
@@ -2286,6 +2296,11 @@ $out | ConvertTo-Json -Compress`, 40000));
           const resolver = this.pendingPerms.get(parsed.permission_id);
           const d = parsed.decision;
           if (resolver) resolver(d === 'allow' || d === 'allow-always' || d === 'deny' || d === 'deny-always' ? d : null);
+          return;
+        }
+        // Stop from the UI: stop every turn this chat has running.
+        if (parsed.cancel === true) {
+          for (const ac of running) ac.abort();
           return;
         }
         text = parsed.text;
@@ -2302,15 +2317,24 @@ $out | ConvertTo-Json -Compress`, 40000));
       const mdl = model === 'opus' || model === 'sonnet' || model === 'haiku' ? model : undefined;
       // Image attachments as data URLs (capped) for vision routing.
       const imgs = Array.isArray(images) ? images.filter((u): u is string => typeof u === 'string' && u.startsWith('data:image/')).slice(0, 6) : undefined;
+      const ac = new AbortController();
+      running.add(ac);
+      let report: TurnReport | undefined;
       try {
         const reply = await this.handler!(
           { channel: this.name, chatId, from: 'web', text, route: r, model: mdl, images: imgs && imgs.length ? imgs : undefined },
           (chunk) => this.safeSend(ws, { type: 'chunk', text: chunk }),
+          { onActivity: (ev) => this.safeSend(ws, { type: 'activity', ...ev }), onReport: (rep) => { report = rep; }, signal: ac.signal },
         );
-        this.safeSend(ws, { type: 'reply', text: reply });
+        // `turn` marks the reply to this socket's message (not a proactive send), so the UI can
+        // close its working row.
+        this.safeSend(ws, { type: 'reply', text: reply, turn: true });
+        if (report) this.safeSend(ws, { type: 'report', report });
       } catch (err) {
         logger.error({ err: String(err) }, 'web handler error');
-        this.safeSend(ws, { type: 'reply', text: '(internal error)' });
+        this.safeSend(ws, { type: 'reply', text: '(internal error)', turn: true });
+      } finally {
+        running.delete(ac);
       }
     });
 
@@ -2814,8 +2838,14 @@ function openWs(){
     else if(m.type==='reply'){if(!cur)cur=add('bot',BOT_LABEL,'');cur.innerHTML=linkifyHtml(m.text);var w=cur.whoEl,secs=stopGen();setMeta(w,secs,null);cur=null;curStarted=false;setStatus('connected');
       fetch('/api/status',{headers:hdrs()}).then(function(r){return r.ok?r.json():null}).then(function(d){if(!d)return;renderModels(d);if(d.last&&w){w.dataset.vid=d.last.model||'';setMeta(w,secs,d.last.total,viaLabel(d.last.model))}if(d.last)maybeStick(d.last.model)}).catch(function(){})}
     else if(m.type==='status'){setStatus(m.text)}
+    else if(m.type==='activity'){if(m.kind!=='tool_done'&&m.text)setStatus(m.text)}
+    else if(m.type==='report'){addReport(m.report)}
     else if(m.type==='permission'){showPermCard(m,sock)}};
 }
+/* One-line finish report under the reply (red when the turn failed or was stopped). */
+function addReport(r){if(!r||!r.summary)return;var d=document.createElement('div');d.textContent=r.summary;
+  d.style.cssText='font-size:11px;margin:-2px 0 8px;color:'+(r.status==='done'?'var(--mut)':'#e07a5f');
+  el('loginner').appendChild(d);el('log').scrollTop=el('log').scrollHeight}
 /* Interactive tool-permission prompt: inline card with allow/deny buttons.
    "Always" answers are remembered server-side per chat / skill / agent. */
 function showPermCard(m,sock){
@@ -2881,7 +2911,7 @@ var pending=[];var MAXUP=20*1024*1024;
 function renameThreadFrom(t){if(!t)return;var th=threads.filter(function(x){return x.id===cid})[0];if(th&&(th.label==='New chat'||th.label==='Chat 1')){th.label=t.slice(0,32);saveThreads();renderThreads()}}
 function sendMsg(){var t=el('in').value.trim();var files=pending.slice();if(!t&&!files.length)return;
   if(isAgentCid(cid)){if(!t)return;switchView('chat');add('user','you',t);pushHist(t);el('in').value='';var nm=agentNameOf(cid);var mm=add('bot','\\uD83E\\uDD16 '+nm,'(running...)');setStatus('agent '+nm+' running...');
-    fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'run',name:nm,task:t})}).then(function(r){return r.ok?r.json():null}).then(function(d){setStatus('');if(mm)mm.textContent=(d&&d.reply)?d.reply:'(no reply)';agentVia(mm,d&&d.via)}).catch(function(){setStatus('');if(mm)mm.textContent='(run failed)'});return}
+    fetch('/api/agents',{method:'POST',headers:hdrs(),body:JSON.stringify({action:'run',name:nm,task:t})}).then(function(r){return r.ok?r.json():null}).then(function(d){setStatus('');if(mm)mm.textContent=(d&&d.reply)?d.reply:'(no reply)';agentVia(mm,d&&d.via);if(d&&d.report)addReport(d.report)}).catch(function(){setStatus('');if(mm)mm.textContent='(run failed)'});return}
   if(!ws||ws.readyState!==1){setStatus('not connected');return}
   switchView('chat');
   var shown=t+(files.length?((t?'\\n':'')+files.map(function(f){return '📎 '+f.name}).join('\\n')):'');
