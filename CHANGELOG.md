@@ -14,6 +14,17 @@
   dropped when its config was read; it is now kept. Settings -> Voice -> Recent recordings lists
   the last 5 utterances with length, peak level (very quiet / ok / clipping), microphone, time to
   transcribe, language and the text, with playback of exactly what was sent to Whisper.
+- **Route menu Claude models are honoured; no more bare "ESCALATE".** Picking Claude Opus /
+  Sonnet / Haiku in a chat's Route menu sent `route: "opus"`, which the router did not recognise,
+  so the turn fell through to the normal free-first routing and the chosen model was ignored. Such a
+  route now means Claude with that model, and delegated Claude Code work started from that chat
+  runs on the same Claude model even if the orchestrating model asked for a cheaper backend.
+  A cheap model that said ESCALATE after a delegation that was refused before it started (e.g. a
+  folder that isn't allowed) was kept from escalating, as if work had run, and its bare "ESCALATE"
+  was shown; now only a delegation that actually ran blocks the hand-off, a hand-off token is never
+  shown to the user (a plain sentence replaces it when no stronger model is left), and refused
+  delegations are logged with their reason. A code job without a project folder is refused with
+  the allowed folders listed, instead of silently running in the work folder.
 - **Voice uses the Claude Voice system (local Whisper + Kokoro).** A new **Settings -> Voice** tab
   (the toggles left Appearance) picks the speech engine: **Claude Voice (local Whisper)**, the
   default when its whisper.cpp release zip (or a set-up whisper runtime) and a whisper model are

@@ -156,6 +156,9 @@ export interface RunRequest {
   /** Internal: the user invoked a specific capability via "/skill ..." — route to the first
    *  model NOT banned from it, and tell the model to use exactly this skill/tool. */
   forcedSkill?: string;
+  /** Internal: `model` is the Claude model the user picked for this chat (Route menu), not a
+   *  router choice; delegated work then runs on it too. */
+  userPickedModel?: boolean;
 }
 
 /** Builds per-turn in-process MCP servers, closing over the live conversation context. */
@@ -165,6 +168,8 @@ export type McpServerBuilder = (ctx: {
   chatId: string;
   /** Streams status lines into the chat (e.g. delegated subtask progress). */
   onProgress?: (chunk: string) => void;
+  /** The Claude model the user explicitly picked for this chat, if any (delegated work uses it). */
+  chatModel?: string;
 }) => Record<string, McpServerConfig>;
 
 export interface RunResult {
@@ -1206,6 +1211,15 @@ export class Engine implements CodeHost {
   }
 
   async run(req: RunRequest): Promise<RunResult> {
+    // The chat's Route menu sends a Claude model as the route ("opus", "sonnet", "haiku" or a full
+    // id). planRoute only knows the 'claude' token, so such a route used to fall through to the
+    // normal free-first routing and the chosen model was ignored. Normalize it: route Claude, with
+    // that model (and the choice marked as the user's, for delegated work).
+    if (req.route && req.route !== 'claude' && req.route !== 'auto' && !providerById(req.route) && req.route !== 'local' && req.route !== 'freecloud' && this.isClaudeModel(req.route)) {
+      req = { ...req, model: req.model || req.route, route: 'claude', userPickedModel: true };
+    } else if (req.route === 'claude' && req.model) {
+      req = { ...req, userPickedModel: true };
+    }
     const key = req.conversationKey;
     const { config } = this.deps;
 
@@ -1521,10 +1535,12 @@ export class Engine implements CodeHost {
   }
 
   /** Decide hand-off vs answer from a tool-loop outcome (shared by local & cloud). */
-  private finishAssistantTurn(req: RunRequest, allowEscalate: boolean, r: { failed: boolean; exhausted: boolean; finalText: string; searched?: boolean; usedTools?: string[] }, isLocal = false): { escalate: boolean; result?: RunResult } {
+  private finishAssistantTurn(req: RunRequest, allowEscalate: boolean, r: { failed: boolean; exhausted: boolean; finalText: string; searched?: boolean; usedTools?: string[] }, isLocal = false, delegatedRan = false): { escalate: boolean; result?: RunResult } {
     // A turn that already handed work to Claude Code workers must not be redone on another tier:
-    // the redo would delegate (and edit the project) a second time.
-    if ((r.usedTools ?? []).some((t) => DELEGATE_TOOL_NAMES.includes(t))) {
+    // the redo would delegate (and edit the project) a second time. Only when a worker actually
+    // RAN: a delegation refused before it started (e.g. a folder that isn't allowed) did nothing,
+    // so the turn may still be handed to a stronger model.
+    if (delegatedRan) {
       allowEscalate = false;
       if (r.failed) r = { ...r, failed: false, finalText: r.finalText || 'The delegated job ran (see Agent Activity for its result), but the model failed while writing the reply.' };
     }
@@ -1540,6 +1556,15 @@ export class Engine implements CodeHost {
     // push live facts onto Claude and defeat the free-provider tier.
     if (isLocal && allowEscalate && needsCurrentInfo(req.text) && !r.searched) return { escalate: true };
     if (allowEscalate && (r.exhausted || wantsEscalate(finalText) || looksLikePunt(finalText))) return { escalate: true };
+    // Asked to hand off where it can't: never show the bare hand-off token to the user.
+    if (finalText.trim() && wantsEscalate(finalText)) {
+      const rest = finalText.replace(/\bE\s*S\s*C\s*A\s*L\s*A\s*T\s*E\b[.!:]?/gi, '').trim();
+      finalText = rest.length >= 20
+        ? rest
+        : delegatedRan
+          ? 'The delegated job ran (see Agent Activity for its result), but this model could not write a final reply.'
+          : 'This model could not handle the request, and no stronger model is available to take it over (Settings -> Engine sets the routing).';
+    }
     const reply = finalText || '(no reply)';
     const now = Date.now();
     this.deps.sessionIndex?.record(req.conversationKey, 'user', req.text, now);
@@ -1559,10 +1584,10 @@ export class Engine implements CodeHost {
   }
 
   /** The conversation context a delegation tool call runs under (permissions, progress, Stop). */
-  private delegateCtx(req: RunRequest, signal?: AbortSignal): DelegateContext {
+  private delegateCtx(req: RunRequest, signal?: AbortSignal, work?: { ran: boolean }): DelegateContext {
     const channel = req.channel ?? req.conversationKey.split(':')[0] ?? 'cli';
     const chatId = req.chatId ?? req.conversationKey.split(':').slice(1).join(':') ?? req.conversationKey;
-    return { conversationKey: req.conversationKey, channel, chatId, onProgress: req.onProgress, signal };
+    return { conversationKey: req.conversationKey, channel, chatId, onProgress: req.onProgress, signal, work };
   }
 
   /** Answer with the on-device model via the shared tool loop (no subscription used). */
@@ -1570,13 +1595,14 @@ export class Engine implements CodeHost {
     const lm = this.deps.config.localModel!;
     const bannedCaps = this.deps.bans?.bannedSkillsFor('local') ?? [];
     const abort = new AbortController();
-    const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill, delegateCtx: this.delegateCtx(req, abort.signal) });
+    const work = { ran: false };
+    const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill, delegateCtx: this.delegateCtx(req, abort.signal, work) });
     const history = req.freshContext ? [] : this.recentHistory(req.conversationKey);
     // Agent executions run at temperature 0 for determinism (no fabrication / no chit-chat drift).
     const temp = req.agentJob ? 0 : this.deps.config.localTemp;
     const r = await this.toolLoop({ url: `${lm.url}/chat/completions`, model: lm.model, system, userText: req.text, tools, history, numCtx: this.deps.config.localContext, keepAlive: this.deps.config.localKeepAlive, temp, abort });
     if (!r.failed) this.deps.usage?.recordEngine({ [`local:${lm.model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
-    const out = this.finishAssistantTurn(req, allowEscalate, r, /* isLocal */ true);
+    const out = this.finishAssistantTurn(req, allowEscalate, r, /* isLocal */ true, work.ran);
     if (out.result) { out.result.via = `Local (${lm.model})`; out.result.modelToken = 'local'; }
     return out;
   }
@@ -1589,7 +1615,8 @@ export class Engine implements CodeHost {
     if (!base || !providerConfigured(p)) return { escalate: true };
     const bannedCaps = this.deps.bans?.bannedSkillsFor(p.id) ?? [];
     const abort = new AbortController();
-    const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill, delegateCtx: this.delegateCtx(req, abort.signal) });
+    const work = { ran: false };
+    const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill, delegateCtx: this.delegateCtx(req, abort.signal, work) });
     const history = req.freshContext ? [] : this.recentHistory(req.conversationKey);
     let model = providerModel(p);
     const call = (m: string) => this.toolLoop({ url: `${base}/chat/completions`, model: m, apiKey: key, system, userText: req.text, tools, history, temp: req.agentJob ? 0 : undefined, images: p.vision ? req.images : undefined, abort });
@@ -1623,7 +1650,7 @@ export class Engine implements CodeHost {
       this.deps.usage?.recordEngine({ [`${p.kind}:${p.id}:${model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
       logger.info({ provider: p.id, kind: p.kind }, 'cloud provider handled the turn');
     }
-    const out = this.finishAssistantTurn(req, allowEscalate, r);
+    const out = this.finishAssistantTurn(req, allowEscalate, r, false, work.ran);
     if (out.result) { out.result.via = `${p.label} (${model})`; out.result.modelToken = p.id; }
     return out;
   }
@@ -1841,7 +1868,7 @@ export class Engine implements CodeHost {
 
     const channel = req.channel ?? req.conversationKey.split(':')[0] ?? 'cli';
     const chatId = req.chatId ?? req.conversationKey.split(':').slice(1).join(':') ?? req.conversationKey;
-    const dynamicServers = this.buildMcpServers?.({ conversationKey: req.conversationKey, channel, chatId, onProgress: req.onProgress });
+    const dynamicServers = this.buildMcpServers?.({ conversationKey: req.conversationKey, channel, chatId, onProgress: req.onProgress, chatModel: req.userPickedModel && this.isClaudeModel(req.model) ? req.model : undefined });
     const mcpServers = { ...this.deps.mcpServers, ...dynamicServers };
 
     // Per-turn wall-clock guard: if a turn hangs (e.g. a wedged child process),
