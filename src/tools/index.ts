@@ -43,6 +43,8 @@ export interface ToolContext {
   chatId: string;
   /** Streams status lines into the chat (delegated subtasks report progress through it). */
   onProgress?: (chunk: string) => void;
+  /** The Claude model the user explicitly picked for this chat (Route), if any. */
+  chatModel?: string;
 }
 
 export interface ToolDeps {
@@ -430,7 +432,7 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
   );
   // ── Claude Code delegation (src/core/code/orchestrator.ts) ──
   const backendEnum = z.enum(['auto', 'claude', 'free', 'local']);
-  const delegateCtx: DelegateContext = { conversationKey: ctx.conversationKey, channel: ctx.channel, chatId: ctx.chatId, onProgress: ctx.onProgress };
+  const delegateCtx: DelegateContext = { conversationKey: ctx.conversationKey, channel: ctx.channel, chatId: ctx.chatId, onProgress: ctx.onProgress, chatModel: ctx.chatModel };
   const runDelegate = async (tasks: DelegateTaskSpec[], force?: RunPath) => {
     if (!deps.delegate) return text('Delegation is not available in this build.');
     try {
@@ -447,7 +449,7 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
         .array(
           z.object({
             task: z.string().describe('Complete, self-contained instructions for the worker'),
-            folder: z.string().optional().describe('Project folder for a code job (absolute, or relative to the first allowed folder)'),
+            folder: z.string().optional().describe('Project folder for a code job: REQUIRED for code (absolute, or relative to the first allowed folder); a code job without it is refused'),
             kind: z.enum(['auto', 'code', 'general']).optional().describe('auto (default) decides from the task; code = path 2, general = CLI'),
             backend: backendEnum.optional().describe('auto (default), or pin claude / free / local'),
             model: z.string().optional().describe('Optional model override for the chosen backend'),

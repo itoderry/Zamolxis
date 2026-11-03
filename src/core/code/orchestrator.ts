@@ -52,6 +52,12 @@ export interface DelegateContext {
   /** Abort signal of the requesting turn when it is not a registered Claude turn (the local /
    *  free-provider tool loop): its timeout then also stops the delegated runs. */
   signal?: AbortSignal;
+  /** Set to true once a delegated subtask actually ran (not refused before starting), so the
+   *  requesting turn knows real work happened and must not be redone on another tier. */
+  work?: { ran: boolean };
+  /** The Claude model the user explicitly picked for this chat (Route), if any. Delegated runs then
+   *  use Claude with that model, whatever backend the orchestrating model asked for. */
+  chatModel?: string;
 }
 
 /** The engine-side hooks the orchestrator needs (implemented by Engine). */
@@ -393,6 +399,11 @@ export class Orchestrator {
     const refuse = (summary: string, label = '-'): SubtaskResult => ({ ...base, ok: false, refused: true, summary, backend: '-', label });
 
     let folder: string | undefined;
+    // A code job must say which project it is for: silently defaulting to the work folder sent
+    // edits meant for an existing app to the wrong place.
+    if (p === 'code' && !(spec.folder && spec.folder.trim())) {
+      return refuse(`A code job needs its project folder (the folder argument). Allowed project folders: ${allowedFolders(config).join('; ')}. For a new project use a subfolder of one of them; for a project elsewhere, the user adds its folder in Settings -> Code.`);
+    }
     if (p === 'code' || (spec.folder && spec.folder.trim())) {
       const f = resolveAllowedFolder(config, spec.folder);
       if (!f.ok) return refuse(f.reason);
@@ -401,9 +412,12 @@ export class Orchestrator {
     if (p === 'cli' && !resolveClaude()) return refuse('The claude CLI is not installed or not found, so this non-code job cannot run. Install Claude Code and log in (`claude auth login`).');
 
     const caps = ['delegate_task', p === 'code' ? 'claude_code' : 'claude_cli'];
-    const pick = this.pickBackend(spec, kind, statuses, caps);
+    // The user picked a specific Claude model for this chat: delegated work runs on it too (not on a
+    // cheaper backend the orchestrating model chose). Privacy Mode still wins.
+    const userClaude = !!ctx.chatModel && !config.privacyMode && !!statuses.find((s) => s.id === 'claude')?.usable;
+    const pick = userClaude ? { backend: 'claude' as const, auto: false } : this.pickBackend(spec, kind, statuses, caps);
     if ('error' in pick) return refuse(pick.error);
-    const benv = backendEnv(config, pick.backend, { model: spec.model, providerId: pick.providerId });
+    const benv = backendEnv(config, pick.backend, { model: userClaude ? ctx.chatModel : spec.model, providerId: 'providerId' in pick ? pick.providerId : undefined });
     if ('error' in benv) return refuse(`The ${pick.backend} backend cannot run: ${benv.error}.`);
 
     const prefix = total > 1 ? `subtask ${index + 1}/${total}` : p === 'code' ? 'claude_code' : 'claude_cli';
@@ -478,6 +492,8 @@ export class Orchestrator {
     if (tasks && tasks.length > MAX_SUBTASKS) ctx.onProgress?.(`(only the first ${MAX_SUBTASKS} subtasks are run)\n`);
     const results = await this.delegate(tasks, ctx, force);
     if (!results.length) return 'Nothing to delegate: give at least one non-empty task.';
+    if (ctx.work && results.some((r) => !r.refused)) ctx.work.ran = true;
+    for (const r of results) if (r.refused) logger.info({ key: ctx.conversationKey, task: r.task.slice(0, 120), path: r.path, reason: r.summary.slice(0, 300) }, 'delegated subtask refused before it started');
     return formatResults(results);
   }
 }
