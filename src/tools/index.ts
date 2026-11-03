@@ -869,11 +869,8 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
         channel: ctx.channel,
         chatId: ctx.chatId,
       });
-      return text(
-        `Proposed a ${plan.steps.length}-step plan "${plan.title}" (id ${plan.id}). ` +
-          `It is awaiting your approval in the Workflow Canvas — nothing has run yet. ` +
-          `Open Workflow Canvas to review the steps and Approve or Reject.`,
-      );
+      ctx.onActivity?.({ kind: 'plan', planId: plan.id, text: plan.title });
+      return text(`Proposed a ${plan.steps.length}-step plan "${plan.title}" (id ${plan.id}). It is shown in this chat with Approve and Reject buttons (and in the Workflow Canvas app); nothing has run yet. Tell the user to review it there.`);
     },
   );
 

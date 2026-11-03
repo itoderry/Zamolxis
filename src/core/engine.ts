@@ -14,6 +14,7 @@ import { logger } from '../logger.js';
 import { SessionStore } from './session.js';
 import { Throttle } from './throttle.js';
 import { resolveClaudeModel, markClaudeModelUnsupported, claudeFamily } from './claudeModels.js';
+import { turnStarted, turnEnded } from './busy.js';
 import { engineEnv, checkAuth, oauthExpiry } from './auth.js';
 import type { MemoryManager } from './memory.js';
 import type { SessionIndex } from './sessionIndex.js';
@@ -541,6 +542,14 @@ interface ToolLoopResult {
   errorHeaders?: RateHeaders;
 }
 
+/** How long a chat stays on Claude after Claude last did code work in it. */
+const CODE_CHAT_STICKY_MS = 12 * 60 * 60 * 1000;
+const CODE_WORK_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash', 'PowerShell', 'delegate_task', 'claude_code', 'claude_cli']);
+/** Did this turn change files, run commands or delegate work? */
+function didCodeWork(r: TurnReport): boolean {
+  return !!(r.filesChanged?.length || r.subtasks?.length || r.tools.some((t) => CODE_WORK_TOOLS.has(t.name)));
+}
+
 export class Engine implements CodeHost {
   /** Set after construction (scheduler/skills depend on the engine, so this breaks the cycle). */
   public buildMcpServers?: McpServerBuilder;
@@ -735,6 +744,37 @@ export class Engine implements CodeHost {
   /** In-flight turns (Claude, local and provider tool loops) keyed by conversationKey, so an
    *  agent's run can be aborted by Stop. */
   private readonly inFlight = new Map<string, AbortController>();
+  /** Chats where Claude did code work (edited files, ran commands, delegated), by conversation
+   *  key -> when. Their follow-ups ("it doesn't work", "fix it") stay on Claude: a free model
+   *  that never saw the project answered them with plans and guesses. */
+  private codeChatsMap?: Map<string, number>;
+  /** Kept in code-chats.json so a restart does not send the next follow-up to a free model. */
+  private get codeChats(): Map<string, number> {
+    if (this.codeChatsMap) return this.codeChatsMap;
+    this.codeChatsMap = new Map();
+    try {
+      const saved = JSON.parse(fs.readFileSync(path.join(this.deps.config.dataDir, 'code-chats.json'), 'utf8')) as Record<string, number>;
+      for (const [k, v] of Object.entries(saved)) if (typeof v === 'number' && Date.now() - v < CODE_CHAT_STICKY_MS) this.codeChatsMap.set(k, v);
+    } catch {
+      /* none saved yet */
+    }
+    return this.codeChatsMap;
+  }
+  private markCodeChat(key: string): void {
+    this.codeChats.set(key, Date.now());
+    try {
+      fs.writeFileSync(path.join(this.deps.config.dataDir, 'code-chats.json'), JSON.stringify(Object.fromEntries(this.codeChats)));
+    } catch {
+      /* best-effort */
+    }
+  }
+  private claudeCodeChat(key: string): boolean {
+    const at = this.codeChats.get(key);
+    if (!at) return false;
+    if (Date.now() - at < CODE_CHAT_STICKY_MS) return true;
+    this.codeChats.delete(key);
+    return false;
+  }
   /** Running (or queued) turns per conversation, so cancelTurn can stop them. */
   private readonly turns = new Map<string, Set<TurnTracker>>();
   /** Agents paused for THIS session by the startup restore policy (NOT persisted, unlike `stopped`),
@@ -1098,7 +1138,7 @@ export class Engine implements CodeHost {
       (profile ? `USER PROFILE (bake anything relevant into the spec; the executor will NOT see this):\n${profile}\n\n` : '') +
       (learned ? `RELEVANT LEARNINGS (bake in if useful; the executor will NOT see these):\n${learned}\n\n` : '') +
       `AVAILABLE TOOLS: ${toolNames}\n` +
-      (this.delegator ? `(delegate_task {tasks:[{task, folder?}]} hands a coding job in an allowed project folder (${this.delegator.allowedFolders().join('; ')}) or a research/analysis job to a Claude Code worker and returns its result.)\n` : '') +
+      (this.delegator ? `(delegate_task {tasks:[{task, folder?}]} hands a coding job in an allowed project folder (${this.delegator.allowedFolders().join('; ')}) or a research/analysis job to a Claude Code worker and returns its result. If the user names a project folder that is not in that list, still call delegate_task with that folder: the user then gets an Allow button for it in the chat. Do not refuse on your own and do not move the project elsewhere unless they ask.)\n` : '') +
       `\nAVAILABLE SKILLS:\n${skillIndex || '(none)'}\n\nAVAILABLE TIERS: ${tiers.join(', ')}\n\n` +
       'Compile the plan now. Output ONLY the JSON object.';
     const raw = await this.oneShotClaude(system, prompt, this.deps.config.smartModel || this.deps.config.model);
@@ -1297,11 +1337,14 @@ export class Engine implements CodeHost {
     const onCancel = (): void => turn.stop();
     if (req.cancelSignal?.aborted) turn.stop();
     else req.cancelSignal?.addEventListener('abort', onCancel, { once: true });
+    turnStarted();
     try {
       const r = await this.runTurn({ ...req, turn });
       r.report = turn.finish(r);
+      if (!r.isError && r.report.tier === 'claude' && didCodeWork(r.report)) this.markCodeChat(key);
       return r;
     } finally {
+      turnEnded();
       req.cancelSignal?.removeEventListener('abort', onCancel);
       set.delete(turn);
       if (!set.size && this.turns.get(key) === set) this.turns.delete(key);
@@ -1445,7 +1488,8 @@ export class Engine implements CodeHost {
   /** Shared assistant system prompt + tools for the tool-using models (local & free cloud). */
   private buildAssistant(allowEscalate: boolean, query = '', agent?: { job?: string; tools?: string[] }, opts?: { bannedCaps?: string[]; forcedSkill?: string; delegateCtx?: DelegateContext }): { system: string; tools: LocalToolset } {
     const { config } = this.deps;
-    let tools = buildLocalTools();
+    const dctx0 = opts?.delegateCtx;
+    let tools = buildLocalTools(dctx0 ? { conversationKey: dctx0.conversationKey, channel: dctx0.channel, chatId: dctx0.chatId, onActivity: dctx0.onActivity } : {});
     // Claude Code delegation: the local / free models get delegate_task, claude_code and claude_cli
     // too. Injected BEFORE the agent allowlist and bans below, so those apply to them as well.
     const dctx = opts?.delegateCtx;
@@ -1886,6 +1930,12 @@ export class Engine implements CodeHost {
     // Claude for "current info" (e.g. "what time is it"): the time is injected, so a cheap tier suffices.
     if (req.agentJob) return { tiers: cloud, claude: claudeIn || elev };
     if (this.hardClaudeOnly(req.text) && claudeIn) return { tiers: [], claude: true }; // needs Claude-only tools
+    // A chat where Claude has been doing code work: follow-ups stay with Claude (it has the project
+    // in its session) unless the user picks another route.
+    if ((!req.route || req.route === 'auto') && claudeIn && this.claudeCodeChat(req.conversationKey)) {
+      logger.info({ key: req.conversationKey }, 'route: staying on Claude (code work in this chat)');
+      return { tiers: [], claude: true };
+    }
     // Model pickers: config.model/fastModel/smartModel may hold a Claude model OR a routing token
     // (local / freecloud / a provider id). When the PRIMARY model is a non-Claude token, route by
     // role — fast (simple turns) → primary → smartest — honoring that order so a free model can
@@ -2013,7 +2063,7 @@ export class Engine implements CodeHost {
       `missing. Only use a different path when the user gives an explicit absolute one.`;
     // Orchestrator hint: project/code work and big independent jobs go to Claude Code workers.
     const delegateHint = this.delegator
-      ? `DELEGATION — you can hand jobs to Claude Code workers with the \`delegate_task\` tool (or \`claude_code\` / \`claude_cli\` for a single job). For work inside a code project (edits, fixes, refactors, builds, tests) delegate it with the project folder rather than editing files from your own workspace; allowed project folders: ${this.delegator.allowedFolders().join('; ')}. Self-contained research/analysis jobs can go to the headless CLI worker. When a job splits into independent parts, pass them as SEPARATE tasks in ONE delegate_task call so they run in parallel; give each task complete, self-contained instructions, then report the combined results.`
+      ? `DELEGATION — you can hand jobs to Claude Code workers with the \`delegate_task\` tool (or \`claude_code\` / \`claude_cli\` for a single job). For work inside a code project (edits, fixes, refactors, builds, tests) delegate it with the project folder rather than editing files from your own workspace; allowed project folders: ${this.delegator.allowedFolders().join('; ')}. If the user names a project folder that is not in that list, still call delegate_task with that folder: the user then gets an Allow button for it in the chat. Do not refuse on your own and do not move the project elsewhere unless they ask. Self-contained research/analysis jobs can go to the headless CLI worker. When a job splits into independent parts, pass them as SEPARATE tasks in ONE delegate_task call so they run in parallel; give each task complete, self-contained instructions, then report the combined results.`
       : undefined;
     const append = [agentRole, laws, buildPersona(dispName), this.deps.memory.systemPromptBlock(req.agentName), memoryAware, skillsHint, escalationHint, searchHint, localHint, delegateHint, pathRule, config.systemPromptAppend, nameLock]
       .filter(Boolean)
@@ -2046,7 +2096,7 @@ export class Engine implements CodeHost {
     let chosenModel: string | undefined;
     if (req.model) chosenModel = req.model;
     else if (escalatedFromLocal) chosenModel = config.smartModel || config.model;
-    else if (config.fastModel && this.looksSimple(req.text)) chosenModel = config.fastModel;
+    else if (config.fastModel && this.looksSimple(req.text) && !this.claudeCodeChat(req.conversationKey)) chosenModel = config.fastModel;
     else chosenModel = config.model;
     if (!this.isClaudeModel(chosenModel)) chosenModel = undefined; // a free/local pick isn't a Claude model — let the SDK use its default
     chosenModel = resolveClaudeModel(chosenModel); // aliases and the default -> the newest model of the family

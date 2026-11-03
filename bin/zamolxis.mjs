@@ -389,6 +389,7 @@ async function updateCmd() {
   }
   fs.appendFileSync(logFile, '[update] pull + install + build OK; restarting.\n');
   writeUpdateResult({ ok: true, step: 'done', message: 'Updated and restarting.' });
+  await waitForIdle();
   await stop();
   await sleep(600);
   start([]);
@@ -483,7 +484,7 @@ Usage: zamolxis <command> [extra daemon args]   (alias: zam <command>)
   run        run in the foreground (web UI + channels; Ctrl+C to stop)
   start      start in the background (detached, survives terminal close)
   stop       stop the background instance
-  restart    restart the background instance
+  restart    restart the background instance (waits for running turns; --now skips the wait)
   update     git pull + reinstall + rebuild + restart (if installed from git)
   status     show whether it is running
   web        foreground, web UI only
@@ -524,6 +525,22 @@ function webAuthToken() {
   return process.env.ZAMOLXIS_WEB_AUTH_TOKEN || '';
 }
 function authHeaders() { const t = webAuthToken(); return t ? { 'x-zamolxis-token': t } : {}; }
+// Wait until no turn is running (a reply, an agent run, a plan step), so a restart never cuts one
+// off. Up to 10 minutes, then it restarts anyway; `restart --now` skips the wait. The instance must
+// stay idle for 3 s, so a message that arrives right after a reply finished is not lost either.
+async function waitForIdle(maxMs = 10 * 60 * 1000) {
+  const base = `http://127.0.0.1:${webPort()}`;
+  const busy = async () => { try { const r = await fetch(base + '/api/status', { headers: authHeaders(), signal: AbortSignal.timeout(4000) }); if (!r.ok) return 0; const d = await r.json(); return Number(d.busy) || 0; } catch { return 0; } };
+  const until = Date.now() + maxMs;
+  let told = 0;
+  for (;;) {
+    let n = await busy();
+    if (!n) { await sleep(3000); n = await busy(); if (!n) return; }
+    if (Date.now() > until) { console.log(`Still ${n} running turn(s) after ${Math.round(maxMs / 60000)} min; restarting anyway.`); return; }
+    if (n !== told) { console.log(`Waiting for ${n} running turn(s) to finish before restarting (zamolxis restart --now to skip)...`); told = n; }
+    await sleep(2000);
+  }
+}
 async function runAgentCmd(name) {
   if (!name) { console.error('Usage: zamolxis run-agent <agent-name>'); process.exit(1); }
   const base = `http://127.0.0.1:${webPort()}`;
@@ -634,9 +651,10 @@ switch (cmd) {
     await stop();
     break;
   case 'restart':
+    if (!extra.includes('--now')) await waitForIdle();
     await stop();
     await sleep(600);
-    start(extra);
+    start(extra.filter((a) => a !== '--now'));
     break;
   case 'update':
     await updateCmd();

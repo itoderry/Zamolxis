@@ -504,3 +504,15 @@ body[data-mode="dark"] .work-steps { border-left-color: rgba(255,255,255,.14); }
 body[data-mode="dark"] .work-report { background: #242424; border-color: rgba(255,255,255,.1); color: #bdbdbd; }
 body[data-mode="dark"] .work-report.fail { background: #3a2424; border-color: rgba(255,120,120,.25); color: #ffb3b6; }
 body[data-mode="dark"] .work-step.bad .ws-t, body[data-mode="dark"] .work-report .bad { color: #ff8a80; }
+/* Action cards in the chat: a proposed plan (Approve / Reject) and a refused Code folder (Allow). */
+.act-card { border: 1px solid var(--accent); }
+.act-card .act-goal { margin: 2px 0 4px; }
+.act-card .act-steps { margin: 4px 0; padding-left: 20px; display: flex; flex-direction: column; gap: 2px; }
+.act-card .act-step { display: list-item; }
+.act-card .act-step .act-st { margin-left: 8px; font-size: 11px; opacity: .7; }
+.act-card .act-step.st-running .act-st { color: var(--accent); opacity: 1; }
+.act-card .act-step.st-done .act-st { color: #2e9e3f; opacity: 1; }
+.act-card .act-step.st-error .act-st { color: #c0392b; opacity: 1; }
+.act-card .act-row { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.act-card .act-note:empty { display: none; }
+body[data-mode="dark"] .act-card .act-step.st-error .act-st { color: #ff8a80; }
