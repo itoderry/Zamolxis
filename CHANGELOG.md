@@ -10,6 +10,27 @@
   pause and after every idle unload, and CPU is the last resort. Device -> CPU only still runs the
   chosen model on CPU. An unexpected whisper-server exit is logged with its exit code and the last
   error lines. Measured: large-v3 on the GPU 1.9 s per clip warm (6.8 s including the load).
+- **Live work feedback and a finish report in chat windows.** While a turn runs, the desktop chat
+  shows an animated working line (cycling glyph, the current step, elapsed seconds, the model) with
+  a **Stop** button and an expandable list of the steps so far: the model asked, each tool call with
+  its main input and time, delegated subtasks, provider fall-overs, retries and escalation. When the
+  reply arrives it becomes a report card under it ("Done in 14 s · Claude (opus) · 3 tools (Bash ×2,
+  Read) · 2.1k in / 340 out tokens · $0.02"), with details on click (steps with times, tools with
+  counts, files changed, subtasks with path, backend and outcome, escalation, errors); failed or
+  stopped turns get a red card. Agent chats show the working line while the run is pending and the
+  report from the run; the classic UI shows the current step in its status line and a one-line
+  report. **Settings -> Appearance -> Show work details** (on by default, a browser preference)
+  hides the steps and the report card and keeps the working line. Under the hood the engine emits
+  structured activity events (`start`, `model`, `tool`, `tool_done`, `subtask`, `note`, `retry`) on
+  every tier (the Claude SDK stream's tool_use/tool_result, the free/local tool loop, delegated
+  subtasks, load_code_model) and builds a `TurnReport` for every turn; the WebSocket sends them as
+  `activity` and `report` messages and accepts `{cancel: true}` to stop the chat's running turn.
+  `/api/agents` `run` returns the report (and a new `cancel` action stops an agent chat's run
+  without stopping the agent), and the runs ledger keeps it (Agent Activity shows the summary on
+  hover). In the web UI the status lines that used to be pasted into the reply ("(handed to …)",
+  "(load_code_model: …)", subtask progress) are now activity only; Slack, Telegram, Discord and the
+  CLI keep them as before.
+
 - **Voice: raw audio from the same microphone as Claude Voice, plus recent recordings.** Capture
   asked the browser for echo cancellation, noise suppression and auto-gain, which are tuned for
   calls and garble speech for Whisper, and always used the browser's default input (on a PC with
