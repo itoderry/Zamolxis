@@ -234,10 +234,17 @@
     try { if (ttsSupported()) speechSynthesis.cancel(); } catch (e) {}
     speakingUntil = Date.now() + 500;
   }
-  function playWav(blob) {
+  function userTalking() { return !!(cap && cap.seg && cap.seg.inSpeech); }
+  // ackBy (a short acknowledgement such as "Yes?"): skip it when it is ready only after this time or
+  // while the user is already talking, so it never cuts into the instruction that follows "zam".
+  function playWav(blob, ackBy) {
+    if (ackBy && (Date.now() > ackBy || userTalking())) return Promise.resolve();
     var url = URL.createObjectURL(blob), a = new Audio(url);
-    ttsAudio = a; speakingUntil = Date.now() + 125000;
-    a.onloadedmetadata = function () { if (ttsAudio === a && isFinite(a.duration)) speakingUntil = Date.now() + a.duration * 1000 + 1500; };
+    ttsAudio = a;
+    // Mute the microphone only while the reply is audible (+0.5 s), not while it is being prepared:
+    // a cold Kokoro start takes seconds, and what the user said meanwhile (e.g. the instruction
+    // right after "zam") was thrown away.
+    a.onplaying = function () { if (ttsAudio === a) speakingUntil = Date.now() + (isFinite(a.duration) && a.duration > 0 ? a.duration * 1000 + 500 : 30000); };
     function done() { if (ttsAudio === a) { ttsAudio = null; speakingUntil = Date.now() + 500; } URL.revokeObjectURL(url); }
     a.onended = done; a.onerror = done;
     return a.play().catch(function () { done(); });
@@ -259,13 +266,13 @@
     if (!textRaw || mode === 'off') return;
     stopSpeaking();
     if (mode === 'kokoro') {
-      speakingUntil = Date.now() + 125000;
       var body = { text: String(textRaw) };
       if (opts && opts.voice) body.voice = opts.voice;
       if (opts && opts.speed) body.speed = opts.speed;
+      var ackBy = opts && opts.ack ? Date.now() + 2500 : 0;
       fetch('/api/voice/tts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
         .then(function (r) { if (!r.ok) return r.json().then(function (d) { throw new Error((d && d.error) || ('HTTP ' + r.status)); }); return r.blob(); })
-        .then(playWav)
+        .then(function (blob) { return playWav(blob, ackBy); })
         .catch(function (err) { speakingUntil = Date.now() + 500; voiceError(T('Kokoro voice failed'), err); });
       return;
     }
@@ -472,7 +479,7 @@
     var w = launchApp('chat:' + uuid());
     if (!w || !w._startDictation) return;
     var c = voiceCfg();
-    if (!initial && c.responses && c.responses.wake && ttsMode() !== 'off') speak(c.responses.wake);
+    if (!initial && c.responses && c.responses.wake && ttsMode() !== 'off') speak(c.responses.wake, { ack: true });
     w._startDictation(initial || '');
   }
 
