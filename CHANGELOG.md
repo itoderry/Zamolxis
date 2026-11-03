@@ -2,6 +2,17 @@
 
 ## Unreleased (0.3.x)
 
+- **Dictation uses the shared speech service.** Claude Voice now ships `SpeechService.exe`, one whisper
+  model on 127.0.0.1 shared by Claude Voice, the meeting listener and Zamolxis. Before, each app loaded
+  large-v3 itself, and the last one to start found the GPU full and fell back to a lighter or CPU model.
+  The "Claude Voice (local Whisper)" engine now sends each utterance to the service, and starts the
+  service when it is installed but not running. When the service cannot be used, it falls back to its
+  own whisper-server as before and tries the service again a minute later. While the service answers,
+  no whisper-server is started and one left from before is stopped. Settings -> Voice has a new
+  **Runs on** choice (service when it answers / service, waiting longer / whisper-server only), and a
+  status line showing the service's model, GPU or CPU, and whether it is degraded. Gaming mode in Claude
+  Voice moves the service to the CPU for every app. `npx tsx scripts/test-speech-service.ts` checks the
+  client against a fake service.
 - **Code chats stay on Claude.** After Claude edited files, ran commands or delegated work in a chat,
   a short follow-up such as "it doesn't really work" went to the free providers under Auto routing,
   and models that had never seen the project answered with plans and guesses. Now such a chat keeps
