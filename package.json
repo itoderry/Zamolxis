@@ -12,7 +12,7 @@
     "zam": "./bin/zamolxis.mjs"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/check-webui.mjs",
     "start": "node --enable-source-maps dist/index.js",
     "dev": "tsx watch src/index.ts",
     "cli": "tsx src/index.ts --channels=cli",
