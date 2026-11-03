@@ -531,15 +531,17 @@ export class WebChannel implements Channel {
     if (route === 'status' && req.method === 'GET') {
       const cv = loadClaudeVoiceConfig();
       const p = claudeVoicePaths();
-      return this.json(res, 200, {
+      // the speech service is asked first (1.5 s at most) so Settings shows its device and model; never started here
+      void this.whisper.statusFresh().catch(() => this.whisper.status()).then((whisper) => this.json(res, 200, {
         settings: effectiveVoiceSettings(this.config.voice),
         client: voiceClientConfig(this.config.voice),
         defaults: claudeVoiceDefaults(effectiveVoiceSettings(this.config.voice).wakeName),
         saved: Object.keys(this.config.voice ?? {}).length > 0,
         claudeVoice: { ...claudeVoiceEngineAvailability(), configFound: cv.found, configPath: cv.path, configError: cv.error ?? null, modelsDir: p.modelsDir, models: listWhisperModels(), repo: p.repo },
-        whisper: this.whisper.status(),
+        whisper,
         kokoro: this.kokoro.status(),
-      });
+      }));
+      return;
     }
     if (route === 'transcribe' && req.method === 'POST') {
       readBody(15 * 1024 * 1024, (wav) => {

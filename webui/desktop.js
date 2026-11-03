@@ -1550,6 +1550,10 @@
         var lines = [];
         lines.push([T('Active speech engine'), (cur === 'claudevoice' ? T('Claude Voice (local Whisper)') : T('Browser')) + (cur === 'claudevoice' && !localCaptureSupported() ? ' · ' + T('this browser cannot capture audio, using the browser engine') : '')]);
         lines.push([T('Claude Voice engine'), (c.ok ? '✓ ' : '✗ ') + (c.reason || '')]);
+        var sv = w.service || {};
+        lines.push([T('Speech service'), w.backend === 'sidecar' ? T('not used (whisper-server only)')
+          : (sv.state ? sv.state + (sv.model ? ' · ' + sv.model : '') + (sv.device ? ' · ' + (sv.device === 'gpu' ? 'GPU' : 'CPU') : '') + (sv.port ? ' · 127.0.0.1:' + sv.port : '') + (sv.degraded ? ' · ' + T('degraded') + ': ' + (sv.degradedReason || '') : '') + (sv.inUse ? ' · ' + T('in use') : '')
+            : T('not running (starts on first use when installed)')) + (sv.lastError ? ' · ' + T('error') + ': ' + sv.lastError : '')]);
         lines.push(['whisper-server', w.state + (w.state === 'running' ? ' · ' + w.model + ' · ' + (w.device === 'gpu' ? 'GPU' : 'CPU') + ' · 127.0.0.1:' + w.port : '') + (w.binReady ? '' : ' · ' + T('not set up yet')) + (w.note ? ' · ' + w.note : '') + (w.lastError ? ' · ' + T('error') + ': ' + w.lastError : '') + (w.preparing ? ' · ' + (w.prepareMessage || T('working...')) : (w.prepareMessage && !w.binReady ? ' · ' + w.prepareMessage : ''))]);
         var rt = w.runtime || {};
         lines.push([T('whisper runtime'), (rt.summary || T('not set up')) + (rt.dir ? ' · ' + rt.dir : '') + (rt.freeBytes != null ? ' · ' + fmtBytes(rt.freeBytes) + ' ' + T('free on that drive') : '')]);
@@ -1599,8 +1603,10 @@
       var translate = sw(s.translate);
       var device = selOf([['auto', T('GPU when it fits, else CPU')], ['cpu', T('CPU only')]], s.device);
       var idle = inp(s.idleMinutes); idle.type = 'number'; idle.min = '1';
+      var backend = selOf([['auto', T('Speech service when it answers, else whisper-server')], ['service', T('Speech service (waits longer for it)')], ['sidecar', T('whisper-server only')]], s.backend || 'auto');
       pane.appendChild(fld(T('Whisper model'), model, Tf('From {d}. large-v3 is the most accurate and needs about 3 GB of GPU memory; it loads on first use.', { d: cv.modelsDir || '' })));
       var r2 = el('div', 'row2'); var c1 = el('div'); c1.style.flex = '1'; c1.appendChild(fld(T('Languages'), langs, T('Spoken languages, comma separated (blank = any).'))); var c2 = el('div'); c2.style.flex = '1'; c2.appendChild(fld(T('Device'), device)); r2.appendChild(c1); r2.appendChild(c2); pane.appendChild(r2);
+      pane.appendChild(fld(T('Runs on'), backend, T('The speech service (SpeechService.exe, shared with Claude Voice and the meeting listener) keeps one model in the GPU's memory for every app. whisper-server is Zamolxis's own copy; the model and device settings above apply to it only.')));
       pane.appendChild(fld(T('Translate to English'), swRow(translate, T('Write what you say in English, whatever language you speak.'))));
       pane.appendChild(fld(T('Unload after (idle minutes)'), idle));
 
@@ -1683,7 +1689,7 @@
       var sr = el('div', 'save-row'); sr.appendChild(save); sr.appendChild(useCv); sr.appendChild(status); pane.appendChild(sr);
       save.addEventListener('click', function () {
         save.disabled = true; status.textContent = T('Saving...');
-        var patch = { engine: engine._val, model: model.value, languages: langs.value, translate: isOn(translate), device: device.value, idleMinutes: Number(idle.value) || 5,
+        var patch = { engine: engine._val, model: model.value, languages: langs.value, translate: isOn(translate), device: device.value, backend: backend.value, idleMinutes: Number(idle.value) || 5,
           micDevice: mic.value, audioCleanup: isOn(cleanup),
           wakeEnabled: isOn(wake), wakeName: wname.value, wakeAliases: walias.value, stopPhrases: stops.value, cancelPhrases: cancels.value,
           tts: tts._val, kokoroVoice: kv.value, kokoroSpeed: Number(kspeed.value) || 1 };

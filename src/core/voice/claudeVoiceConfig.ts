@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -56,8 +57,12 @@ export interface VoiceSettings {
   model: string;
   languages: string[];
   translate: boolean;
-  /** 'auto' = GPU when it loads, else one retry on CPU; 'cpu' = never use the GPU. */
+  /** 'auto' = GPU when it loads, else one retry on CPU; 'cpu' = never use the GPU. Sidecar only: the shared
+   *  speech service decides its own device (gaming mode in Claude Voice moves it to the CPU). */
   device: 'auto' | 'cpu';
+  /** 'auto' = the shared speech service (SpeechService.exe) when it answers, else the whisper-server sidecar;
+   *  'service' = waits longer for the service before falling back; 'sidecar' = always the sidecar. */
+  backend: 'auto' | 'service' | 'sidecar';
   /** Stop whisper-server (and the Kokoro sidecar) after this many idle minutes, freeing VRAM. */
   idleMinutes: number;
   /** Microphone to record from: a substring of its name ('' = the browser's default input).
@@ -117,9 +122,25 @@ export function claudeVoiceEngineAvailability(): { ok: boolean; reason: string }
   try { zip = fs.statSync(p.whisperZip).isFile(); } catch { /* missing */ }
   const exe = runtimeExe();
   const models = listWhisperModels();
+  // the shared speech service brings its own engine and models: installed is enough
+  if (speechServiceInstalled()) return { ok: true, reason: 'speech service installed' + (exe ? ', whisper-server ready as the fallback' : '') };
   if (!exe && !zip) return { ok: false, reason: `whisper-server not found (no ${WHISPER_ZIP} in ${path.dirname(p.whisperZip)} and no runtime set up)` };
   if (!models.length) return { ok: false, reason: `no whisper model (ggml-*.bin) in ${p.modelsDir}` };
   return { ok: true, reason: `${exe ? 'whisper-server ready' : 'whisper-server zip found'}, models: ${models.join(', ')}` };
+}
+
+/** SpeechService.exe registered and present (sync: the endpoint file or the registry's install folder). */
+function speechServiceInstalled(): boolean {
+  if (process.platform !== 'win32') return false;
+  const dir = process.env.SPEECHSERVICE_HOME || path.join(localAppDataDir(), 'SpeechService');
+  if (fs.existsSync(path.join(dir, 'endpoint.json'))) return true;
+  try {
+    const out = execFileSync('reg', ['query', 'HKCU\\Software\\SpeechService', '/v', 'InstallDir'], { windowsHide: true, timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+    const m = /InstallDir\s+REG_SZ\s+(.+)/.exec(out);
+    return !!m && fs.existsSync(path.join(m[1]!.trim(), 'SpeechService.exe'));
+  } catch {
+    return false;
+  }
 }
 
 function appDataDir(): string { return process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'); }
@@ -213,6 +234,7 @@ export function claudeVoiceDefaults(wakeName = ZAM_DEFAULTS.wakeName): VoiceSett
     languages: (cfg.speech.languages || []).map((l) => String(l).trim().toLowerCase()).filter(Boolean),
     translate: !!cfg.speech.translate_to_english,
     device: cfg.speech.device === 'cpu' ? 'cpu' : 'auto',
+    backend: 'auto',
     idleMinutes: ZAM_DEFAULTS.idleMinutes,
     micDevice: String(cfg.mic.device || '').trim(),
     audioCleanup: false,
@@ -249,6 +271,7 @@ export function sanitizeVoiceOverrides(raw: unknown): VoiceOverrides {
   if (langs) o.languages = langs.map((l) => l.toLowerCase()).filter((l) => /^[a-z]{2,3}$/.test(l));
   if (typeof raw.translate === 'boolean') o.translate = raw.translate;
   if (raw.device === 'auto' || raw.device === 'cpu') o.device = raw.device;
+  if (raw.backend === 'auto' || raw.backend === 'service' || raw.backend === 'sidecar') o.backend = raw.backend;
   if (typeof raw.idleMinutes === 'number' && raw.idleMinutes >= 1) o.idleMinutes = Math.min(240, Math.floor(raw.idleMinutes));
   if (typeof raw.micDevice === 'string') o.micDevice = raw.micDevice.replace(/[<>`\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
   if (typeof raw.audioCleanup === 'boolean') o.audioCleanup = raw.audioCleanup;

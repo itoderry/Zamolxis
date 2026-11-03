@@ -10,6 +10,7 @@ import {
   claudeVoicePaths, listWhisperModels, voiceStateDir, whisperModelPath, whisperRuntimeOptions, whisperRuntimeSources,
   WHISPER_URL, WHISPER_ZIP, type VoiceSettings,
 } from './claudeVoiceConfig.js';
+import { SpeechServiceClient } from './speechService.js';
 import { describe as describeRuntime, formatBytes, freeBytes, runtimeDir, runtimeInfo, runtimeSetupRunning, setupRuntime, type SetupResult } from './whisperRuntime.js';
 
 /**
@@ -91,6 +92,8 @@ export class WhisperServer {
   private cpuOnlyBytes = 0;
   /** Transcriptions in progress (the idle stop waits for them). */
   private busy = 0;
+  /** The shared speech service, tried first unless the backend setting is 'sidecar'. */
+  private readonly service = new SpeechServiceClient();
   private readonly idleTimer: NodeJS.Timeout;
 
   constructor(private readonly settings: () => VoiceSettings) {
@@ -133,7 +136,15 @@ export class WhisperServer {
       cpuOnlyBytes: this.cpuOnlyBytes || null,
       modelFound,
       vadFound: fs.existsSync(p.vadModel),
+      backend: s.backend,
+      service: this.service.status(),
     };
+  }
+
+  /** Status for Settings -> Voice, with the speech service asked first (never starts it). */
+  async statusFresh() {
+    await this.service.refresh();
+    return this.status();
   }
 
   /** Set up the shared runtime: link Claude Voice's whisper.cpp files (no extra disk), or with
@@ -389,9 +400,29 @@ export class WhisperServer {
   /** Transcribe one 16 kHz mono WAV utterance. Requests run one at a time. */
   transcribe(wav: Buffer): Promise<TranscribeResult> {
     this.busy++;
-    const run = this.queue.then(() => this.transcribeNow(wav, true)).finally(() => { this.busy--; this.lastUsed = Date.now(); });
+    const run = this.queue.then(() => this.transcribeRouted(wav)).finally(() => { this.busy--; this.lastUsed = Date.now(); });
     this.queue = run.catch(() => undefined);
     return run;
+  }
+
+  /** The shared speech service first (one model for every app on this PC), the sidecar when it cannot be used. */
+  private async transcribeRouted(wav: Buffer): Promise<TranscribeResult> {
+    const s = this.settings();
+    if (s.backend !== 'sidecar') {
+      const t0 = Date.now();
+      const o = whisperRuntimeOptions(s);
+      const r = await this.service.transcribe(wav, {
+        client: 'zamolxis', priority: 'interactive', task: s.translate ? 'translate' : 'transcribe',
+        languages: s.languages, prompt: o.prompt, beam_size: o.beamSize,
+      }, s.backend === 'service' ? 30_000 : 20_000);
+      if (r) {
+        // the service holds the model: a sidecar left from before would keep a second copy in the GPU's memory
+        if (this.child) this.stop('speech service in use');
+        return { text: r.text, lang: r.lang, ms: Date.now() - t0, device: r.device };
+      }
+      if (s.backend === 'service') logger.warn('voice: the speech service is not available, using whisper-server');
+    }
+    return this.transcribeNow(wav, true);
   }
 
   private async transcribeNow(wav: Buffer, mayRetry: boolean): Promise<TranscribeResult> {
