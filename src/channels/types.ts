@@ -2,6 +2,8 @@
  * Channel abstraction. Every messaging surface (CLI, Telegram, Discord, …)
  * normalizes its traffic to these envelopes so the engine is channel-agnostic.
  */
+import type { Activity, TurnReport } from '../core/activity.js';
+
 export interface InboundMessage {
   /** Channel id, e.g. "telegram". */
   channel: string;
@@ -38,11 +40,21 @@ export interface Channel {
 }
 
 /**
+ * Work feedback hooks for channels that show it (the web UI): live activity events, the finish
+ * report, and a signal that stops the turn. Text channels pass none and keep the plain reply.
+ */
+export interface TurnHooks {
+  onActivity?: (ev: Activity) => void;
+  onReport?: (report: TurnReport) => void;
+  signal?: AbortSignal;
+}
+
+/**
  * Handles one inbound message and resolves with the full reply. Channels that
  * support live output (e.g. the web UI) may pass `onProgress` to receive
- * streamed assistant text chunks as they arrive.
+ * streamed assistant text chunks as they arrive, and `hooks` for work feedback.
  */
-export type ChannelHandler = (msg: InboundMessage, onProgress?: (chunk: string) => void) => Promise<string>;
+export type ChannelHandler = (msg: InboundMessage, onProgress?: (chunk: string) => void, hooks?: TurnHooks) => Promise<string>;
 
 /** Build a stable conversation key from an inbound message. */
 export function conversationKey(msg: InboundMessage): string {

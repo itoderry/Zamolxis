@@ -993,6 +993,98 @@
   }
 
   // ---------- App: Chat (Zamolxis main chat) ----------
+  // ---------- Work feedback: a working row while a turn runs, then a report card under the reply ----------
+  // All text from tools and models goes in through textContent.
+  var WORK_GLYPHS = ['·', '✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳', '✢'];
+  function workDetailsOn() { try { return localStorage.getItem('zx_work_details') !== '0'; } catch (e) { return true; } }
+  function fmtSecs(ms) { var s = Math.max(0, ms || 0) / 1000; if (s < 10) return s.toFixed(1) + 's'; if (s < 60) return Math.round(s) + 's'; var r = Math.round(s % 60); return Math.floor(s / 60) + 'm ' + (r < 10 ? '0' : '') + r + 's'; }
+  // The animated row: cycling glyph, current step, elapsed seconds, model, Stop, and (with work
+  // details on) an expandable list of the steps so far. `activity(ev)` feeds it the WS events.
+  function workRow(onStop) {
+    var started = Date.now(), model = '', gi = 0, byId = {}, nSteps = 0, details = workDetailsOn();
+    var root = el('div', 'work'), head = el('div', 'work-head');
+    var g = el('span', 'work-glyph'), tx = el('span', 'work-text'), meta = el('span', 'work-meta');
+    g.textContent = WORK_GLYPHS[0]; tx.textContent = T('Thinking');
+    var stop = el('button'); stop.textContent = T('Stop');
+    var tog = el('button'); tog.textContent = T('Steps'); tog.style.display = 'none';
+    var list = el('div', 'work-steps'); list.style.display = 'none';
+    head.appendChild(g); head.appendChild(tx); head.appendChild(meta); if (onStop) head.appendChild(stop); head.appendChild(tog);
+    root.appendChild(head); root.appendChild(list);
+    stop.addEventListener('click', function () { if (stop.disabled) return; stop.disabled = true; stop.textContent = T('Stopping...'); try { onStop(); } catch (e) {} });
+    tog.addEventListener('click', function () { var open = list.style.display === 'none'; list.style.display = open ? '' : 'none'; tog.textContent = open ? T('Hide') : T('Steps'); });
+    function paint() { meta.textContent = Math.floor((Date.now() - started) / 1000) + 's' + (model ? ' · ' + model : ''); }
+    var iv = setInterval(function () { gi = (gi + 1) % WORK_GLYPHS.length; g.textContent = WORK_GLYPHS[gi]; paint(); }, 160);
+    paint();
+    function addStep(text, id) {
+      if (!details || nSteps >= 200) return null;
+      nSteps++; tog.style.display = '';
+      var r = el('div', 'work-step'), t = el('span', 'ws-t'), m = el('span', 'ws-ms');
+      t.textContent = text; t.title = text; m.textContent = '+' + fmtSecs(Date.now() - started);
+      r.appendChild(t); r.appendChild(m); list.appendChild(r); list.scrollTop = list.scrollHeight;
+      if (id) byId[id] = { row: r, ms: m };
+      return r;
+    }
+    return {
+      el: root,
+      activity: function (ev) {
+        if (!ev) return;
+        var text = String(ev.text || '');
+        if (ev.kind === 'model') { model = String(ev.model || text); paint(); }
+        if (ev.kind === 'tool_done') {
+          var s = ev.id && byId[ev.id];
+          if (s) { s.ms.textContent = fmtSecs(ev.ms); if (ev.ok === false) s.row.classList.add('bad'); }
+          return;
+        }
+        if (text) tx.textContent = text;
+        if (ev.kind === 'start') return;
+        if (ev.kind === 'subtask' && ev.subtask && ev.subtask.state === 'progress') return;
+        var r = addStep(text, ev.kind === 'tool' ? ev.id : null);
+        if (r && ev.kind === 'subtask' && ev.subtask && ev.subtask.state === 'done' && ev.subtask.ok === false) r.classList.add('bad');
+      },
+      finish: function () { clearInterval(iv); if (stop.parentNode) stop.remove(); g.textContent = '✻'; },
+      remove: function () { clearInterval(iv); root.remove(); }
+    };
+  }
+  // The finish report: one summary line (red when the turn failed or was stopped); click for the
+  // details (error, escalation, tools, subtasks, files changed, steps with times, tokens and cost).
+  function reportCard(r) {
+    var c = el('div', 'work-report' + (r.status !== 'done' ? ' fail' : ''));
+    var sum = el('div', 'wr-sum'); sum.textContent = String(r.summary || '');
+    var det = el('div', 'wr-det'); det.style.display = 'none';
+    function sec(title) { var s = el('div', 'wr-sec'), b = el('b'); b.textContent = title; s.appendChild(b); det.appendChild(s); return s; }
+    function row(parent, text, right, bad) {
+      var x = el('div', 'wr-row' + (bad ? ' bad' : '')), t = el('span', 'ws-t'); t.textContent = text; x.appendChild(t);
+      if (right) { var m = el('span', 'ws-ms'); m.textContent = right; x.appendChild(m); }
+      parent.appendChild(x);
+    }
+    function money(u) { return '$' + (u >= 0.01 ? u.toFixed(2) : u.toFixed(4)); }
+    if (r.error && r.status !== 'done') row(sec(T('Error')), String(r.error), '', true);
+    if (r.escalated) row(sec(T('Escalation')), String(r.escalated));
+    if (r.tools && r.tools.length) { var st = sec(T('Tools')); r.tools.forEach(function (t) { row(st, t.name + (t.count > 1 ? ' ×' + t.count : ''), fmtSecs(t.ms)); }); }
+    if (r.subtasks && r.subtasks.length) {
+      var ss = sec(T('Subtasks'));
+      r.subtasks.forEach(function (s) {
+        var parts = ['#' + (s.index + 1), s.path === 'code' ? 'code' : 'cli', s.backend];
+        if (s.folder) parts.push(s.folder);
+        parts.push(s.ok ? T('done') : T('failed'));
+        if (s.escalatedFrom) parts.push(T('retried after') + ' ' + s.escalatedFrom);
+        if (s.filesChanged && s.filesChanged.length) parts.push(s.filesChanged.length + ' ' + T('files'));
+        if (s.costUsd > 0) parts.push(money(s.costUsd));
+        row(ss, parts.join(' · '), fmtSecs(s.ms), !s.ok);
+      });
+    }
+    if (r.filesChanged && r.filesChanged.length) { var sf = sec(T('Files changed') + ' (' + r.filesChanged.length + ')'); r.filesChanged.slice(0, 60).forEach(function (f) { row(sf, f); }); }
+    if (r.steps && r.steps.length) { var sp = sec(T('Steps')); r.steps.forEach(function (s) { row(sp, '+' + fmtSecs(s.at) + '  ' + s.text, s.ms != null ? fmtSecs(s.ms) : '', s.ok === false); }); }
+    var usage = [];
+    if (r.tokensIn || r.tokensOut) usage.push(r.tokensIn + ' ' + T('tokens in') + ', ' + r.tokensOut + ' ' + T('out'));
+    if (r.costUsd > 0) usage.push(money(r.costUsd));
+    if (r.via) usage.push(String(r.via));
+    if (usage.length) row(sec(T('Usage')), usage.join(' · '));
+    sum.addEventListener('click', function () { var open = det.style.display === 'none'; det.style.display = open ? '' : 'none'; c.classList.toggle('open', open); });
+    c.appendChild(sum); c.appendChild(det);
+    return c;
+  }
+
   function mountChat(body, win) {
     var cid = localStorage.getItem('zx_cid_main');
     if (!cid) { cid = uuid(); localStorage.setItem('zx_cid_main', cid); }
@@ -1070,18 +1162,56 @@
     // WebSocket
     var proto = location.protocol === 'https:' ? 'wss' : 'ws';
     var sock, streamEl = null, sendStart = 0;
+    // Work feedback: `work` is the live row of the running turn, `workDone` a finished one waiting
+    // for its report, `pendingTurns` the turns sent and not answered yet (they run one after another).
+    var work = null, workDone = null, pendingTurns = 0;
+    function startWork() {
+      if (work) { log.appendChild(work.el); return; }
+      work = workRow(function () { try { sock.send(JSON.stringify({ cancel: true })); } catch (e) {} });
+      log.appendChild(work.el); log.scrollTop = log.scrollHeight;
+    }
+    function dropWork() { if (work) work.remove(); if (workDone) workDone.remove(); work = null; workDone = null; pendingTurns = 0; }
     var inHist = [], histIdx = -1, histDraft = '';
     try { inHist = JSON.parse(localStorage.getItem('zx_inhist_' + cid) || '[]') || []; } catch (e) {}
     function connect() {
       sock = new WebSocket(proto + '://' + location.host + '/?cid=' + encodeURIComponent(cid) + '&token=');
       sock.onopen = function () { stat.textContent = '● ' + T('connected'); stat.style.color = '#2e9e3f'; };
-      sock.onclose = function () { stat.textContent = '● ' + T('reconnecting'); stat.style.color = '#d13438'; setTimeout(function () { if (!win.closed) connect(); }, 2500); };
+      sock.onclose = function () { dropWork(); stat.textContent = '● ' + T('reconnecting'); stat.style.color = '#d13438'; setTimeout(function () { if (!win.closed) connect(); }, 2500); };
       sock.onerror = function () { stat.textContent = '● ' + T('error'); stat.style.color = '#d13438'; };
       sock.onmessage = function (ev) {
         var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
         if (m.type === 'status') return;
-        if (m.type === 'chunk') { if (!streamEl) streamEl = addMsg(AGENT_NAME, '', 'bot', null, false); streamEl.textContent += m.text; log.scrollTop = log.scrollHeight; return; }
-        if (m.type === 'reply') { var node; if (streamEl) { setMsgBody(streamEl, m.text, 'bot'); node = streamEl; streamEl = null; pushChatLog(logKey, { who: AGENT_NAME, text: m.text, cls: 'bot' }); } else { node = addMsg(AGENT_NAME, m.text, 'bot'); } stat.textContent = '● ' + T('connected'); setReplyMeta(node, sendStart ? ((Date.now() - sendStart) / 1000).toFixed(1) : null); speak(m.text); }
+        if (m.type === 'activity') {
+          if (!work && pendingTurns > 0) startWork();
+          if (work) { work.activity(m); log.scrollTop = log.scrollHeight; }
+          return;
+        }
+        // The streamed reply goes above the working row, which stays last.
+        if (m.type === 'chunk') { if (!streamEl) { streamEl = addMsg(AGENT_NAME, '', 'bot', null, false); if (work) log.appendChild(work.el); } streamEl.textContent += m.text; log.scrollTop = log.scrollHeight; return; }
+        if (m.type === 'reply') {
+          var node; if (streamEl) { setMsgBody(streamEl, m.text, 'bot'); node = streamEl; streamEl = null; pushChatLog(logKey, { who: AGENT_NAME, text: m.text, cls: 'bot' }); } else { node = addMsg(AGENT_NAME, m.text, 'bot'); } stat.textContent = '● ' + T('connected'); setReplyMeta(node, sendStart ? ((Date.now() - sendStart) / 1000).toFixed(1) : null); speak(m.text);
+          // A turn's reply (not a proactive message): its row waits briefly for the report.
+          if (m.turn) {
+            pendingTurns = Math.max(0, pendingTurns - 1);
+            if (workDone) workDone.remove();
+            workDone = work; work = null;
+            if (workDone) {
+              var wf = workDone; wf.finish(); wf.replyEl = node && node.parentNode;
+              setTimeout(function () { if (workDone === wf) { wf.remove(); workDone = null; } }, 4000);
+            }
+            if (pendingTurns > 0) startWork();
+          }
+        }
+        if (m.type === 'report') {
+          var wd = workDone; workDone = null;
+          if (wd) wd.remove();
+          if (m.report && workDetailsOn()) {
+            var card = reportCard(m.report), anchor = wd && wd.replyEl;
+            if (anchor && anchor.parentNode === log) log.insertBefore(card, anchor.nextSibling); else log.insertBefore(card, work ? work.el : null);
+            log.scrollTop = log.scrollHeight;
+          }
+          return;
+        }
         if (m.type === 'permission') { showPermissionCard(m); return; }
       };
     }
@@ -1122,6 +1252,7 @@
       var shown = t + (files.length ? ((t ? '\n' : '') + files.map(function (f) { return '📎 ' + f.name; }).join('\n')) : '');
       if (t) { if (inHist[inHist.length - 1] !== t) { inHist.push(t); if (inHist.length > 50) inHist = inHist.slice(-50); try { localStorage.setItem('zx_inhist_' + cid, JSON.stringify(inHist)); } catch (e) {} } } histIdx = -1;
       addMsg(T('You'), shown || '(file)', 'user'); ta.value = ''; streamEl = null; sendStart = Date.now(); stat.textContent = T('thinking...');
+      pendingTurns++; startWork();
       if (!files.length) { sock.send(JSON.stringify({ text: t, route: sel.value })); return; }
       pending = []; renderChips();
       // Text-readable files: inject content inline (any model can read → route by your choice). Others (images/PDF/Office): upload + Claude tools.
@@ -1289,6 +1420,14 @@
       seg3.appendChild(b);
     });
     f3.appendChild(seg3); pane.appendChild(f3);
+
+    // Work details: a client preference (this browser), like the mode and language above.
+    var f4 = el('div', 'field');
+    f4.appendChild(el('label', null, T('Show work details')));
+    f4.appendChild(el('div', 'hint', T('While a reply is being worked on, chats show a working line with the current step, the elapsed time and a Stop button. With this on you can also open the list of steps, and a report card (time, model, tools, tokens, cost) appears under each reply.')));
+    var wsw = el('button', 'switch' + (workDetailsOn() ? ' on' : ''), "<span class='knob'></span>");
+    wsw.addEventListener('click', function () { var on = !workDetailsOn(); try { localStorage.setItem('zx_work_details', on ? '1' : '0'); } catch (e) {} wsw.classList.toggle('on', on); });
+    f4.appendChild(wsw); pane.appendChild(f4);
 
     // Voice moved to its own tab (Settings -> Voice).
   }
@@ -3783,7 +3922,7 @@
           tr.appendChild(cell(fmtDur(r.durationMs), { css: 'white-space:nowrap;opacity:.75' }));
           tr.appendChild(cell(fmtCost(r.costUsd), { css: 'white-space:nowrap;opacity:.75' }));
           var pv = cell(r.preview || '', { css: 'max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85' });
-          pv.title = r.preview || '';
+          pv.title = (r.report && r.report.summary ? r.report.summary + '\n\n' : '') + (r.preview || '');
           tr.appendChild(pv);
           t2.appendChild(tr);
         });
@@ -4762,19 +4901,21 @@
     else addMsg(agent.label || agent.name, T('Ask me to do something, or give me a task.'), 'bot', null, false);
     function doSend() {
       var t = ta.value.trim(); if (!t) return; addMsg(T('You'), t, 'user'); ta.value = '';
-      var pend = addMsg(agent.label || agent.name, T('thinking...'), 'bot', null, false); send.disabled = true;
+      // While the run is pending: the working row (spinner, elapsed time, Stop); the steps and the
+      // report card come from the run's JSON when it returns.
+      var wk = workRow(function () { api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'cancel', name: agent.name }) }).catch(function () {}); });
+      log.appendChild(wk.el); log.scrollTop = log.scrollHeight; send.disabled = true;
+      function addReport(d, msgEl) { if (d && d.report && workDetailsOn()) { log.insertBefore(reportCard(d.report), msgEl.nextSibling); } }
       api('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'run', name: agent.name, task: t }) })
         .then(function (d) {
-          send.disabled = false;
-          var c = pend.querySelector('div:last-child'), who = pend.querySelector('.who');
-          if (d && d.error) { c.textContent = '(' + d.error + ')'; return; }
-          who.textContent = (agent.label || agent.name) + (d.via ? ' · via ' + d.via : '');
-          setMsgBody(c, d.reply || T('(no reply)'), 'bot');
-          pushChatLog(logKey, { who: agent.label || agent.name, text: d.reply || T('(no reply)'), cls: 'bot', via: d.via });
-          if (d.scheduled && d.scheduled.cron) addMsg('System', 'Scheduled: ' + (d.scheduled.note || d.scheduled.cron), 'bot');
+          send.disabled = false; wk.remove();
+          if (d && d.error) { addReport(d, addMsg(agent.label || agent.name, '(' + d.error + ')', 'bot', null, false)); log.scrollTop = log.scrollHeight; return; }
+          var m = addMsg(agent.label || agent.name, (d && d.reply) || T('(no reply)'), 'bot', d && d.via);
+          addReport(d, m);
+          if (d && d.scheduled && d.scheduled.cron) addMsg('System', 'Scheduled: ' + (d.scheduled.note || d.scheduled.cron), 'bot');
           log.scrollTop = log.scrollHeight;
         })
-        .catch(function () { send.disabled = false; pend.querySelector('div:last-child').textContent = '(backend unreachable)'; });
+        .catch(function () { send.disabled = false; wk.remove(); addMsg(agent.label || agent.name, '(backend unreachable)', 'bot', null, false); });
     }
     send.addEventListener('click', doSend);
     ta.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } });
