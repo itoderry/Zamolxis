@@ -137,7 +137,7 @@ A few more flags: `-Yes` / `--yes` installs the recommended pick without asking,
 
 **It can reach the internet too.** The local model runs a small tool loop with real tools your machine carries out: `http_get` (fetch any URL - a public API, a website, or something on your LAN like Home Assistant) and, if you've set a search key, `web_search` (Tavily or Brave). So a skill that points at an endpoint lets even the offline model pull live data for free: it asks for the call, your machine makes it, and it gets back only the real result. Without a search key it can still fetch URLs you give it or that a skill names. A 3B model is doing its best here - for heavier tool use, install a bigger model, or let it escalate to Claude.
 
-**Choosing the order of tiers.** A message moves through your chain of backends, and each one passes it along when it can't handle it. You set the chain in the Providers panel. The pieces are `local`, `freecloud` (rotate through your free providers), any single provider id (`google`, `cerebras`, `groq`, `mistral`, `openrouter`, plus paid `openai` / `deepseek`), and `claude`. Some examples:
+**Choosing the order of tiers.** A message moves through your chain of backends, and each one passes it along when it can't handle it. You set the chain in the Providers panel. The pieces are `local`, `freecloud` (rotate through your free providers), any single provider id (free: `google`, `groq`, `mistral`, `openrouter`, `nvidia`, `sambanova`, `cloudflare`, `zai`, `ovh`, `cerebras`, `ollama-cloud`; paid: `openai`, `deepseek`, `perplexity`), and `claude`. Some examples:
 
 - `local, freecloud, claude` (default): your machine first, then free cloud, then your subscription.
 - `local`: on-device only - fully offline and private, no cloud.
@@ -148,7 +148,7 @@ Free providers rotate (least-used first, skipping any at their daily cap). Use o
 
 **When the local model gets stuck, the best model steps in - and learns.** If a local turn can't cope (it needs tools or the web, or it signals `<ESCALATE>`), the job goes to your smartest model (`ZAMOLXIS_SMART_MODEL`, `opus` by default) rather than the everyday one. That turn is also nudged to write a reusable skill capturing how it solved the problem. Those skills are then shown to the local model next time, so it can follow the ones it's capable of, or cleanly hand off the ones that need something it doesn't have. (A skill can't give the local model new powers like internet access - for those it just learns to escalate sooner; for knowledge tasks, it can now follow the steps itself.)
 
-In the web UI, the local model shows up in the header's model list, the model that answered the last message is highlighted, and next to the message box there's an Auto / Local / Claude switch to force a conversation one way or the other. A per-chat model picker (Default / Opus / Sonnet / Haiku) lets you trade depth for speed in a single conversation without changing your global default. Anything answered locally costs zero subscription tokens and is labelled `local:<model>` in the usage panel.
+In the web UI, every chat window has a Route menu: Auto (the chain decides), Free cloud, any single provider you've set up, Local, Claude, or a specific Claude model (Opus, Sonnet, Haiku, Fable), so you can trade depth for speed in one conversation without changing your global default. Auto also keeps a chat on Claude for a while once Claude has edited files, run commands or delegated work in it, so a follow-up like "it doesn't work" doesn't land on a model that never saw the project. Anything answered locally costs zero subscription tokens and is labelled `local:<model>` in the usage panel.
 
 ## Taking your setup to a new machine
 
@@ -179,13 +179,16 @@ zamolxis run        # foreground (web UI + channels from .env; Ctrl+C to stop)
 zamolxis start      # background (keeps running after you close the terminal)
 zamolxis status     # RUNNING (pid) / STOPPED
 zamolxis stop
-zamolxis restart
+zamolxis restart    # waits for replies in progress first; --now skips the wait
+zamolxis update     # git pull + install + build + restart
 zamolxis doctor     # readiness check
 zamolxis cli        # foreground, interactive CLI
 zamolxis run --channels=telegram,web   # extra args pass through to the daemon
 ```
 
 Background instances run detached and are tracked by a pidfile (`~/.zamolxis/zamolxis.pid`), with logs in `~/.zamolxis/logs/zamolxis.log`. If you skip the global link, the same things are available as `npm run start:bg` / `stop` / `restart` / `status`, or `node bin/zamolxis.mjs <command>`.
+
+`restart` and `update` (and the restart and update buttons in the UI, which run them) wait until no reply, agent run or plan step is in progress, up to 10 minutes. On Windows, when `start` or `restart` is run from inside the Claude desktop app (for example by Claude Code), whose packaging redirects AppData writes into its own cache, Zamolxis is started through a Task Scheduler task (`\Zamolxis\Launch`) instead, so it sees the same files as everything else on the machine.
 
 ## Running it as a service (start at logon)
 
@@ -252,22 +255,28 @@ The default rules, most important first (lower number wins a conflict):
 3. Be honest. Don't pretend to be human, don't make up actions or results, and be upfront about uncertainty.
 4. Look after itself, but last. Keep running, but never by deceiving you, resisting shutdown, or getting around these rules.
 
-You can edit them in Settings -> Identity & memory (there's a "Reset to defaults" button), and a checkbox lets you turn the rules on or off if you want to compare behavior. The rules apply to every run on every model - Claude, free/paid providers, and the local model (including in Privacy Mode) - for both chats and sub-agents. They're only about 600 tokens, so the speed cost is tiny - the model you pick matters far more. This is a prompt-level safeguard that strongly shapes behavior; for harder guarantees, also use `ZAMOLXIS_DISALLOWED_TOOLS` and a stricter permission mode.
+You can edit them in the classic UI's Settings -> Identity & memory (http://127.0.0.1:8787/classic; there's a "Reset to defaults" button; the desktop's Memory Vault shows them read-only), and a checkbox lets you turn the rules on or off if you want to compare behavior. The rules apply to every run on every model - Claude, free/paid providers, and the local model (including in Privacy Mode) - for both chats and sub-agents. They're only about 600 tokens, so the speed cost is tiny - the model you pick matters far more. This is a prompt-level safeguard that strongly shapes behavior; for harder guarantees, also use `ZAMOLXIS_DISALLOWED_TOOLS` and a stricter permission mode.
 
 If you set a search key (`TAVILY_API_KEY` or `BRAVE_API_KEY`), Claude also gets a `web_search` tool, so it can search reliably without leaning on Claude Code's built-in web access.
 
 ## How it's put together
 
 ```
-channels  ->  ChannelManager  ->  Engine  ->  Claude Agent SDK (query)
-  cli                            |             - subscription OAuth, tools, subagents
-  telegram                       |- SessionStore    (resume each conversation)
-  discord/slack/...              |- Throttle        (subscription backpressure)
+channels  ->  ChannelManager  ->  Engine  --route-->  local model (Ollama tool loop)
+  web (desktop UI, voice)        |                   free / paid providers (OpenAI-compatible tool loop)
+  cli, telegram, discord,        |                   Claude Agent SDK (query) - subscription OAuth, tools, subagents
+  slack, whatsapp, signal,       |- SessionStore    (resume each conversation)
+  email                          |- Throttle        (subscription backpressure)
+                                 |- TurnTracker     (live activity + finish report per turn)
                                  |- buildMcpServers (in-process tools, per turn)
-scheduler  - cron/one-shot jobs                     schedule_task, create_skill, ...
+                                 '- Orchestrator    -> Claude Code workers (SDK for code, claude CLI for the rest)
+                                                       on Claude, a free provider (via a local Anthropic->OpenAI bridge) or a local model
+scheduler  - cron/one-shot jobs, agents, triggers   schedule_task, create_skill, delegate_task, propose_plan, ...
 skills     - SKILL.md files, shared across conversations
+voice      - whisper (shared speech service or whisper-server) in, Kokoro out
 ```
 
+- A message is routed through your chain (local, free cloud, Claude); a tier that can't cope hands it up, and the turn's report says who answered and why it was handed on.
 - Each conversation gets its own workspace. It lives at `~/.zamolxis/workspaces/<key>/` with its own `CLAUDE.md`, a durable `memory.md`, and a link to the shared skills folder. The SDK resumes that conversation's session across restarts.
 - Tools run in-process: `schedule_task`, `list_scheduled`, `cancel_scheduled`, `create_skill`, `list_skills`. They're wired to the live conversation, so a scheduled job comes back to the right chat. (These callbacks need streaming-input mode, which the engine uses.)
 - Skills are just folders. The agent writes its own `SKILL.md` files, and they show up in every conversation on the next turn.
@@ -283,7 +292,7 @@ skills     - SKILL.md files, shared across conversations
 | WhatsApp | @whiskeysockets/baileys | none (QR pairing on first run)                       | creds persist under `<dataDir>/whatsapp-auth` |
 | Signal   | signal-cli (JSON-RPC) | `SIGNAL_NUMBER`, optional `SIGNAL_CLI_PATH`             | needs `signal-cli` installed and a registered number |
 | Email    | imapflow + nodemailer | `EMAIL_IMAP_HOST/USER/PASSWORD`, `EMAIL_SMTP_HOST`, ... | polls IMAP, replies over SMTP |
-| Web      | http + ws (built-in)  | `ZAMOLXIS_WEB_PORT`, `ZAMOLXIS_WEB_BIND`, `ZAMOLXIS_WEB_AUTH_TOKEN` | browser chat UI + Settings panel, streaming |
+| Web      | http + ws (built-in)  | `ZAMOLXIS_WEB_PORT`, `ZAMOLXIS_WEB_BIND`, `ZAMOLXIS_WEB_AUTH_TOKEN` | desktop-style UI with chat windows, voice and Settings; streaming |
 
 Turn channels on with `ZAMOLXIS_CHANNEL_*=true` (or `--channels=cli,web`). A channel whose credentials are missing logs an error and is skipped - the rest still start.
 
@@ -302,7 +311,14 @@ Then DM the bot, or `/invite @Zamolxis` to a channel and @-mention it. The Main 
 
 ### The web interface
 
-Turn it on with `ZAMOLXIS_CHANNEL_WEB=true` and open http://127.0.0.1:8787. The header shows a live clock (your machine's local time) and a login indicator: green "login ok" while your Claude token is valid (hover to see when it renews), or red "login expired" telling you to run `claude auth login`. It's a streaming chat page plus a full Settings panel (the gear icon):
+Turn it on with `ZAMOLXIS_CHANNEL_WEB=true` and open http://127.0.0.1:8787. You get a desktop in the browser: icons, a taskbar with a start menu, and movable windows. Besides the chat it has its own apps (Files, Text Editor, Image Viewer, Media Player, PDF and ebook readers, Word, Excel and Outlook views, Notes, Database, API Client, Canvas, Memory Vault, Workflow Canvas, Agent Activity, Automations, Privacy, Messages and more), and right-click on the desktop for its menu. The interface speaks English, Spanish, French, German, Romanian, Italian, Polish and Ukrainian, in light or dark mode.
+
+- Chat windows. Open as many as you like, each with its own conversation and Route menu. While a turn runs, an animated line shows the current step, the elapsed time and the model, with a Stop button and the list of steps so far (each tool call with its main input, delegated subtasks, provider hand-offs); when the reply arrives it turns into a one-line report ("Done in 14 s · Claude (claude-opus-5-5) · 3 tools · 2.1k in / 340 out tokens") that opens into the details. Settings -> Appearance -> Show work details turns the details off.
+- Cards that ask you something. A permission request (Allow once / Always allow / Deny), a proposed plan (Approve and run / Reject, with each step's status while it runs), and a project folder that Code isn't allowed to use yet (Allow this folder, then Run my last request again). If the connection drops before a reply arrives, the chat says so instead of leaving your question hanging.
+- Voice (Windows). Say the wake word ("zam" by default) while a Zamolxis window has focus, or use Dictate or the mic in any chat. Speak your request in any of your configured languages and end with a stop phrase ("execute" by default) to send it. Speech recognition runs on your GPU with Whisper, through the shared speech service when Claude Voice has installed it (one model in memory for every app) or Zamolxis's own whisper-server otherwise; replies can be read out by Kokoro. Everything is set in Settings -> Voice, including the microphone, languages, translation to English, wake word, stop and cancel phrases, and the voice.
+- Code. Settings -> Code lists the project folders Claude Code workers may use (the chat's Allow button adds to it), the default backend (auto, Claude, a free provider, or a local coding model) and the local coding model, with a recommendation that fits your GPU.
+
+The Settings window has tabs for Appearance, Voice, Engine, Code, Providers, Channels, Integrations, Skills, Sub-agents, Permissions and System. The classic single-page UI is still at http://127.0.0.1:8787/classic, with its Settings panel (the gear icon), whose sections are:
 
 - Engine (applies on your next message): the agent's name (the single source of truth for what it calls itself, used in the persona and shown everywhere), main and fast models, permission mode, default sandbox, max turns and concurrency, turn timeout (default 1800 seconds = 30 minutes, so long autonomous jobs aren't cut short), and extra system-prompt text.
 - Permissions: in the `default` permission mode Zamolxis asks before using a tool or resource (an inline Allow/Deny card in the chat, or a y/a/n/d prompt in the CLI), and remembers your "always" answers per chat, per skill, and per agent. Review and revoke grants in Settings -> Permissions; they live in `<data dir>/permissions.json`. Channels without an interactive surface (scheduled agents, messaging adapters) follow the remembered grants and otherwise proceed, so unattended jobs never hang on a prompt; a prompt nobody answers within 5 minutes (or a closed tab) denies just that one call. `acceptEdits` / `bypassPermissions` skip asking entirely (`ZAMOLXIS_PERMISSION_MODE` in `.env`, or Settings -> Engine -> Permission mode).
@@ -319,9 +335,9 @@ Everything saves to `~/.zamolxis/settings.json`, and saving applies it for you: 
 
 ## Where things stand
 
-Working and verified end-to-end on the subscription: the core engine, session resume, throttling, the CLI channel, the scheduler (persisted cron and one-shot jobs), self-written skills, and in-process tool calls.
+Working and used daily on the subscription: the core engine, session resume, throttling, the CLI, web and Telegram channels, the desktop UI with live work feedback, voice (wake word, dictation, Kokoro replies), routing across the local model, eleven free cloud providers and Claude (the newest Claude models are picked automatically), Claude Code delegation in allowed folders, plans with approval, the scheduler (persisted cron and one-shot jobs), scheduled agents, self-written skills, and in-process tool calls.
 
-Built and tested for construction, with the live round-trip waiting on your tokens: all six messaging adapters - Telegram, Discord, Slack, WhatsApp, Signal, and Email. Channels without credentials skip themselves, and the daemon shrugs off the odd channel-SDK error.
+Built and tested for construction, with the live round-trip waiting on your tokens: the other messaging adapters - Discord, Slack, WhatsApp, Signal, and Email. Channels without credentials skip themselves, and the daemon shrugs off the odd channel-SDK error.
 
 Sandbox backends (the `sandbox_exec` tool): `local` (verified - prefers git-bash/POSIX and falls back to PowerShell on Windows), `docker`, `ssh`, and `modal`. Backends that aren't available return a clear error instead of crashing. Modal ships `src/sandbox/modal_runner.py` and needs the modal CLI plus tokens; Docker and SSH use their own CLIs.
 
@@ -331,7 +347,7 @@ The feature set is complete across memory, skills, scheduling, delegation, multi
 
 ## Requirements
 
-Node 20 or newer, and Claude Code logged in (`claude auth login`) with a Pro/Max subscription. Needs `@anthropic-ai/claude-agent-sdk` 0.3 or later (the older 0.1.x has a tool-call serialization bug).
+Node 20 or newer, and Claude Code logged in (`claude auth login`) with a Pro/Max subscription. The bundled `@anthropic-ai/claude-agent-sdk` is pinned (0.3.314, which carries Claude Code 2.1.314); newer Claude models can need a newer one, and when the bundled Claude Code refuses a model, Zamolxis falls back to the next newest of that family on its own. Voice needs Windows, an NVIDIA GPU for fast recognition, and Claude Voice's Whisper runtime and models (Settings -> Voice sets them up). The local model needs [Ollama](https://ollama.com).
 
 ## License
 
