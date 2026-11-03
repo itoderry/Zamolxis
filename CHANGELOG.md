@@ -2,6 +2,16 @@
 
 ## Unreleased (0.3.x)
 
+- **Providers: brief overloads retried, "not on your plan" models repaired.** A provider that says
+  it is briefly busy (Z.ai code 1305 "temporarily overloaded", HTTP 503/529, "high demand") is
+  retried after 3 s and 6 s in chats, delegated Claude Code runs and Re-check, and if still busy is
+  skipped for 15 seconds instead of 2 minutes. A model that is not on the user's plan (Z.ai code
+  1113 "insufficient balance", or Mistral's `x-ratelimit-limit-req-minute: 0` on free plans) is now
+  repaired like a retired one: known free models (`fallbackModels`) are tried first, then the
+  provider's list, and the notification says "not available on your plan". Mistral now defaults to
+  `ministral-14b-latest` (Mistral Small has a 0/min limit on free plans). Re-check shows "busy, try
+  again" instead of a red rate limit, and no longer reports "no tool call" when the tool check was
+  only blocked by an overload.
 - **Free provider list refreshed (checked 2 Nov 2026).** Groq now defaults to
   `openai/gpt-oss-120b`, OpenRouter to `nvidia/nemotron-3.5-super-vl:free` and NVIDIA NIM to
   `nvidia/nemotron-3-ultra-550b-a55b` (the old Llama 3.3 defaults were retired). Cerebras and
