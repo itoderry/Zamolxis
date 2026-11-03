@@ -2,6 +2,23 @@
 
 ## Unreleased (0.3.x)
 
+- **Claude: the newest models are used automatically (Opus 5.5 instead of Opus 4.8).** "opus",
+  "sonnet", "haiku", the Claude route and the default model were handed to the Claude Agent SDK as
+  aliases, and the SDK's bundled Claude Code (2.1.156) mapped them to the models it knew, so turns
+  kept running on Opus 4.8; it also could not run Opus 5.5 at all ("version 2.1.280 or newer is
+  required"). Now the aliases and the default resolve to the newest id of their family in the live
+  `/v1/models` list (opus -> claude-opus-5-5, sonnet -> claude-sonnet-5-5, haiku ->
+  claude-haiku-5-5, and the new fable -> claude-fable-5-1), in chat turns, one-shot calls and
+  delegated Code jobs (SDK and CLI); a full model id picked by the user is kept. The SDK is updated
+  to 0.3.314 (Claude Code 2.1.314). When a model newer than the bundled Claude Code appears, the
+  refused model is skipped from then on and the turn reruns once on the next newest of the family.
+- **Voice: the instruction after "zam" is no longer lost.** After the wake word the microphone was
+  muted while the "Yes?" answer was being prepared, up to 125 s, and a cold Kokoro start takes
+  several seconds, so what was said right after "zam" (including "execute") was thrown away and
+  nothing was sent. Now the microphone is muted only while the answer is actually playing, and the
+  "Yes?" is skipped when it is ready more than 2.5 s after the wake word or the user is already
+  talking. Each transcribed utterance is logged (`voice: transcribed`: length, time, device,
+  language and the start of the text) so a dictation that did not send can be traced.
 - **Voice: no more "speech recognition is falling behind".** When large-v3 did not fit on the GPU
   (Claude Voice or another program holding the VRAM), whisper-server fell back to large-v3 on the
   CPU, about 45 s per clip, so utterances queued up past the limit; and it stayed on the CPU until

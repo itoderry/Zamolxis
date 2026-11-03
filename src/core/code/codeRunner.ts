@@ -4,6 +4,7 @@ import { execFile, spawnSync } from 'node:child_process';
 import { query, type Options, type PermissionResult, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { logger } from '../../logger.js';
 import type { BackendEnv } from './backends.js';
+import { resolveClaudeModel } from '../claudeModels.js';
 
 /**
  * Path 2: a Claude Code session (Agent SDK) running IN a project folder, for jobs that need code.
@@ -174,7 +175,7 @@ export async function runCodeTask(o: CodeTaskOptions): Promise<DelegateRunResult
   }
 
   const options: Options = {
-    model: o.backend.model,
+    model: o.backend.backend === 'claude' ? resolveClaudeModel(o.backend.model) : o.backend.model,
     abortController: o.abortController,
     cwd: o.folder,
     // Only the project's own CLAUDE.md / .claude settings. The user's plugins, hooks, MCP servers,

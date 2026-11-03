@@ -11,8 +11,8 @@ import { logger } from '../logger.js';
  * and fall back to a static snapshot when no token/network is available.
  */
 
-const ALIASES = ['', 'opus', 'sonnet', 'haiku']; // '' = CLI default; aliases always resolve to the current generation
-const FALLBACK = ['claude-fable-5', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
+const ALIASES = ['', 'opus', 'sonnet', 'haiku', 'fable']; // '' = default (newest Opus); aliases resolve to the newest id of their family (resolveClaudeModel)
+const FALLBACK = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-1', 'claude-fable-5', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
 /** Models always offered in the dropdown even if the live /v1/models list omits them.
  *  Claude 3.5 Sonnet runs through the SAME subscription OAuth path as the other Claude
  *  models, so it's free to the user (covered by the subscription, not metered API). */
@@ -46,6 +46,59 @@ function oauthTokens(): string[] {
 /** Model ids only (newest first, as the API returns them), plus always-pinned extras. */
 export function claudeModelIds(): string[] {
   return dedupe([...ids, ...PINNED]);
+}
+
+/** Version of a family id, newest-comparable: claude-opus-5-5 -> [5,5], claude-opus-4-5-20251101 -> [4,5]
+ *  (8-digit snapshot dates are not part of the version). */
+function versionOf(id: string, family: string): number[] | null {
+  const m = /^claude-([a-z]+)-(\d+(?:-\d+)*)$/.exec(id);
+  if (!m || m[1] !== family) return null;
+  return (m[2] ?? '').split('-').filter((x) => x.length < 8).map(Number);
+}
+function newer(a: number[], b: number[]): boolean {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] ?? 0, y = b[i] ?? 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
+/** Ids the bundled Claude Code refused ("does not support this model; version X or newer is
+ *  required"): skipped by the resolver until Zamolxis restarts with a newer SDK. */
+const unsupported = new Set<string>();
+export function markClaudeModelUnsupported(id: string): void {
+  unsupported.add(id);
+}
+/** The family of a Claude id or alias: 'claude-opus-5-5' -> 'opus'. */
+export function claudeFamily(model?: string): string | undefined {
+  const m = /^(?:claude-)?(opus|sonnet|haiku|fable)/.exec((model || '').trim().toLowerCase());
+  return m ? m[1] : undefined;
+}
+
+/** Newest known id of a family ('opus', 'sonnet', 'haiku', 'fable'), or undefined. */
+export function latestClaudeModel(family: string, list: string[] = ids): string | undefined {
+  let best: string | undefined, bestV: number[] = [];
+  for (const id of list) {
+    if (unsupported.has(id)) continue;
+    const v = versionOf(id, family);
+    if (v && (!best || newer(v, bestV) || (!newer(bestV, v) && id.length < best.length))) { best = id; bestV = v; }
+  }
+  return best;
+}
+
+/**
+ * The Claude model to hand to the SDK or the claude CLI. The SDK bundles its own Claude Code
+ * build, which resolves 'opus' / 'sonnet' / 'haiku' (and the default) to the models it knew when
+ * it was released, so an older SDK kept answering with Opus 4.8 after Opus 5.5 came out. Aliases,
+ * 'claude' / 'smartest' and the default (empty) are resolved here to the newest id of that family
+ * in the live /v1/models list; a full id the user picked is kept as it is.
+ */
+export function resolveClaudeModel(model?: string, list: string[] = ids): string | undefined {
+  let x = (model || '').trim().toLowerCase();
+  if (unsupported.has(x)) x = claudeFamily(x) ?? x; // a refused full id falls back to the newest usable one
+  const family = !x || x === 'claude' || x === 'smartest' || x === 'default' ? 'opus' : x;
+  if (!/^(opus|sonnet|haiku|fable)$/.test(family)) return model;
+  return latestClaudeModel(family, list) ?? (x ? model : undefined);
 }
 
 /** Full dropdown list: aliases + live ids + pinned extras. */

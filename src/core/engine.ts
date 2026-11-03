@@ -13,6 +13,7 @@ import type { ZamolxisConfig } from '../config.js';
 import { logger } from '../logger.js';
 import { SessionStore } from './session.js';
 import { Throttle } from './throttle.js';
+import { resolveClaudeModel, markClaudeModelUnsupported, claudeFamily } from './claudeModels.js';
 import { engineEnv, checkAuth, oauthExpiry } from './auth.js';
 import type { MemoryManager } from './memory.js';
 import type { SessionIndex } from './sessionIndex.js';
@@ -167,6 +168,8 @@ export interface RunRequest {
   /** Internal: `model` is the Claude model the user picked for this chat (Route menu), not a
    *  router choice; delegated work then runs on it too. */
   userPickedModel?: boolean;
+  /** Internal: this turn is the rerun after the bundled Claude Code refused the newest model. */
+  modelRetry?: boolean;
 }
 
 /** Builds per-turn in-process MCP servers, closing over the live conversation context. */
@@ -1850,7 +1853,7 @@ export class Engine implements CodeHost {
    *  token (local / freecloud / a provider id). Empty/undefined counts as Claude (the default tier). */
   private isClaudeModel(t?: string): boolean {
     const x = (t || '').trim().toLowerCase();
-    return !x || x === 'claude' || x === 'smartest' || /opus|sonnet|haiku/.test(x) || x.startsWith('claude');
+    return !x || x === 'claude' || x === 'smartest' || /opus|sonnet|haiku|fable/.test(x) || x.startsWith('claude');
   }
 
   /** Plan the pre-Claude tiers to attempt + whether Claude is the final fallback. */
@@ -2046,6 +2049,7 @@ export class Engine implements CodeHost {
     else if (config.fastModel && this.looksSimple(req.text)) chosenModel = config.fastModel;
     else chosenModel = config.model;
     if (!this.isClaudeModel(chosenModel)) chosenModel = undefined; // a free/local pick isn't a Claude model — let the SDK use its default
+    chosenModel = resolveClaudeModel(chosenModel); // aliases and the default -> the newest model of the family
     if (chosenModel && chosenModel !== config.model) {
       logger.info({ key: req.conversationKey, model: chosenModel, escalated: escalatedFromLocal }, 'model selected for this turn');
     }
@@ -2131,6 +2135,7 @@ export class Engine implements CodeHost {
     let costUsd = 0;
     let isError = false;
     let errorKind: string | undefined;
+    let modelRefused = false; // the bundled Claude Code is too old for chosenModel
     let learnedThisTurn = false; // did the model already call `learn`? (skip the distill pass if so)
     let profileWroteThisTurn = false; // did the model already write to the profile? (skip profile-capture)
 
@@ -2167,6 +2172,8 @@ export class Engine implements CodeHost {
             if (msg.error) {
               isError = true;
               errorKind = msg.error;
+              const said = (msg as { message?: { content?: Array<{ type?: string; text?: string }> } }).message?.content;
+              if (Array.isArray(said) && said.some((b) => b?.type === 'text' && /does not support this model/i.test(b.text || ''))) modelRefused = true;
               if (msg.error === 'rate_limit') this.deps.throttle.noteRateLimit();
             }
             const content = (msg as { message?: { content?: unknown } }).message?.content;
@@ -2219,7 +2226,11 @@ export class Engine implements CodeHost {
     } catch (err) {
       endInput();
       const es = String(err);
-      logger.error({ err: es, conversationKey: req.conversationKey }, 'engine run failed');
+      if (/does not support this model/i.test(es)) modelRefused = true;
+      const rerun = modelRefused && !!chosenModel && !req.modelRetry;
+      if (!rerun) logger.error({ err: es, conversationKey: req.conversationKey }, 'engine run failed');
+      if (rerun) isError = true; // rerun on the next model below, after the cleanup
+      else {
       const auth = /\b401\b|authenticat/i.test(es);
       const aborted = /abort/i.test(es) || abortController.signal.aborted;
       if (aborted && req.turn?.stopped) return { ...this.stoppedResult(), sessionId, costUsd };
@@ -2229,12 +2240,24 @@ export class Engine implements CodeHost {
           ? 'That took too long and was stopped. Please try again, or simplify the request.'
           : 'Sorry — I hit an internal error handling that. Please try again.';
       return { reply, sessionId, costUsd, isError: true, errorKind: auth ? 'auth' : aborted ? 'timeout' : 'exception' };
+      }
     } finally {
       clearTimeout(timeout);
       unbindTurn?.();
       if (this.inFlight.get(req.conversationKey) === abortController) this.inFlight.delete(req.conversationKey);
     }
     if (req.turn?.stopped && isError) return { ...this.stoppedResult(), sessionId, costUsd };
+    // The SDK's bundled Claude Code is older than the newest model ("does not support this model;
+    // version X or newer is required"): skip that model from now on and answer on the next newest
+    // of the same family, once.
+    if (modelRefused && chosenModel && !req.modelRetry) {
+      markClaudeModelUnsupported(chosenModel);
+      const family = claudeFamily(chosenModel) ?? 'opus';
+      const next = resolveClaudeModel(family);
+      logger.warn({ refused: chosenModel, next }, 'bundled Claude Code does not support this model; using the next newest (update @anthropic-ai/claude-agent-sdk)');
+      req.turn?.emit({ kind: 'retry', text: `${chosenModel} needs a newer Claude SDK; using ${next || 'the default model'}` });
+      return this.runInner({ ...req, route: 'claude', model: family, modelRetry: true });
+    }
 
     // Surface an expired/invalid subscription login as a clear, actionable
     // message instead of a cryptic error result.
@@ -2413,6 +2436,7 @@ export class Engine implements CodeHost {
 
   private async oneShotClaude(append: string, prompt: string, model?: string): Promise<string> {
     if (model && !this.isClaudeModel(model)) model = undefined; // internal one-shots are Claude-only; ignore a free/local pick
+    model = resolveClaudeModel(model);
     const options: Options = {
       model,
       settingSources: [],
