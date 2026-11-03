@@ -1,8 +1,17 @@
 # Zamolxis
 
-Zamolxis is a self-hosted AI agent that runs on your own machine. You talk to it through whatever you like - a web page, Telegram, Discord, email, and more - and it remembers things between conversations, writes its own little "skills", schedules tasks, and can run shell commands or browse the web when a job calls for it.
+Zamolxis is a self-hosted personal AI agent that runs on your own machine. You use it from a desktop-style web app in your browser, by voice, or from Telegram, Discord, Slack, WhatsApp, Signal and email. It remembers you between conversations, writes its own skills, runs scheduled agents, works with your files and apps (Word, Excel, Outlook, VS Code and more), and hands real coding work to Claude Code.
 
-It runs mainly on your Claude Pro/Max subscription (not the pay-per-token API), and it's careful with that quota: a routing chain can hand the easy work to a free local model or to free and cheap cloud providers, so most messages cost you nothing. You can even leave Claude out of the chain entirely and run on local plus free models only.
+It runs on your Claude Pro/Max subscription (not the pay-per-token API) and always uses the newest Claude models. It's careful with that quota: a routing chain sends the easy messages to a free local model or to free cloud providers, and keeps a chat on Claude once it's doing real work there. You can even leave Claude out entirely and run on local plus free models only.
+
+What you get:
+
+- A desktop in the browser. Windows, a start menu, a file manager, editors and viewers, and chat windows that show what the agent is doing while it works (the model, each tool call, delegated subtasks) and a short report when it's done.
+- Voice. Say "zam" to wake it, dictate in several languages, and hear replies read out by Kokoro. Speech recognition runs locally with Whisper on your GPU, through the same speech service Claude Voice uses (Windows).
+- Claude Code delegation. Coding jobs go to Claude Code workers in the project folders you allow (one click allows a new one), on Claude, a free provider or a local coding model; other jobs go to the `claude` CLI, several at once when they're independent.
+- Plans you approve. For multi-step work it can propose a plan right in the chat and run it step by step once you approve it.
+- Agents and automations. Scheduled agents, triggers, and optional Windows Task Scheduler integration.
+- Memory, skills and safety rules. A profile it keeps up to date about you, skills it writes for itself, and Asimov-style safety rules in `LAWS.md`.
 
 ## Disclaimer
 
@@ -21,14 +30,14 @@ A Claude subscription doesn't hand you metered API access. What it does give you
 
 - The agent runs on your subscription. Don't set `ANTHROPIC_API_KEY` - if it's there, Zamolxis hides it so your subscription is used instead. (If you genuinely want metered billing, set `ZAMOLXIS_ALLOW_API_KEY=1`.)
 - You live within your plan's rate limits, not pay-as-you-go. Zamolxis caps how many turns run at once (`ZAMOLXIS_MAX_CONCURRENT`) so an always-on agent doesn't burn through your quota.
-- Two extras can't run on the subscription. They're optional and only switch on if you supply a key: cross-provider model routing and image generation. Switching between the Claude models (Opus, Sonnet, Haiku) is free.
+- Two extras can't run on the subscription. They're optional and only switch on if you supply a key: cross-provider model routing and image generation. Switching between the Claude models (Opus, Sonnet, Haiku, Fable) is free, and the `opus` / `sonnet` / `haiku` / `fable` names always mean the newest model of that family.
 
 ## You're not locked to Claude
 
 Every message flows through a routing chain you control, so most work can run for free and you decide how much (if any) touches your subscription:
 
 - Local model (free, on your machine). A small model running through [Ollama](https://ollama.com) answers the easy stuff completely offline, for zero subscription tokens. The installer shows you a menu of models that fit your hardware.
-- Free cloud tiers. Drop in free API keys for Google (Gemini), Cerebras, Groq, Mistral, or OpenRouter. Zamolxis rotates between them - least-used first, skipping any that hit their daily limit. One key per provider.
+- Free cloud tiers. Drop in free API keys for Google (Gemini), Groq, Mistral, OpenRouter, NVIDIA NIM, SambaNova, Cloudflare Workers AI, Z.ai, Cerebras or Ollama Cloud; OVHcloud AI Endpoints works with no key at all. Zamolxis rotates between them - least-used first, skipping any that hit their limit, and fixing a model name a provider has retired. One key per provider; each card in Settings has a "Get a key" link.
 - Paid providers, if you want them. OpenAI or DeepSeek (billed to you) work too; just add them to the chain. Completely optional.
 - Claude, on your subscription. The default top tier and the brains behind the agent's tool use.
 
