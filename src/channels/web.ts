@@ -2314,7 +2314,7 @@ $out | ConvertTo-Json -Compress`, 40000));
       // Accept auto/local/claude/freecloud or a provider id (validated against the registry in planRoute).
       const r = typeof route === 'string' && /^[a-z0-9_-]{1,32}$/i.test(route) && route !== 'auto' ? route : undefined;
       // Only allow safe model aliases from the UI (never an arbitrary string).
-      const mdl = model === 'opus' || model === 'sonnet' || model === 'haiku' ? model : undefined;
+      const mdl = model === 'opus' || model === 'sonnet' || model === 'haiku' || model === 'fable' ? model : undefined;
       // Image attachments as data URLs (capped) for vision routing.
       const imgs = Array.isArray(images) ? images.filter((u): u is string => typeof u === 'string' && u.startsWith('data:image/')).slice(0, 6) : undefined;
       const ac = new AbortController();

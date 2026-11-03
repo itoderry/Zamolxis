@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { ZamolxisConfig } from '../../config.js';
 import { engineEnv, credentialsPresent, oauthExpiry } from '../auth.js';
 import { freeProviderPool, providerById, providerConfigured, providerModel, type ProviderDef } from '../providers.js';
+import { resolveClaudeModel } from '../claudeModels.js';
 
 /**
  * Model backends for delegated Claude Code runs (both the SDK code runner and the headless CLI).
@@ -135,7 +136,7 @@ export function backendEnv(
   if (backend === 'claude') {
     if (config.privacyMode) return { error: 'Privacy Mode is on, so Claude cannot be used' };
     const model = claudeCodeModel(config, opts?.model);
-    return { backend, model, env: scrubbedEnv(engineEnv()), label: `Claude (${model || 'default'})` };
+    return { backend, model, env: scrubbedEnv(engineEnv()), label: `Claude (${resolveClaudeModel(model) || 'default'})` };
   }
   if (backend === 'local') {
     const model = (opts?.model && !isClaudeModelName(opts.model) ? opts.model : undefined) || codeLocalModel(config);

@@ -6,6 +6,7 @@ import { logger } from '../../logger.js';
 import type { BackendEnv } from './backends.js';
 import type { DelegateRunResult } from './codeRunner.js';
 import { reportsIncomplete } from './codeRunner.js';
+import { resolveClaudeModel } from '../claudeModels.js';
 
 /**
  * Path 3: the installed `claude` CLI run headless (`claude -p`), for jobs that do NOT need code:
@@ -155,7 +156,8 @@ export async function runCliTask(o: CliTaskOptions): Promise<DelegateRunResult> 
   // plugins, CLAUDE.md discovery or keychain reads) fits them. It can't be used on the Claude
   // backend: --bare skips the keychain, where the subscription login lives.
   if (o.backend.backend !== 'claude') args.push('--bare');
-  if (o.backend.model) args.push('--model', o.backend.model);
+  const model = o.backend.backend === 'claude' ? resolveClaudeModel(o.backend.model) : o.backend.model;
+  if (model) args.push('--model', model);
 
   let summary = '';
   let ok = false;
