@@ -42,7 +42,8 @@ const CV_DEFAULTS = {
     models_dir: 'auto',
     no_speech_threshold: 0.7,
   },
-  mic: { sample_rate: 16000, silence_ms: 900, min_speech_ms: 400, max_utterance_s: 30, pre_roll_ms: 300, speech_ratio: 3.0, min_rms: 0.002 },
+  // device: a substring of the microphone's name ('' = system default), e.g. "TONOR".
+  mic: { device: '', sample_rate: 16000, silence_ms: 900, min_speech_ms: 400, max_utterance_s: 30, pre_roll_ms: 300, speech_ratio: 3.0, min_rms: 0.002 },
   voice: { engine: 'kokoro', kokoro_voice: 'af_heart', kokoro_speed: 1.0 },
 };
 type CvConfig = typeof CV_DEFAULTS;
@@ -59,6 +60,12 @@ export interface VoiceSettings {
   device: 'auto' | 'cpu';
   /** Stop whisper-server (and the Kokoro sidecar) after this many idle minutes, freeing VRAM. */
   idleMinutes: number;
+  /** Microphone to record from: a substring of its name ('' = the browser's default input).
+   *  Defaults to Claude Voice's mic.device so both apps use the same microphone. */
+  micDevice: string;
+  /** The browser's echo cancellation / noise suppression / auto-gain. Off by default: they are
+   *  tuned for calls and garble speech for Whisper (Claude Voice records the raw signal). */
+  audioCleanup: boolean;
   wakeEnabled: boolean;
   wakeName: string;
   wakeAliases: string[];
@@ -207,6 +214,8 @@ export function claudeVoiceDefaults(wakeName = ZAM_DEFAULTS.wakeName): VoiceSett
     translate: !!cfg.speech.translate_to_english,
     device: cfg.speech.device === 'cpu' ? 'cpu' : 'auto',
     idleMinutes: ZAM_DEFAULTS.idleMinutes,
+    micDevice: String(cfg.mic.device || '').trim(),
+    audioCleanup: false,
     wakeEnabled: ZAM_DEFAULTS.wakeEnabled,
     wakeName: name,
     wakeAliases: [...ZAM_DEFAULTS.wakeAliases],
@@ -241,6 +250,8 @@ export function sanitizeVoiceOverrides(raw: unknown): VoiceOverrides {
   if (typeof raw.translate === 'boolean') o.translate = raw.translate;
   if (raw.device === 'auto' || raw.device === 'cpu') o.device = raw.device;
   if (typeof raw.idleMinutes === 'number' && raw.idleMinutes >= 1) o.idleMinutes = Math.min(240, Math.floor(raw.idleMinutes));
+  if (typeof raw.micDevice === 'string') o.micDevice = raw.micDevice.replace(/[<>`\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (typeof raw.audioCleanup === 'boolean') o.audioCleanup = raw.audioCleanup;
   if (typeof raw.wakeEnabled === 'boolean') o.wakeEnabled = raw.wakeEnabled;
   if (typeof raw.wakeName === 'string' && normWord(raw.wakeName.trim().split(/\s+/)[0] || '')) o.wakeName = nameToken(raw.wakeName);
   const al = list(raw.wakeAliases); if (al) o.wakeAliases = al.map((a) => normWord(a)).filter(Boolean);

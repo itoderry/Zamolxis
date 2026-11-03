@@ -2,6 +2,18 @@
 
 ## Unreleased (0.3.x)
 
+- **Voice: raw audio from the same microphone as Claude Voice, plus recent recordings.** Capture
+  asked the browser for echo cancellation, noise suppression and auto-gain, which are tuned for
+  calls and garble speech for Whisper, and always used the browser's default input (on a PC with
+  several inputs, e.g. a laptop array, a USB mic and a Steam virtual mic, often the wrong one).
+  Claude Voice records its configured microphone raw. Now capture is raw by default (Settings ->
+  Voice -> Browser audio cleanup turns the filters back on), and records from the microphone whose
+  name contains Claude Voice's `mic.device` (e.g. "TONOR"; Settings -> Voice -> Microphone picks
+  another). The browser only reveals microphone names after the first permission, so the first
+  start switches to the right one as soon as they are visible. Claude Voice's `mic.device` was also
+  dropped when its config was read; it is now kept. Settings -> Voice -> Recent recordings lists
+  the last 5 utterances with length, peak level (very quiet / ok / clipping), microphone, time to
+  transcribe, language and the text, with playback of exactly what was sent to Whisper.
 - **Route menu Claude models are honoured; no more bare "ESCALATE".** Picking Claude Opus /
   Sonnet / Haiku in a chat's Route menu sent `route: "opus"`, which the router did not recognise,
   so the turn fell through to the normal free-first routing and the chosen model was ignored. Such a
