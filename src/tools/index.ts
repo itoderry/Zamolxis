@@ -24,6 +24,7 @@ import { readInbox, resolveAccount, listAccountNames, addAccount } from './email
 import { outlookMail, outlookPim } from '../core/outlookLocal.js';
 import { onenoteRead, sqlQuery, browserHistory, archiveTool, openInExcel } from '../core/localApps.js';
 import { openInWord, openInPowerpoint, openApp, scanDocument, itunes, systemStatus, steamGames, stickyNotes, autohotkey } from '../core/nativeApps.js';
+import { isToolFailure } from '../core/toolFailure.js';
 import { setCanvas, setCanvasTable } from '../core/canvas.js';
 import { proposePlan } from '../core/plans.js';
 import { browserControl } from '../core/browser.js';
@@ -89,6 +90,8 @@ export interface ToolDeps {
 }
 
 const text = (s: string) => ({ content: [{ type: 'text' as const, text: s }] });
+/** Like text(), but a result that reports a failure is flagged as an error, so the model sees it failed. */
+const result = (s: string) => (isToolFailure(s) ? { ...text(s), isError: true } : text(s));
 
 /**
  * Build the in-process "zamolxis" MCP server for one agent turn. Tools close over
@@ -883,26 +886,26 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
       rows: z.array(z.array(z.any())).optional().describe('Rows aligned to columns'),
       file: z.string().optional().describe('Open this existing spreadsheet instead of creating one'),
     },
-    async (args) => text(await openInExcel({ columns: args.columns, rows: args.rows as unknown as string[][], title: args.title, file: args.file })),
+    async (args) => result(await openInExcel({ columns: args.columns, rows: args.rows as unknown as string[][], title: args.title, file: args.file })),
   );
 
   const wordTool = tool(
     'open_in_word',
     'Create a Word document from text/HTML and open it in Word (or open an existing .docx via file). Use for letters, reports, memos, formatted notes the user wants as a document.',
     { title: z.string().optional(), text: z.string().optional().describe('Plain-text body (newlines = paragraphs)'), html: z.string().optional().describe('HTML body (overrides text)'), file: z.string().optional().describe('Open an existing .docx instead') },
-    async (args) => text(await openInWord(args)),
+    async (args) => result(await openInWord(args)),
   );
   const pptTool = tool(
     'open_in_powerpoint',
     'Create a PowerPoint deck and open it (or open an existing .pptx via file). Pass slides: each {title, bullets:[...] or text}.',
     { title: z.string().optional(), slides: z.array(z.object({ title: z.string().optional(), bullets: z.array(z.string()).optional(), text: z.string().optional() })).optional(), file: z.string().optional() },
-    async (args) => text(await openInPowerpoint(args)),
+    async (args) => result(await openInPowerpoint(args)),
   );
   const openAppTool = tool(
     'open_app',
-    'Open a file in a specific desktop app: vscode | notepad++ | winmerge | acrobat | vlc | default. For winmerge pass file + file2 to diff two files.',
-    { app: z.enum(['vscode', 'notepad++', 'winmerge', 'acrobat', 'vlc', 'default']).describe('Target app'), file: z.string().optional(), file2: z.string().optional().describe('winmerge: second file to diff') },
-    async (args) => text(await openApp(args)),
+    'Start a desktop app, optionally with a file: word | excel | powerpoint | outlook | onenote | notepad | calculator | paint | vscode | notepad++ | winmerge | acrobat | vlc | default. Use this for "open Word", "open Excel" and the like with no content. default opens the file with its usual app. For winmerge pass file + file2 to diff two files.',
+    { app: z.enum(['word', 'excel', 'powerpoint', 'outlook', 'onenote', 'notepad', 'calculator', 'paint', 'vscode', 'notepad++', 'winmerge', 'acrobat', 'vlc', 'default']).describe('Target app'), file: z.string().optional(), file2: z.string().optional().describe('winmerge: second file to diff') },
+    async (args) => result(await openApp(args)),
   );
   const scanTool = tool(
     'scan_document',

@@ -15,6 +15,7 @@ import { SessionStore } from './session.js';
 import { Throttle } from './throttle.js';
 import { resolveClaudeModel, markClaudeModelUnsupported, claudeFamily } from './claudeModels.js';
 import { turnStarted, turnEnded } from './busy.js';
+import { isToolFailure, forModel } from './toolFailure.js';
 import { engineEnv, checkAuth, oauthExpiry } from './auth.js';
 import type { MemoryManager } from './memory.js';
 import type { SessionIndex } from './sessionIndex.js';
@@ -1651,10 +1652,12 @@ export class Engine implements CodeHost {
               if (tid) o.turn?.toolEnd(tid, false);
               throw err;
             }
-            if (tid) o.turn?.toolEnd(tid, !/^(BANNED$|That tool is not available)/.test(out));
+            const failed = isToolFailure(out);
+            if (failed) logger.info({ tool: tc.function.name, result: out.slice(0, 200) }, 'tool reported a failure');
+            if (tid) o.turn?.toolEnd(tid, !failed && !/^(BANNED$|That tool is not available)/.test(out));
             // TokenJuice: cap oversized output (keeps head+tail, full text saved to disk)
             // instead of a blunt head-only slice.
-            messages.push({ role: 'tool', tool_call_id: tc.id, content: compressText(out, { toolName: tc.function.name }) });
+            messages.push({ role: 'tool', tool_call_id: tc.id, content: compressText(forModel(out), { toolName: tc.function.name }) });
           }
           continue;
         }

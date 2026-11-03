@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -72,15 +72,45 @@ function appPath(app: string): string | null {
   for (const c of (m[app] || [])) { try { fs.accessSync(c); return c; } catch { /* next */ } }
   return null;
 }
+// Apps started by their registered name (App Paths / Windows apps), with or without a file.
+const LAUNCH: Record<string, { cmd: string; label: string; office?: boolean }> = {
+  word: { cmd: 'winword', label: 'Word', office: true },
+  excel: { cmd: 'excel', label: 'Excel', office: true },
+  powerpoint: { cmd: 'powerpnt', label: 'PowerPoint', office: true },
+  outlook: { cmd: 'outlook', label: 'Outlook', office: true },
+  onenote: { cmd: 'onenote', label: 'OneNote', office: true },
+  notepad: { cmd: 'notepad', label: 'Notepad' },
+  calculator: { cmd: 'calc', label: 'Calculator' },
+  paint: { cmd: 'mspaint', label: 'Paint' },
+};
+const LAUNCH_ALIASES: Record<string, string> = { winword: 'word', msword: 'word', powerpnt: 'powerpoint', ppt: 'powerpoint', calc: 'calculator', mspaint: 'paint' };
+/** Is an App Paths entry registered for this exe (Office installs register theirs)? */
+function appRegistered(exe: string): boolean {
+  if (!WIN) return false;
+  for (const hive of ['HKCU', 'HKLM']) {
+    const r = spawnSync('reg', ['query', `${hive}\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exe}.exe`], { windowsHide: true, timeout: 5000, stdio: 'ignore' });
+    if (r.status === 0) return true;
+  }
+  return false;
+}
 export async function openApp(args: { app?: string; file?: string; file2?: string }): Promise<string> {
-  const app = (args.app || 'default').toLowerCase();
+  let app = (args.app || 'default').toLowerCase().replace(/^(microsoft|ms)\s+/, '').trim();
+  app = LAUNCH_ALIASES[app] || app;
+  const la = LAUNCH[app];
+  if (la) {
+    if (!WIN) return `Could not start ${la.label}: launching it is only supported on Windows.`;
+    if (la.office && !appRegistered(la.cmd)) return `Could not start ${la.label}: it is not installed on this PC (no App Paths entry for ${la.cmd}.exe).`;
+    if (args.file) { try { fs.accessSync(args.file); } catch { return 'File not found: ' + args.file; } }
+    spawn('cmd', ['/c', 'start', '', la.cmd, ...(args.file ? [args.file] : [])], { detached: true, windowsHide: true }).unref();
+    return `Started ${la.label}${args.file ? ' with ' + args.file : ''}.`;
+  }
   if (app === 'default' || app === 'explorer' || app === 'finder') { if (!args.file) return 'Pass file.'; openWithOs(args.file); return 'Opened ' + args.file + '.'; }
   if (app === 'vscode' || app === 'code') {
     const a = args.file ? [args.file] : [];
     try { spawn(WIN ? 'code.cmd' : 'code', a, { detached: true, windowsHide: true, shell: WIN }).unref(); return 'Opened ' + (args.file || 'VS Code') + ' in VS Code.'; } catch (e) { return 'VS Code launch failed: ' + String(e); }
   }
   const p = appPath(app);
-  if (!p) return 'App not found/supported: ' + app + '. Supported: vscode, notepad++, winmerge, acrobat, vlc, default.';
+  if (!p) return 'App not found/supported: ' + app + '. Supported: ' + [...Object.keys(LAUNCH), 'vscode', 'notepad++', 'winmerge', 'acrobat', 'vlc', 'default'].join(', ') + '.';
   const a = app === 'winmerge' ? [args.file, args.file2].filter(Boolean) as string[] : (args.file ? [args.file] : []);
   spawn(p, a, { detached: true, windowsHide: true }).unref();
   return 'Opened ' + (args.file || app) + ' in ' + app + '.';
