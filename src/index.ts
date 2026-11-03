@@ -31,6 +31,7 @@ import { pushNotif } from './core/notifications.js';
 import { loadExternalMcpServers } from './core/externalMcp.js';
 import { initProviders } from './core/providers.js';
 import { initClaudeModels } from './core/claudeModels.js';
+import { initPlans } from './core/plans.js';
 import { initLocalApps } from './core/localApps.js';
 import { initWatchers } from './core/watchers.js';
 import { initAppScan } from './core/appscan.js';
@@ -102,6 +103,7 @@ async function main(): Promise<void> {
   if (process.argv.includes('--doctor') || process.argv.includes('--check')) doctor(config);
   initProviders(config.dataDir); // free-cloud provider rotation: daily usage tracking
   initClaudeModels(config.dataDir); // live Claude model list from the API (cached; falls back offline)
+  initPlans(config.dataDir); // saved plans (proposed ones survive a restart)
   initLocalApps(config.dataDir); // saved SQL connection profiles for the Database app/tool
   initUrlWatch(config.dataDir); // Site Sentinel: the watched-URL list (checked by the urlHealth watcher)
   initJiraWatch(config.dataDir); // watched Jira tasks: followed issue keys (checked by the jiraTasks watcher)

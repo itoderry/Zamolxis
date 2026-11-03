@@ -42,6 +42,7 @@ import { cliProviderStatus, hasDocker, runInstall } from '../core/cliProviders.j
 import { handleAnthropicProxy } from '../core/code/anthropicProxy.js';
 import { PROXY_SECRET, MIN_CODE_CONTEXT, availableBackends, codeLocalModel } from '../core/code/backends.js';
 import { allowedFolders } from '../core/code/orchestrator.js';
+import { runningTurns } from '../core/busy.js';
 import { resolveClaude, claudeVersion } from '../core/code/cliRunner.js';
 import { detectHardware, startOllamaPull, ollamaPulls, codeModelAdvice, loadCodeModel, checkDisk, CODE_MODEL_CATALOG } from '../core/code/localCodeModel.js';
 import { WhisperServer } from '../core/voice/whisperServer.js';
@@ -291,6 +292,7 @@ export class WebChannel implements Channel {
     const convKey = plan.conversationKey || `plan:${id}`;
     setPlanStatus(id, 'running', 'Running...');
     for (const step of plan.steps) {
+      if (step.status === 'done') continue; // finished before a restart
       const cur = getPlan(id);
       if (!cur || cur.status === 'rejected') return; // user cancelled mid-run
       updateStep(id, step.n, { status: 'running' });
@@ -869,6 +871,33 @@ ${dutiesPanel}
       res.end(html);
       return;
     }
+    // The chat's "Allow this folder" button (shown when Code was refused for a project folder):
+    // adds the folder to Settings -> Code, keeping the folders already allowed.
+    if (url.pathname === '/api/code/allow-folder' && req.method === 'POST') {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      let body = '';
+      req.on('data', (c) => { body += c; if (body.length > 10_000) req.destroy(); });
+      req.on('end', () => {
+        try {
+          const raw = String((JSON.parse(body || '{}') as { folder?: unknown }).folder || '').trim();
+          if (!raw || !path.isAbsolute(raw)) return this.json(res, 400, { ok: false, error: 'an absolute folder path is required' });
+          const folder = path.resolve(raw);
+          // Never a whole drive or a system folder.
+          const top = path.relative(path.parse(folder).root, folder).split(path.sep)[0]!.toLowerCase();
+          if (!top || ['windows', 'program files', 'program files (x86)', 'programdata'].includes(top)) {
+            return this.json(res, 400, { ok: false, error: `${folder} cannot be a project folder` });
+          }
+          const current = allowedFolders(this.config);
+          const folders = current.some((f) => path.resolve(f).toLowerCase() === folder.toLowerCase()) ? current : [...current, folder];
+          this.settings.update({ live: { codeFolders: folders } });
+          logger.info({ folder, folders }, 'code folder allowed from the chat');
+          return this.json(res, 200, { ok: true, folder, folders: allowedFolders(this.config) });
+        } catch (err) {
+          return this.json(res, 400, { ok: false, error: String(err) });
+        }
+      });
+      return;
+    }
     if (url.pathname === '/api/settings') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
       if (req.method === 'GET') return this.json(res, 200, this.settings.snapshot());
@@ -897,6 +926,7 @@ ${dutiesPanel}
       const snap = this.usage?.snapshot();
       const tn = tempName();
       return this.json(res, 200, {
+        busy: runningTurns(),
         agentName: effectiveName(this.config.agentName),
         tempUntil: tn ? tn.until : null,
         time: now.getTime(),

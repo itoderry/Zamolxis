@@ -158,12 +158,12 @@ export function isInside(root: string, target: string): boolean {
 
 /** Resolve a requested folder against the allowed list. Relative paths resolve against the first
  *  allowed folder; a missing folder inside an allowed one is created. */
-export function resolveAllowedFolder(config: ZamolxisConfig, folder?: string): { ok: true; folder: string } | { ok: false; reason: string } {
+export function resolveAllowedFolder(config: ZamolxisConfig, folder?: string): { ok: true; folder: string } | { ok: false; reason: string; notAllowed?: string } {
   const allowed = allowedFolders(config);
   const base = allowed[0]!;
   const want = folder && folder.trim() ? (path.isAbsolute(folder.trim()) ? path.resolve(folder.trim()) : path.resolve(base, folder.trim())) : base;
   if (!allowed.some((a) => isInside(a, want))) {
-    return { ok: false, reason: `The folder "${want}" is not an allowed project folder. Add it in Settings -> Code (allowed: ${allowed.join('; ')}).` };
+    return { ok: false, notAllowed: want, reason: `The folder "${want}" is not an allowed project folder (allowed: ${allowed.join('; ')}). The chat now shows the user an "Allow this folder" button (or they add it in Settings -> Code); once they allow it, run the job again. Do not offer to build it somewhere else unless they ask.` };
   }
   try {
     if (!fs.existsSync(want)) fs.mkdirSync(want, { recursive: true });
@@ -417,7 +417,10 @@ export class Orchestrator {
     }
     if (p === 'code' || (spec.folder && spec.folder.trim())) {
       const f = resolveAllowedFolder(config, spec.folder);
-      if (!f.ok) return refuse(f.reason);
+      if (!f.ok) {
+        if (f.notAllowed) ctx.onActivity?.({ kind: 'folder', folder: f.notAllowed, text: `Code is not allowed in ${f.notAllowed}` });
+        return refuse(f.reason);
+      }
       folder = f.folder;
     }
     if (p === 'cli' && !resolveClaude()) return refuse('The claude CLI is not installed or not found, so this non-code job cannot run. Install Claude Code and log in (`claude auth login`).');

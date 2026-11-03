@@ -5,7 +5,7 @@
  * every turn gets the report, so agent runs and the runs ledger can show it too.
  */
 
-export type ActivityKind = 'start' | 'model' | 'tool' | 'tool_done' | 'subtask' | 'note' | 'retry';
+export type ActivityKind = 'start' | 'model' | 'tool' | 'tool_done' | 'subtask' | 'note' | 'retry' | 'plan' | 'folder';
 
 /** A delegated subtask's state, carried by 'subtask' events. */
 export interface SubtaskActivity {
@@ -41,6 +41,10 @@ export interface Activity {
   /** Model label ('model'). */
   model?: string;
   subtask?: SubtaskActivity;
+  /** 'plan': the id of a plan proposed in this turn (the chat shows it with Approve / Reject). */
+  planId?: string;
+  /** 'folder': a project folder Code was refused for (the chat offers to allow it). */
+  folder?: string;
   /** When it happened (ms epoch). */
   at: number;
 }
@@ -81,6 +85,10 @@ export interface TurnReport {
   steps: Array<{ text: string; at: number; ms?: number; ok?: boolean }>;
   subtasks?: TurnReportSubtask[];
   filesChanged?: string[];
+  /** Plans proposed in this turn, awaiting approval. */
+  plans?: Array<{ id: string; title: string }>;
+  /** Project folders Code was refused for in this turn (not in Settings -> Code). */
+  allowFolders?: string[];
   error?: string;
   /** One line: "Done in 14 s · Claude (opus) · 3 tools (Bash ×2, Read) · 2.1k in / 340 out tokens · $0.02". */
   summary: string;
@@ -164,6 +172,8 @@ export class TurnTracker {
   private readonly steps: TurnReport['steps'] = [];
   private readonly subtasks: TurnReportSubtask[] = [];
   private readonly files = new Set<string>();
+  private readonly plans: Array<{ id: string; title: string }> = [];
+  private readonly folders = new Set<string>();
   private readonly aborters = new Set<AbortController>();
   private tokensIn = 0;
   private tokensOut = 0;
@@ -291,6 +301,14 @@ export class TurnTracker {
         this.subtasks.push({ index: t.index, path: t.path, backend: t.backend, folder: t.folder, ok: t.ok !== false, filesChanged: files, costUsd: t.costUsd ?? 0, ms: t.ms ?? 0, ...(t.escalatedFrom ? { escalatedFrom: t.escalatedFrom } : {}) });
         return;
       }
+      case 'plan':
+        if (ev.planId && !this.plans.some((p) => p.id === ev.planId)) this.plans.push({ id: ev.planId, title: ev.text });
+        this.addStep(`Proposed the plan "${ev.text}"`, ev.at);
+        return;
+      case 'folder':
+        if (ev.folder) this.folders.add(ev.folder);
+        this.addStep(ev.text, ev.at);
+        return;
       case 'model':
         if (ev.model) this.lastModel = ev.model;
         this.addStep(ev.text, ev.at);
@@ -321,6 +339,8 @@ export class TurnTracker {
       steps: this.steps.map((s) => ({ ...s })),
       ...(this.subtasks.length ? { subtasks: [...this.subtasks].sort((a, b) => a.index - b.index) } : {}),
       ...(this.files.size ? { filesChanged: [...this.files].sort() } : {}),
+      ...(this.plans.length ? { plans: this.plans.map((p) => ({ ...p })) } : {}),
+      ...(this.folders.size ? { allowFolders: [...this.folders] } : {}),
       ...(error ? { error } : {}),
     };
     return { ...base, summary: summarize(base) };

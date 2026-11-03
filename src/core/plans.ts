@@ -8,9 +8,12 @@
  * the steps one at a time through the engine, writing each step's status and result
  * back here so the UI shows progress live. Nothing executes without an explicit yes.
  *
- * In-memory + capped, exactly like the Canvas store - a plan is a short-lived unit of
- * work, not durable state.
+ * Capped, and saved to plans.json in the data dir after every change, so a restart keeps
+ * proposed plans; a plan that was running is offered again for the steps it did not finish.
  */
+import fs from 'node:fs';
+import path from 'node:path';
+
 export type StepStatus = 'pending' | 'running' | 'done' | 'error' | 'skipped';
 export type PlanStatus = 'proposed' | 'approved' | 'running' | 'done' | 'rejected';
 
@@ -39,6 +42,41 @@ export interface Plan {
 const MAX_PLANS = 40;
 const plans: Plan[] = [];
 let seq = 0;
+let storeFile = '';
+
+function save(): void {
+  if (!storeFile) return;
+  try {
+    const tmp = `${storeFile}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(plans));
+    fs.renameSync(tmp, storeFile);
+  } catch {
+    /* best-effort: plans still work in memory */
+  }
+}
+
+/** Load the saved plans. A plan cut off by a restart goes back to 'proposed' (its finished steps
+ *  stay done) so the user can approve the rest. Call once at startup. */
+export function initPlans(dataDir: string): void {
+  storeFile = path.join(dataDir, 'plans.json');
+  try {
+    const saved = JSON.parse(fs.readFileSync(storeFile, 'utf8')) as Plan[];
+    if (!Array.isArray(saved)) return;
+    plans.length = 0;
+    for (const p of saved.slice(0, MAX_PLANS)) {
+      if (!p || typeof p.id !== 'string' || !Array.isArray(p.steps)) continue;
+      if (p.status === 'running' || p.status === 'approved') {
+        const at = p.steps.find((s) => s.status === 'running' || s.status === 'pending');
+        for (const s of p.steps) if (s.status === 'running') s.status = 'pending';
+        p.status = 'proposed';
+        p.note = `Interrupted by a restart${at ? ` at step ${at.n}` : ''}. Approve to run the remaining steps.`;
+      }
+      plans.push(p);
+    }
+  } catch {
+    /* no saved plans yet */
+  }
+}
 
 /** Register a newly proposed plan. Returns its id. */
 export function proposePlan(input: {
@@ -73,6 +111,7 @@ export function proposePlan(input: {
   };
   plans.unshift(plan);
   while (plans.length > MAX_PLANS) plans.pop();
+  save();
   return plan;
 }
 
@@ -96,6 +135,7 @@ export function setPlanStatus(id: string, status: PlanStatus, note?: string): vo
   p.status = status;
   if (note !== undefined) p.note = note;
   p.updatedTs = Date.now();
+  save();
 }
 
 export function updateStep(id: string, n: number, patch: Partial<PlanStep>): void {
@@ -108,11 +148,13 @@ export function updateStep(id: string, n: number, patch: Partial<PlanStep>): voi
   if (patch.title !== undefined) s.title = patch.title;
   if (patch.detail !== undefined) s.detail = patch.detail;
   p.updatedTs = Date.now();
+  save();
 }
 
 export function deletePlan(id: string): boolean {
   const i = plans.findIndex((x) => x.id === id);
   if (i < 0) return false;
   plans.splice(i, 1);
+  save();
   return true;
 }

@@ -1183,7 +1183,11 @@
     function connect() {
       sock = new WebSocket(proto + '://' + location.host + '/?cid=' + encodeURIComponent(cid) + '&token=');
       sock.onopen = function () { stat.textContent = '● ' + T('connected'); stat.style.color = '#2e9e3f'; };
-      sock.onclose = function () { dropWork(); stat.textContent = '● ' + T('reconnecting'); stat.style.color = '#d13438'; setTimeout(function () { if (!win.closed) connect(); }, 2500); };
+      sock.onclose = function () {
+        // The connection dropped while a reply was pending (e.g. Zamolxis restarted): that turn is
+        // lost, so say so instead of leaving the question unanswered.
+        if (pendingTurns > 0) addMsg(AGENT_NAME, T('The connection dropped before I could answer (Zamolxis may have restarted). Please send your last message again.'), 'bot', null, false);
+        dropWork(); stat.textContent = '● ' + T('reconnecting'); stat.style.color = '#d13438'; setTimeout(function () { if (!win.closed) connect(); }, 2500); };
       sock.onerror = function () { stat.textContent = '● ' + T('error'); stat.style.color = '#d13438'; };
       sock.onmessage = function (ev) {
         var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
@@ -1217,10 +1221,85 @@
             if (anchor && anchor.parentNode === log) log.insertBefore(card, anchor.nextSibling); else log.insertBefore(card, work ? work.el : null);
             log.scrollTop = log.scrollHeight;
           }
+          // Things the user must act on show even with work details off: a proposed plan
+          // (Approve / Reject here) and a project folder Code was refused for (Allow).
+          if (m.report) {
+            (m.report.plans || []).forEach(function (p) { if (p && p.id) planCard(p.id, p.title); });
+            (m.report.allowFolders || []).forEach(function (f) { if (f) folderCard(f); });
+          }
           return;
         }
         if (m.type === 'permission') { showPermissionCard(m); return; }
       };
+    }
+    function actionCard(title) {
+      var card = el('div', 'msg bot act-card'), head = el('div', 'who');
+      head.textContent = title; card.appendChild(head);
+      log.appendChild(card); log.scrollTop = log.scrollHeight;
+      return card;
+    }
+    function cardButton(label, primary, onClick) {
+      var b = el('button', 'btn mini' + (primary ? '' : ' ghost')); b.textContent = label;
+      b.addEventListener('click', onClick);
+      return b;
+    }
+    function postJson(url, body) { return api(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); }
+    // A plan the assistant proposed: its steps with their status, Approve / Reject, and live
+    // progress while it runs (the same plan is in the Workflow Canvas app).
+    function planCard(id, title) {
+      var card = actionCard(T('Proposed plan') + ': ' + (title || id));
+      var goal = el('div', 'act-goal'), list = el('ol', 'act-steps'), note = el('div', 'hint act-note'), row = el('div', 'act-row');
+      card.appendChild(goal); card.appendChild(list); card.appendChild(note); card.appendChild(row);
+      var timer = null;
+      function render(p) {
+        goal.textContent = p.goal || '';
+        goal.style.display = p.goal ? '' : 'none';
+        list.innerHTML = '';
+        (p.steps || []).forEach(function (s) {
+          var li = el('li', 'act-step st-' + s.status), t = el('span', 'act-t'), st = el('span', 'act-st');
+          t.textContent = s.title; st.textContent = s.status === 'pending' ? '' : T(s.status);
+          li.title = s.result ? String(s.result).slice(0, 600) : (s.detail || '');
+          li.appendChild(t); li.appendChild(st); list.appendChild(li);
+        });
+        note.textContent = p.note || '';
+        row.innerHTML = '';
+        if (p.status === 'proposed') {
+          row.appendChild(cardButton(T('Approve and run'), true, function () {
+            row.innerHTML = ''; note.textContent = T('Starting...');
+            postJson('/api/plans', { action: 'approve', id: id }).then(function (d) { if (!d.ok) note.textContent = d.error || T('Failed.'); poll(); }).catch(function () { note.textContent = T('Failed.'); });
+          }));
+          row.appendChild(cardButton(T('Reject'), false, function () { postJson('/api/plans', { action: 'reject', id: id }).then(poll).catch(function () {}); }));
+        }
+        row.appendChild(cardButton(T('Open in Workflow Canvas'), false, function () { launchApp('workflow'); }));
+        if (p.status === 'running' || p.status === 'approved') { if (!timer) timer = setInterval(poll, 2000); }
+        else if (timer) { clearInterval(timer); timer = null; }
+      }
+      function poll() {
+        if (!card.isConnected) { if (timer) clearInterval(timer); timer = null; return; }
+        postJson('/api/plans', { action: 'get', id: id }).then(function (d) {
+          if (d && d.ok && d.plan) render(d.plan);
+          else { note.textContent = T('This plan is no longer available.'); row.innerHTML = ''; if (timer) { clearInterval(timer); timer = null; } }
+        }).catch(function () {});
+      }
+      poll();
+    }
+    // Code was refused for a project folder that is not allowed: one click adds it to
+    // Settings -> Code, then the request can run again.
+    function folderCard(folder) {
+      var card = actionCard(T('Project folder not allowed'));
+      var txt = el('div'), row = el('div', 'act-row'), note = el('div', 'hint act-note');
+      txt.textContent = T('Code can only work in allowed folders, and this one is not:') + ' ' + folder;
+      card.appendChild(txt); card.appendChild(row); card.appendChild(note);
+      row.appendChild(cardButton(T('Allow this folder'), true, function () {
+        row.innerHTML = ''; note.textContent = T('Saving...');
+        postJson('/api/code/allow-folder', { folder: folder }).then(function (d) {
+          if (!d || !d.ok) { note.textContent = (d && d.error) || T('Failed.'); return; }
+          note.textContent = T('Allowed. Code can now work in') + ' ' + d.folder + '.';
+          var last = inHist[inHist.length - 1];
+          if (last) row.appendChild(cardButton(T('Run my last request again'), true, function () { row.innerHTML = ''; win.sendChat(last); }));
+        }).catch(function () { note.textContent = T('Failed.'); });
+      }));
+      row.appendChild(cardButton(T('Not now'), false, function () { row.innerHTML = ''; note.textContent = T('Not allowed. You can add it later in Settings -> Code.'); }));
     }
     // Interactive tool-permission prompt: an inline card with allow/deny choices.
     // "Always" answers are remembered server-side per chat / skill / agent.

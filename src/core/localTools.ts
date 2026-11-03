@@ -3,6 +3,7 @@ import { outlookAvailable, outlookMail, outlookPim } from './outlookLocal.js';
 import { onenoteAvailable, onenoteRead, sqlQuery, browserHistory, archiveAvailable, archiveTool, openInExcel } from './localApps.js';
 import { setCanvas, setCanvasTable } from './canvas.js';
 import { proposePlan } from './plans.js';
+import type { ActivityEvent } from './activity.js';
 import { browserControl } from './browser.js';
 import { openInWord, openInPowerpoint, openApp, scanDocument, itunes, systemStatus, steamGames, steamAvailable, stickyNotes, stickyAvailable, autohotkey, ahkAvailable } from './nativeApps.js';
 
@@ -208,7 +209,15 @@ export async function runHaService(domain: string, service: string, entityId: st
   }
 }
 
-export function buildLocalTools(): LocalToolset {
+/** The chat a toolset serves: plans are tagged with it and announced to it. */
+export interface LocalToolContext {
+  conversationKey?: string;
+  channel?: string;
+  chatId?: string;
+  onActivity?: (ev: ActivityEvent) => void;
+}
+
+export function buildLocalTools(ctx: LocalToolContext = {}): LocalToolset {
   const defs: unknown[] = [];
   const names: string[] = [];
 
@@ -543,7 +552,7 @@ export function buildLocalTools(): LocalToolset {
     function: {
       name: 'propose_plan',
       description:
-        'Propose a multi-step plan for the user to REVIEW and APPROVE before anything runs. Use for any request needing several actions, especially slow, costly, or side-effecting ones. Do NOT execute; lay out the steps and stop. The plan appears in the user\'s Workflow Canvas; on approval each step runs in order.',
+        'Propose a multi-step plan for the user to REVIEW and APPROVE before anything runs. Use for any request needing several actions, especially slow, costly, or side-effecting ones. Do NOT execute; lay out the steps and stop. The plan appears in the chat with Approve / Reject buttons; on approval each step runs in order.',
       parameters: {
         type: 'object',
         properties: {
@@ -575,8 +584,9 @@ export function buildLocalTools(): LocalToolset {
       logger.info({ tool: name }, 'local tool exec');
       if (name === 'propose_plan') {
         const steps = Array.isArray(args.steps) ? (args.steps as Array<{ title?: string; detail?: string }>) : [];
-        const plan = proposePlan({ title: String(args.title ?? 'Untitled plan'), goal: String(args.goal ?? ''), steps: steps.map((s) => ({ title: String(s?.title ?? ''), detail: String(s?.detail ?? s?.title ?? '') })) });
-        return `Proposed a ${plan.steps.length}-step plan "${plan.title}" (id ${plan.id}). Awaiting your approval in the Workflow Canvas - nothing has run yet.`;
+        const plan = proposePlan({ title: String(args.title ?? 'Untitled plan'), goal: String(args.goal ?? ''), steps: steps.map((s) => ({ title: String(s?.title ?? ''), detail: String(s?.detail ?? s?.title ?? '') })), conversationKey: ctx.conversationKey, channel: ctx.channel, chatId: ctx.chatId });
+        ctx.onActivity?.({ kind: 'plan', planId: plan.id, text: plan.title });
+        return `Proposed a ${plan.steps.length}-step plan "${plan.title}" (id ${plan.id}). It is shown in this chat with Approve and Reject buttons (and in the Workflow Canvas app); nothing has run yet. Tell the user to review it there.`;
       }
       if (name === 'http_get') return httpGet(args);
       if (name === 'web_search') return runWebSearch(String(args.query ?? ''));

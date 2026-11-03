@@ -2,6 +2,30 @@
 
 ## Unreleased (0.3.x)
 
+- **Code chats stay on Claude.** After Claude edited files, ran commands or delegated work in a chat,
+  a short follow-up such as "it doesn't really work" went to the free providers under Auto routing,
+  and models that had never seen the project answered with plans and guesses. Now such a chat keeps
+  its follow-ups on Claude, on the primary model rather than the fast one, for 12 hours after the
+  last code work (kept in `code-chats.json`, so a restart does not reset it). Picking another route
+  in the chat still wins.
+- **Proposed plans show in the chat and survive a restart.** A plan from `propose_plan` lived only
+  in the Workflow Canvas app, with nothing in the chat but "review the plan in the Workflow Canvas",
+  and in memory only, so a restart deleted it. Now the chat shows a plan card under the reply with
+  the steps, **Approve and run**, **Reject** and **Open in Workflow Canvas**, and follows the steps
+  live while the plan runs. Plans from the free and local models are tagged with their chat too.
+  Plans are saved to `plans.json`; a plan cut off by a restart comes back as proposed, with its
+  finished steps kept, so approving it runs only the rest.
+- **Restart waits for running turns.** `zamolxis restart` and `zamolxis update` (and the restart and
+  update buttons, which run them) now wait until no reply, agent run or plan step is in progress,
+  and until the instance has been idle for 3 s, before stopping it; after 10 minutes they restart
+  anyway, and `zamolxis restart --now` skips the wait. `/api/status` reports `busy`, the number of
+  running turns. A chat whose connection drops while a reply is pending now says so instead of
+  leaving the question unanswered.
+- **One click to allow a project folder for Code.** When a Code job is refused because its folder is
+  not in Settings -> Code, the chat shows a card with **Allow this folder** (it is added next to the
+  folders already allowed; a whole drive or a Windows system folder is refused) and then **Run my
+  last request again**. The models are told to call the tool with the folder the user named instead
+  of refusing on their own or offering to build the project somewhere else.
 - **Claude: the newest models are used automatically (Opus 5.5 instead of Opus 4.8).** "opus",
   "sonnet", "haiku", the Claude route and the default model were handed to the Claude Agent SDK as
   aliases, and the SDK's bundled Claude Code (2.1.156) mapped them to the models it knew, so turns
