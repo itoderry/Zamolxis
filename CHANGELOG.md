@@ -2,6 +2,51 @@
 
 ## Unreleased (0.3.x)
 
+- **Voice uses the Claude Voice system (local Whisper + Kokoro).** A new **Settings -> Voice** tab
+  (the toggles left Appearance) picks the speech engine: **Claude Voice (local Whisper)**, the
+  default when its whisper.cpp release zip (or a set-up whisper runtime) and a whisper model are
+  found, or **Browser** (the Web Speech API, as before). With Claude Voice the page captures the
+  microphone (AudioWorklet, 16 kHz), cuts utterances by level the way Claude Voice does (noise floor,
+  speech ratio, 900 ms of silence, 300 ms pre-roll) and `POST /api/voice/transcribe` runs each one
+  through **whisper-server** (whisper.cpp b5454, the build Claude Voice uses) with Claude Voice's
+  models, Silero VAD and speech settings; audio never leaves the PC. whisper-server runs from one
+  runtime folder shared by all data dirs (`%LOCALAPPDATA%\Zamolxis\whisper-runtime`, or
+  `ZAMOLXIS_WHISPER_DIR`): only whisper-server.exe is extracted from Claude Voice's zip and every
+  DLL is a hard link to Claude Voice's install after a size check against the zip (no extra disk);
+  extracting the DLLs from the zip (about 1.2 GB, or a CPU-only set of about 10 MB) is offered only
+  when linking is not possible, after a free-space check, and the official release can be
+  downloaded when the zip is missing. Settings -> Voice shows the mode and the disk used. It starts on first use on a free 127.0.0.1 port, unloads after 5 idle
+  minutes (setting) to free VRAM, and retries once on CPU when the GPU load fails (for example
+  while Claude Voice holds the GPU). A server left behind by a crash is stopped at the next start.
+  Defaults (model large-v3, languages, translate to English, stop and cancel phrases, Kokoro voice)
+  are read from `%APPDATA%\ClaudeVoice\config.json`, never written; **Use Claude Voice settings**
+  fills the form from it.
+- **"Zam" wake word and Dictate.** Saying **"zam"** (or "hey zam", "hello zam"; misheard forms
+  such as "sam", "zum", "zahm" are editable) while a Zamolxis window has focus opens a **new chat
+  window** and dictates into it; a stop phrase (Claude Voice's, e.g. "execute", "go ahead zam")
+  sends it, a cancel phrase ("cancel", "never mind") discards it, and after 120 s without speech it
+  stops and leaves the text unsent. "Zam, <prompt> ... execute" in one breath works too. Wake
+  listening stops whenever Zamolxis loses focus; a dictation you started keeps going. Phrase
+  matching is a port of Claude Voice's (difflib ratio, stop in the last 3 words, cancel in 4 words
+  or fewer), plus one rule for the short name: a wake phrase must contain the name itself. A
+  **Dictate** desktop shortcut, a command bar entry and a desktop right-click entry do the same.
+- **Microphone in every chat.** The mic button is in every chat window, including new chats and
+  agent chats. With Claude Voice: click to talk, click again, pause or say a stop phrase to send;
+  a cancel phrase clears it.
+- **Kokoro voices for spoken replies.** Spoken replies can be Off, Browser or **Kokoro** (Claude
+  Voice's offline neural voices through its own Python venv, `POST /api/voice/tts`,
+  `GET /api/voice/voices`), with voice, speed and **Test voice**. The microphone is muted while a
+  reply plays and for 0.5 s after. `GET /api/voice/status` and `POST /api/voice/prepare` back the
+  status line (engine, whisper-server state, model, GPU/CPU, venv found).
+- **Web UI refuses cross-site requests.** Before, any web page open in the browser could POST to
+  `/api/*` (a plain-text "simple" request needs no CORS preflight) or open the chat WebSocket
+  (browsers don't apply CORS to WebSockets) and drive the agent, and a hostile domain pointed at
+  127.0.0.1 (DNS rebinding) looked same-site. Now every request is checked: on a loopback bind the
+  `Host` must be a loopback name (add others with `ZAMOLXIS_WEB_ALLOWED_HOSTS`), a browser `Origin`
+  must be Zamolxis's own (`null` from sandboxed frames such as Canvas content is refused), and
+  `Sec-Fetch-Site: cross-site` is refused except plain page navigations outside `/api/`.
+  Non-browser clients (CLI, scheduled tasks, delegated Claude Code workers) send no Origin and are
+  unaffected; the Claude Code translator route keeps its own loopback + secret guard.
 - **Providers: brief overloads retried, "not on your plan" models repaired.** A provider that says
   it is briefly busy (Z.ai code 1305 "temporarily overloaded", HTTP 503/529, "high demand") is
   retried after 3 s and 6 s in chats, delegated Claude Code runs and Re-check, and if still busy is

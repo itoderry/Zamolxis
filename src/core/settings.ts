@@ -8,6 +8,7 @@ import { setToolOutputCap } from './toolOutput.js';
 import { configuredProviders, providerById, setProviderModels, setProviderModelsAuto, setKeylessProviders, setProviderModelPersister, resetProviderHealthForEnv, MODEL_NAME_RE } from './providers.js';
 import { claudeModels } from './claudeModels.js';
 import { setCodeModelPersister } from './code/localCodeModel.js';
+import { effectiveVoiceSettings, sanitizeVoiceOverrides, claudeVoiceEngineAvailability, type VoiceOverrides } from './voice/claudeVoiceConfig.js';
 import { logger } from '../logger.js';
 
 const PERMISSION_MODES = ['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk'] as const;
@@ -92,6 +93,7 @@ interface PersistedSettings {
   providerModels?: Record<string, string>;
   providerModelsAuto?: string[];
   keylessProviders?: string[];
+  voice?: VoiceOverrides;
   channels?: Partial<Record<(typeof CHANNELS)[number], boolean>>;
   web?: { port?: number; bind?: string; authToken?: string };
   sandbox?: { dockerImage?: string; dockerContainer?: string; sshHost?: string; sshUser?: string; sshPort?: number; sshIdentity?: string };
@@ -180,6 +182,8 @@ export class SettingsManager {
         providerModelsAuto: [...this.config.providerModelsAuto],
         keylessProviders: [...this.config.keylessProviders],
       },
+      // Settings -> Voice: effective values (Claude Voice defaults + saved overrides), all live.
+      voice: { ...effectiveVoiceSettings(this.config.voice), saved: Object.keys(this.config.voice ?? {}).length > 0, claudeVoice: claudeVoiceEngineAvailability() },
       // Restart-required sections reflect the PERSISTED intent overlaid on the live
       // config, so a saved change stays shown even before the reload takes effect.
       channels: { ...this.config.channels, ...(this.persisted.channels ?? {}) },
@@ -364,6 +368,14 @@ export class SettingsManager {
       this.config.keylessProviders = ids;
       p.keylessProviders = ids;
       setKeylessProviders(ids);
+    }
+
+    // ── voice (Settings -> Voice; live: the voice services read it per request) ──
+    if (patch.voice && typeof patch.voice === 'object' && !Array.isArray(patch.voice)) {
+      // Each side is validated on its own, so an invalid field in the patch keeps the saved value.
+      const v = { ...sanitizeVoiceOverrides(this.config.voice ?? {}), ...sanitizeVoiceOverrides(patch.voice) };
+      this.config.voice = v;
+      p.voice = v;
     }
 
     // ── identity: curated SOUL.md / USER.md (live; written to their own files) ──

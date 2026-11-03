@@ -331,6 +331,7 @@ body[data-mode="dark"] .set-nav { background: #242424; border-right-color: rgba(
 body[data-mode="dark"] .set-nav button { color: #ddd; }
 body[data-mode="dark"] .set-nav button:hover { background: rgba(255,255,255,.08); }
 body[data-mode="dark"] .seg button, body[data-mode="dark"] .btn.ghost { background: #3a3a3a; color: #eaeaea; border-color: rgba(255,255,255,.16); }
+body[data-mode="dark"] .seg button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 body[data-mode="dark"] .hint, body[data-mode="dark"] .empty, body[data-mode="dark"] .sdesc, body[data-mode="dark"] .a-sub { color: #9a9a9a; }
 body[data-mode="dark"] .switch { background: #3a3f47; border-color: rgba(255,255,255,.14); }
 body[data-mode="dark"] .switch.on { background: var(--accent); border-color: var(--accent); }
@@ -448,6 +449,15 @@ table.sql-grid tr:nth-child(even) td { background: rgba(128,128,128,.06); }
 .chat-mic { padding: 0 12px; background: #e5e5e5; border: 0; border-radius: 8px; cursor: pointer; font-size: 15px; }
 body[data-mode="dark"] .chat-mic { background: #3a3a3a; }
 .chat-mic.rec { background: #d13438; color: #fff; animation: zx-pulse 1s ease-in-out infinite; }
+.chat-mic.rec.busy { background: #e08a2b; }
+/* dictation banner above a chat input (wake word / Dictate) */
+.chat-dict { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-top: 1px solid #f0c9ca; background: #fff4f4; font-size: 12px; color: #a4262c; }
+.chat-dict .cd-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-dict.busy .cd-txt { color: #c46a12; }
+.chat-dict .btn { padding: 4px 10px; font-size: 12px; }
+body[data-mode="dark"] .chat-dict { background: #3a2424; border-color: rgba(255,255,255,.08); color: #ffb3b6; }
+.voice-status { font-size: 12px; line-height: 1.6; color: #444; background: rgba(0,0,0,.03); border: 1px solid rgba(0,0,0,.08); border-radius: 8px; padding: 8px 10px; word-break: break-word; }
+body[data-mode="dark"] .voice-status { color: #cfcfcf; background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.1); }
 @keyframes zx-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(209,52,56,.5); } 50% { box-shadow: 0 0 0 6px rgba(209,52,56,0); } }
 
 /* ===== Proactive notification toasts ===== */

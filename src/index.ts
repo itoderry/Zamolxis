@@ -44,6 +44,8 @@ import { configuredProviders } from './core/providers.js';
 import { loadCodeModel } from './core/code/localCodeModel.js';
 import { buildToolServers } from './tools/index.js';
 import { Orchestrator } from './core/code/orchestrator.js';
+import { stopWhisperServers } from './core/voice/whisperServer.js';
+import { stopKokoroSidecars } from './core/voice/kokoroSidecar.js';
 
 /** Print a readiness report (`--doctor`/`--check`) and exit. Used by the installer. */
 function doctor(config: ZamolxisConfig): never {
@@ -363,6 +365,9 @@ async function main(): Promise<void> {
     tabs.stop();
     sessionIndex.close();
     await manager.stopAll();
+    // Voice sidecars (whisper-server, Kokoro) are stopped by the web channel; this catches any left over.
+    stopWhisperServers();
+    stopKokoroSidecars();
     process.exit(0);
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));
