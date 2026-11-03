@@ -458,6 +458,12 @@ body[data-mode="dark"] .chat-mic { background: #3a3a3a; }
 body[data-mode="dark"] .chat-dict { background: #3a2424; border-color: rgba(255,255,255,.08); color: #ffb3b6; }
 .voice-status { font-size: 12px; line-height: 1.6; color: #444; background: rgba(0,0,0,.03); border: 1px solid rgba(0,0,0,.08); border-radius: 8px; padding: 8px 10px; word-break: break-word; }
 body[data-mode="dark"] .voice-status { color: #cfcfcf; background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.1); }
+.voice-recent { border: 1px solid rgba(0,0,0,.08); border-radius: 8px; padding: 2px 10px; }
+.voice-rec { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-bottom: 1px solid rgba(0,0,0,.06); word-break: break-word; }
+.voice-rec:last-child { border-bottom: 0; }
+.voice-rec .btn { padding: 2px 10px; }
+body[data-mode="dark"] .voice-recent { border-color: rgba(255,255,255,.1); }
+body[data-mode="dark"] .voice-rec { border-bottom-color: rgba(255,255,255,.06); }
 @keyframes zx-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(209,52,56,.5); } 50% { box-shadow: 0 0 0 6px rgba(209,52,56,0); } }
 
 /* ===== Proactive notification toasts ===== */

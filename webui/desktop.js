@@ -341,11 +341,43 @@
   function browserRecStop() { var r = browserRec; browserRec = null; if (r) { try { r.abort(); } catch (e) {} } }
 
   // Claude Voice engine: mic -> worklet (16 kHz frames) -> segmenter -> WAV -> /api/voice/transcribe.
-  var cap = null, capStarting = null, lastNoiseFloor = 0, txChain = Promise.resolve(), txInflight = 0;
+  var cap = null, capStarting = null, lastNoiseFloor = 0, txChain = Promise.resolve(), txInflight = 0, micLabel = '';
+  // The microphone whose name contains `pref` (case-insensitive), or null. Names are only visible
+  // once the page has microphone permission.
+  function findMicId(pref) {
+    if (!pref || !navigator.mediaDevices.enumerateDevices) return Promise.resolve(null);
+    var p = String(pref).toLowerCase();
+    return navigator.mediaDevices.enumerateDevices().then(function (ds) {
+      var d = ds.filter(function (x) { return x.kind === 'audioinput' && x.label && x.label.toLowerCase().indexOf(p) >= 0; })[0];
+      return d ? d.deviceId : null;
+    }).catch(function () { return null; });
+  }
+  // Raw microphone signal by default (Claude Voice records it unprocessed): the browser's echo
+  // cancellation, noise suppression and auto-gain are tuned for calls and garble speech for
+  // Whisper. Settings -> Voice can turn them back on.
+  function openMic() {
+    var c = voiceCfg(), pref = c.micDevice || '', clean = !!c.audioCleanup;
+    var base = { channelCount: 1, echoCancellation: clean, noiseSuppression: clean, autoGainControl: clean };
+    function open(id) { var a = Object.assign({}, base); if (id) a.deviceId = { exact: id }; return navigator.mediaDevices.getUserMedia({ audio: a }); }
+    return findMicId(pref).then(function (id) {
+      return open(id).catch(function (err) { if (id) return open(null); throw err; }).then(function (stream) {
+        if (id || !pref) return stream;
+        // First use: names were hidden until now. Switch to the preferred microphone if it is not
+        // the one the browser picked.
+        return findMicId(pref).then(function (id2) {
+          var t = stream.getAudioTracks()[0], cur = t && t.getSettings ? t.getSettings().deviceId : '';
+          if (!id2 || id2 === cur) return stream;
+          stream.getTracks().forEach(function (x) { x.stop(); });
+          return open(id2);
+        });
+      });
+    });
+  }
   function capStart() {
     if (cap || capStarting) return;
     var m = voiceCfg().mic || {};
-    capStarting = navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } }).then(function (stream) {
+    capStarting = openMic().then(function (stream) {
+      var tr0 = stream.getAudioTracks()[0]; micLabel = (tr0 && tr0.label) || '';
       var AC = window.AudioContext || window.webkitAudioContext, ctx = null, src = null;
       // A 16 kHz context lets the browser resample; a browser that refuses a mic at another rate gets
       // its default rate and the worklet resamples.
@@ -384,15 +416,39 @@
   // A context made without a click may start suspended: the next click wakes it.
   document.addEventListener('pointerdown', function () { if (cap && cap.ctx.state === 'suspended') cap.ctx.resume().catch(function () {}); }, true);
   function capFlush() { if (cap) cap.seg.flush(); }
+  // The last few utterances (Settings -> Voice -> Recent recordings): what was heard, how loud, on
+  // which microphone, and what Whisper made of it, with playback, so bad recognition can be told
+  // apart from bad audio.
+  var voiceRecent = [];
+  function noteRecent(entry) {
+    voiceRecent.unshift(entry);
+    while (voiceRecent.length > 5) { var old = voiceRecent.pop(); if (old.url) URL.revokeObjectURL(old.url); }
+    if (window.__zxVoiceRecentChanged) window.__zxVoiceRecentChanged();
+  }
+  function levelOf(samples) {
+    var peak = 0, sum = 0;
+    for (var i = 0; i < samples.length; i++) { var a = Math.abs(samples[i]); if (a > peak) peak = a; sum += samples[i] * samples[i]; }
+    return { peak: peak, rms: Math.sqrt(sum / Math.max(1, samples.length)) };
+  }
   function onUtterance(samples) {
     if (txInflight >= 4) { voiceError(T('Speech recognition is falling behind'), T('An utterance was skipped; try again in a moment.')); return; }
     var wav = ZV.encodeWav(samples, 16000);
+    var lv = levelOf(samples), entry = { at: new Date(), seconds: samples.length / 16000, peak: lv.peak, rms: lv.rms, mic: micLabel, url: URL.createObjectURL(new Blob([wav], { type: 'audio/wav' })), text: null, ms: 0, lang: '' };
+    noteRecent(entry);
+    var t0 = Date.now();
     txInflight++; markVoiceBusy();
     txChain = txChain.then(function () {
       return fetch('/api/voice/transcribe', { method: 'POST', headers: { 'content-type': 'audio/wav' }, body: wav })
         .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error((d && d.error) || ('HTTP ' + r.status)); return d; }); });
-    }).then(function (d) { txInflight--; markVoiceBusy(); vrDispatch(d && d.text); }, function (err) {
+    }).then(function (d) {
       txInflight--; markVoiceBusy();
+      entry.text = (d && d.text) || ''; entry.lang = (d && d.lang) || ''; entry.ms = Date.now() - t0;
+      if (window.__zxVoiceRecentChanged) window.__zxVoiceRecentChanged();
+      vrDispatch(d && d.text);
+    }, function (err) {
+      txInflight--; markVoiceBusy();
+      entry.text = ''; entry.error = String((err && err.message) || err); entry.ms = Date.now() - t0;
+      if (window.__zxVoiceRecentChanged) window.__zxVoiceRecentChanged();
       voiceError(T('Speech recognition failed'), err);
       if (vr.ptt) vr.ptt.abort();
     });
@@ -1323,6 +1379,47 @@
       pane.appendChild(fld(T('Translate to English'), swRow(translate, T('Write what you say in English, whatever language you speak.'))));
       pane.appendChild(fld(T('Unload after (idle minutes)'), idle));
 
+      // ---- microphone ----
+      var cvMic = ((st.defaults || {}).micDevice) || '';
+      var mic = el('select', 'inp'); mic.style.width = '100%';
+      function fillMics(labels) {
+        mic.innerHTML = '';
+        var opts = [['', T('Browser default microphone')]];
+        if (cvMic) opts.push([cvMic, Tf('Same as Claude Voice ({m})', { m: cvMic })]);
+        labels.forEach(function (l) { if (l && !opts.some(function (o) { return o[0] === l; })) opts.push([l, l]); });
+        if (s.micDevice && !opts.some(function (o) { return o[0] === s.micDevice; })) opts.push([s.micDevice, s.micDevice + ' (' + T('not connected') + ')']);
+        opts.forEach(function (o) { var op = el('option'); op.value = o[0]; op.textContent = o[1]; mic.appendChild(op); });
+        mic.value = s.micDevice || '';
+      }
+      fillMics([]);
+      if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+        navigator.mediaDevices.enumerateDevices().then(function (ds) { fillMics(ds.filter(function (d) { return d.kind === 'audioinput' && d.label; }).map(function (d) { return d.label; })); }).catch(function () {});
+      }
+      var cleanup = sw(!!s.audioCleanup);
+      pane.appendChild(fld(T('Microphone'), mic, T('Claude Voice records from its own microphone setting; pick the same one here. Names appear after the first microphone permission.') + (micLabel ? ' ' + Tf('In use now: {m}', { m: micLabel }) : '')));
+      pane.appendChild(fld(T('Browser audio cleanup'), swRow(cleanup, T('Echo cancellation, noise suppression and auto-gain. Off is best for Whisper (they are tuned for calls); turn on only for a very noisy room.'))));
+
+      // ---- recent recordings (diagnostics) ----
+      var recent = el('div', 'voice-recent');
+      function paintRecent() {
+        recent.innerHTML = '';
+        if (!voiceRecent.length) { recent.appendChild(el('div', 'hint', T('Nothing recorded yet in this window. Use the mic, then come back here to see and replay what Whisper heard.'))); return; }
+        voiceRecent.forEach(function (r) {
+          var row = el('div', 'voice-rec');
+          var play = el('button', 'btn ghost', '▶'); play.title = T('Play what the microphone recorded');
+          play.addEventListener('click', function () { try { new Audio(r.url).play(); } catch (e) {} });
+          var meta = el('div', 'hint');
+          var loud = r.peak < 0.05 ? T('very quiet') : r.peak > 0.98 ? T('clipping') : T('level ok');
+          meta.textContent = r.at.toLocaleTimeString() + ' · ' + r.seconds.toFixed(1) + ' s · ' + T('peak') + ' ' + Math.round(r.peak * 100) + '% (' + loud + ')' + (r.ms ? ' · ' + (r.ms / 1000).toFixed(1) + ' s ' + T('to transcribe') : '') + (r.lang ? ' · ' + r.lang : '') + (r.mic ? ' · ' + r.mic : '');
+          var txt = el('div'); txt.textContent = r.text === null ? T('transcribing...') : r.error ? (T('error') + ': ' + r.error) : (r.text ? '“' + r.text + '”' : T('(nothing recognised)'));
+          var col = el('div'); col.style.flex = '1'; col.appendChild(txt); col.appendChild(meta);
+          row.appendChild(play); row.appendChild(col); recent.appendChild(row);
+        });
+      }
+      window.__zxVoiceRecentChanged = paintRecent;
+      paintRecent();
+      pane.appendChild(fld(T('Recent recordings'), recent, T('The last 5 things the microphone picked up, as sent to Whisper. If the playback sounds bad, fix the microphone; if it sounds fine but the text is wrong, try another model or language setting.')));
+
       // ---- wake word, stop, cancel ----
       var wake = sw(s.wakeEnabled);
       var wname = inp(s.wakeName);
@@ -1353,6 +1450,7 @@
         var d = st.defaults || {};
         if (d.model) model.value = d.model;
         langs.value = list(d.languages); translate.classList.toggle('on', !!d.translate); device.value = d.device || 'auto';
+        mic.value = d.micDevice || ''; cleanup.classList.toggle('on', !!d.audioCleanup);
         stops.value = list(d.stopPhrases); cancels.value = list(d.cancelPhrases);
         if (d.kokoroVoice) kv.value = d.kokoroVoice; kspeed.value = d.kokoroSpeed || 1;
         status.textContent = T('Filled from Claude Voice. Save to apply.');
@@ -1361,10 +1459,12 @@
       save.addEventListener('click', function () {
         save.disabled = true; status.textContent = T('Saving...');
         var patch = { engine: engine._val, model: model.value, languages: langs.value, translate: isOn(translate), device: device.value, idleMinutes: Number(idle.value) || 5,
+          micDevice: mic.value, audioCleanup: isOn(cleanup),
           wakeEnabled: isOn(wake), wakeName: wname.value, wakeAliases: walias.value, stopPhrases: stops.value, cancelPhrases: cancels.value,
           tts: tts._val, kokoroVoice: kv.value, kokoroSpeed: Number(kspeed.value) || 1 };
         postSettings({ voice: patch })
           .then(function () { save.disabled = false; status.textContent = T('Saved.'); return loadVoiceCfg(); })
+          .then(function (d) { if (cap) { capStop(); vrSync(); } return d; }) // reopen the mic with the new device / cleanup choice
           .then(function (d) { if (d) { st = d; paintStatus(d); } })
           .catch(function () { save.disabled = false; status.textContent = T('Failed.'); });
       });
