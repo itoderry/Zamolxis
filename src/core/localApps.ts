@@ -319,10 +319,28 @@ export async function browserHistoryData(args: { what?: string; query?: string; 
 export function dataDir(): string { return appDataDir; }
 /** Where files Zamolxis makes FOR THE USER (Word/Excel/PowerPoint exports) are saved — a
  *  discoverable Documents\Zamolxis folder, not the hidden data dir. Created on demand. */
+/** Where generated documents go: Documents\Zamolxis, or ~\Zamolxis Files when Documents cannot be
+ *  written. Windows Defender's Controlled Folder Access blocks node.exe from Documents (unless the
+ *  user allows it), and every Word/Excel/PowerPoint file then failed with ENOENT. */
+let docsDirCache = '';
 export function docsDir(): string {
-  const d = path.join(os.homedir(), 'Documents', 'Zamolxis');
-  try { fs.mkdirSync(d, { recursive: true }); } catch { /* best-effort */ }
-  return d;
+  if (docsDirCache) return docsDirCache;
+  const preferred = path.join(os.homedir(), 'Documents', 'Zamolxis');
+  const fallback = path.join(os.homedir(), 'Zamolxis Files');
+  for (const d of [preferred, fallback]) {
+    try {
+      fs.mkdirSync(d, { recursive: true });
+      const probe = path.join(d, `.write-probe-${process.pid}`);
+      fs.writeFileSync(probe, '');
+      fs.unlinkSync(probe);
+      if (d === fallback) logger.warn({ preferred, used: fallback }, 'documents: Documents is not writable (Windows Controlled Folder Access?), saving generated files here instead');
+      docsDirCache = d;
+      return d;
+    } catch {
+      /* try the next one */
+    }
+  }
+  return fallback;
 }
 export function openWithOs(file: string): void {
   if (process.platform === 'win32') spawn('cmd', ['/c', 'start', '', file], { detached: true, windowsHide: true }).unref();

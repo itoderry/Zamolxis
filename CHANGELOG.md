@@ -2,6 +2,17 @@
 
 ## Unreleased (0.3.x)
 
+- **"Open Word" / "Open Excel" really open them, and failed tools are no longer reported as done.**
+  Three things stacked up: Windows Defender's Controlled Folder Access blocks node.exe from writing to
+  Documents, so `open_in_word` / `open_in_excel` / `open_in_powerpoint` could not create their files;
+  no tool could simply start Word or Excel (`open_app` knew only VS Code, Notepad++, WinMerge, Acrobat
+  and VLC); and the free models answered "Word has been opened" although every tool had returned an
+  error. Now generated files go to Documents\Zamolxis when it can be written, else to
+  `~\Zamolxis Files`; `open_app` also starts word, excel, powerpoint, outlook, onenote, notepad,
+  calculator and paint, with or without a file (Office apps are checked in App Paths first); and a
+  tool result that reports a failure ("Could not ...", "File not found", "App not found", "... failed")
+  is marked failed in the turn report and handed to the free/local models as `TOOL FAILED: ...` with
+  an instruction to say so, while on the Claude tier the open tools return it as an error result.
 - **`zamolxis start` / `restart` launch outside the Claude desktop app's package.** Processes started
   from a Claude Code tool see AppData merged with the app package's cache and write into it, so files
   they create (models, configs, endpoint files) were invisible to anything the user or Windows starts.
