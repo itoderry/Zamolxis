@@ -1,6 +1,6 @@
 import type http from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { providerById, recordProviderUse, providerBaseUrl, providerKey, providerModel, providerConfigured, markProviderFailure, markProviderOk, autoCorrectModel, currentModelFor } from '../providers.js';
+import { providerById, recordProviderUse, providerBaseUrl, providerKey, providerModel, providerConfigured, markProviderFailure, markProviderOk, autoCorrectModel, currentModelFor, rateHeadersOf, OVERLOAD_RETRY_DELAYS_MS } from '../providers.js';
 import { logger } from '../../logger.js';
 
 /**
@@ -406,21 +406,35 @@ export async function handleAnthropicProxy(req: http.IncomingMessage, res: http.
     try {
       upstream = await callUpstream(model);
       if (!upstream.ok && builtInDef) {
-        const t = await upstream.text().catch(() => '');
-        const kind = markProviderFailure(providerId, upstream.status, t, undefined, model);
-        // A retired model: find a tested replacement and retry this request once on it. Only for
-        // the provider's configured model: a model the worker asked for by name is left alone.
-        const fixed = kind === 'model-gone' ? await autoCorrectModel(builtInDef, { failedModel: model }) : null;
-        if (fixed && fixed.model !== model && !upstreamAc.signal.aborted) {
-          logger.info({ provider: providerId, from: model, to: fixed.model }, 'translator: retrying on the replacement model');
-          model = fixed.model;
+        let t = await upstream.text().catch(() => '');
+        let kind = markProviderFailure(providerId, upstream.status, t, undefined, model, rateHeadersOf(upstream.headers));
+        // Briefly overloaded: retry a couple of times (3 s, 6 s) before passing the error on.
+        for (const wait of OVERLOAD_RETRY_DELAYS_MS) {
+          if (kind !== 'overloaded' || upstreamAc.signal.aborted) break;
+          await new Promise((r) => setTimeout(r, wait));
+          if (upstreamAc.signal.aborted) break;
           upstream = await callUpstream(model);
-          if (!upstream.ok) {
-            const t2 = await upstream.text().catch(() => '');
-            markProviderFailure(providerId, upstream.status, t2, undefined, model);
-            upstream = new Response(t2, { status: upstream.status });
-          }
-        } else upstream = new Response(t, { status: upstream.status });
+          if (upstream.ok) break;
+          t = await upstream.text().catch(() => '');
+          kind = markProviderFailure(providerId, upstream.status, t, undefined, model, rateHeadersOf(upstream.headers));
+        }
+        if (!upstream.ok) {
+          // A retired model, or one not on the plan: find a tested replacement and retry this
+          // request once on it. Only for the provider's configured model: a model the worker
+          // asked for by name is left alone.
+          const unusable = kind === 'model-gone' || kind === 'model-blocked';
+          const fixed = unusable ? await autoCorrectModel(builtInDef, { failedModel: model, why: kind === 'model-blocked' ? 'blocked' : 'gone' }) : null;
+          if (fixed && fixed.model !== model && !upstreamAc.signal.aborted) {
+            logger.info({ provider: providerId, from: model, to: fixed.model }, 'translator: retrying on the replacement model');
+            model = fixed.model;
+            upstream = await callUpstream(model);
+            if (!upstream.ok) {
+              const t2 = await upstream.text().catch(() => '');
+              markProviderFailure(providerId, upstream.status, t2, undefined, model, rateHeadersOf(upstream.headers));
+              upstream = new Response(t2, { status: upstream.status });
+            }
+          } else upstream = new Response(t, { status: upstream.status });
+        }
       }
     } catch (err) {
       clearTimeout(upstreamTimer);

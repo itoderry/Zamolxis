@@ -22,7 +22,7 @@ import type { SkillsManager } from '../skills/manager.js';
 import { buildLocalTools, localSearchAvailable, type LocalToolset } from './localTools.js';
 import { compressText } from './toolOutput.js';
 import { effectiveName } from './displayName.js';
-import { pickFreeProvider, freeProviderPool, providerById, recordProviderUse, configuredProviders, providerBaseUrl, providerKey, providerModel, providerConfigured, markProviderFailure, markProviderOk, autoCorrectModel, type ProviderDef } from './providers.js';
+import { pickFreeProvider, freeProviderPool, providerById, recordProviderUse, configuredProviders, providerBaseUrl, providerKey, providerModel, providerConfigured, markProviderFailure, markProviderOk, autoCorrectModel, rateHeadersOf, OVERLOAD_RETRY_DELAYS_MS, type ProviderDef, type RateHeaders } from './providers.js';
 import type { AgentStore } from './agents.js';
 import { BanStore, isSmartestModel } from './bans.js';
 import { PermissionStore, summarizeToolInput, type PermissionPrompter, type PromptAnswer } from './permissions.js';
@@ -1429,6 +1429,8 @@ export class Engine implements CodeHost {
     /** HTTP status of a failed call (0/undefined = network error or timeout). */
     status?: number;
     errorBody?: string;
+    /** Rate-limit headers of the failed response (e.g. a per-model limit of 0). */
+    errorHeaders?: RateHeaders;
   }> {
     // System, then the prior conversation (so a model that didn't answer earlier turns still
     // knows what was discussed), then this turn's user message.
@@ -1464,7 +1466,7 @@ export class Engine implements CodeHost {
         if (!res.ok) {
           const body = await res.text().catch(() => '');
           logger.warn({ status: res.status, url: o.url, model: o.model, body: body.slice(0, 400) }, 'tool-model HTTP error');
-          return { failed: true, exhausted: false, finalText: '', inTok, outTok, searched, usedTools: [...usedTools], status: res.status, errorBody: body.slice(0, 2000) };
+          return { failed: true, exhausted: false, finalText: '', inTok, outTok, searched, usedTools: [...usedTools], status: res.status, errorBody: body.slice(0, 2000), errorHeaders: rateHeadersOf(res.headers) };
         }
         const data = (await res.json()) as {
           choices?: Array<{ message?: { content?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> } }>;
@@ -1592,17 +1594,26 @@ export class Engine implements CodeHost {
     let model = providerModel(p);
     const call = (m: string) => this.toolLoop({ url: `${base}/chat/completions`, model: m, apiKey: key, system, userText: req.text, tools, history, temp: req.agentJob ? 0 : undefined, images: p.vision ? req.images : undefined, abort });
     let r = await call(model);
-    // Health: a failing provider is cooled down so the rotation stops picking it first. A retired
-    // model is replaced automatically (tested), and this request is retried once on the new one,
-    // unless tools already ran (a redo could repeat their side effects).
+    // Health: a failing provider is cooled down so the rotation stops picking it first. A briefly
+    // overloaded provider is retried a couple of times (3 s, 6 s) first. A retired model, or one
+    // not on the user's plan, is replaced automatically (tested), and this request is retried once
+    // on the new one. Never when tools already ran (a redo could repeat their side effects).
     if (r.failed && r.status) {
-      const kind = markProviderFailure(p.id, r.status, r.errorBody, undefined, model);
-      if (kind === 'model-gone' && !r.usedTools.length && !abort.signal.aborted) {
-        const fixed = await autoCorrectModel(p, { failedModel: model });
+      let kind = markProviderFailure(p.id, r.status, r.errorBody, undefined, model, r.errorHeaders);
+      for (const wait of OVERLOAD_RETRY_DELAYS_MS) {
+        if (kind !== 'overloaded' || r.usedTools.length || abort.signal.aborted) break;
+        await new Promise((res) => setTimeout(res, wait));
+        if (abort.signal.aborted) break;
+        r = await call(model);
+        if (!r.failed || !r.status) break;
+        kind = markProviderFailure(p.id, r.status, r.errorBody, undefined, model, r.errorHeaders);
+      }
+      if (r.failed && r.status && (kind === 'model-gone' || kind === 'model-blocked') && !r.usedTools.length && !abort.signal.aborted) {
+        const fixed = await autoCorrectModel(p, { failedModel: model, why: kind === 'model-blocked' ? 'blocked' : 'gone' });
         if (fixed && fixed.model !== model && !abort.signal.aborted) {
           model = fixed.model;
           r = await call(model); // retried once only: a second failure is returned as is
-          if (r.failed && r.status) markProviderFailure(p.id, r.status, r.errorBody, undefined, model);
+          if (r.failed && r.status) markProviderFailure(p.id, r.status, r.errorBody, undefined, model, r.errorHeaders);
         }
       }
     }

@@ -1585,7 +1585,7 @@
       // Re-check: probe each configured provider's model (text + tool call); a retired model is
       // replaced automatically. Results land on the cards (green ok, blue switched, red failing).
       var checkRes = PROV_CHECK;
-      var CHECK_TXT = { 'key-invalid': 'key invalid', 'payment-required': 'payment required', 'rate-limited': 'rate-limited', 'not-configured': 'not configured', failing: 'failing' };
+      var CHECK_TXT = { 'key-invalid': 'key invalid', 'payment-required': 'payment required', 'rate-limited': 'rate-limited', overloaded: 'busy, try again', 'not-configured': 'not configured', failing: 'failing' };
       function showCheck(box, r) {
         box.innerHTML = ''; if (!r) return;
         var tag = el('span', 'tag ' + (r.status === 'ok' ? 'ok' : r.status === 'model-fixed' ? 'free' : 'bad'));
