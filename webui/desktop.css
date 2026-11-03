@@ -467,3 +467,34 @@ body[data-mode="dark"] .voice-status { color: #cfcfcf; background: rgba(255,255,
 .zx-toast .tt { font-weight: 650; font-size: 13px; margin-bottom: 2px; }
 .zx-toast .tb { font-size: 12.5px; opacity: .85; word-break: break-word; }
 body[data-os="mac"] #zx-toasts, body[data-os="ubuntu"] #zx-toasts { bottom: 14px; }
+
+/* Live work feedback in chats: the working row while a turn runs, then the report card. */
+.work { align-self: flex-start; max-width: 80%; font-size: 12px; color: #555; }
+.work-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.work-glyph { width: 14px; text-align: center; color: var(--accent); font-size: 14px; line-height: 1; }
+.work-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333; }
+.work-meta { white-space: nowrap; opacity: .7; }
+.work-head button { padding: 2px 8px; border: 1px solid #d6d6d6; border-radius: 6px; background: transparent; color: inherit; font-size: 11px; cursor: pointer; }
+.work-head button:disabled { opacity: .5; cursor: default; }
+.work-steps { margin: 4px 0 0 22px; padding-left: 8px; border-left: 2px solid #e3e3e3; display: flex; flex-direction: column; gap: 2px; max-height: 180px; overflow-y: auto; }
+.work-step { display: flex; gap: 8px; }
+.work-step .ws-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.work-step .ws-ms { white-space: nowrap; opacity: .6; }
+.work-step.bad .ws-t { color: #c0392b; }
+.work-report { align-self: flex-start; max-width: 80%; margin-top: -4px; padding: 5px 10px; border: 1px solid #e3e3e3; border-radius: 8px; font-size: 11.5px; color: #555; background: #fafafa; }
+.work-report .wr-sum { cursor: pointer; }
+.work-report .wr-sum::before { content: '▸ '; opacity: .6; }
+.work-report.open .wr-sum::before { content: '▾ '; }
+.work-report .wr-det { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+.work-report .wr-sec b { display: block; font-weight: 600; margin-bottom: 2px; }
+.work-report .wr-row { display: flex; gap: 8px; }
+.work-report .wr-row .ws-t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.work-report .wr-row .ws-ms { white-space: nowrap; opacity: .6; }
+.work-report .bad { color: #c0392b; }
+.work-report.fail { border-color: #f0c9ca; background: #fff4f4; color: #a4262c; }
+body[data-mode="dark"] .work, body[data-mode="dark"] .work-text { color: #cfcfcf; }
+body[data-mode="dark"] .work-head button { border-color: rgba(255,255,255,.2); }
+body[data-mode="dark"] .work-steps { border-left-color: rgba(255,255,255,.14); }
+body[data-mode="dark"] .work-report { background: #242424; border-color: rgba(255,255,255,.1); color: #bdbdbd; }
+body[data-mode="dark"] .work-report.fail { background: #3a2424; border-color: rgba(255,120,120,.25); color: #ffb3b6; }
+body[data-mode="dark"] .work-step.bad .ws-t, body[data-mode="dark"] .work-report .bad { color: #ff8a80; }

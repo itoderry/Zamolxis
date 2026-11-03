@@ -15,6 +15,7 @@ import { availableBackends, backendEnv, strongFreeProviders, type BackendEnv, ty
 import { runCodeTask, type DelegateRunResult } from './codeRunner.js';
 import { runCliTask, resolveClaude } from './cliRunner.js';
 import { codeModelAdvice, proposalText } from './localCodeModel.js';
+import type { ActivityEvent } from '../activity.js';
 
 /**
  * The delegation orchestrator: Zamolxis hands jobs to Claude Code as a worker.
@@ -47,8 +48,10 @@ export interface DelegateContext {
   conversationKey: string;
   channel: string;
   chatId: string;
-  /** Streams status lines into the chat. */
+  /** Streams status lines into the chat (text channels; unset when the channel shows activity). */
   onProgress?: (chunk: string) => void;
+  /** Records the subtasks as activity events (start, progress, done) for the turn's report. */
+  onActivity?: (ev: ActivityEvent) => void;
   /** Abort signal of the requesting turn when it is not a registered Claude turn (the local /
    *  free-provider tool loop): its timeout then also stops the delegated runs. */
   signal?: AbortSignal;
@@ -315,7 +318,7 @@ export class Orchestrator {
   }
 
   /** Run one attempt of a subtask on a backend (inside the throttle). */
-  private async execute(spec: DelegateTaskSpec, p: RunPath, folder: string | undefined, benv: BackendEnv, ctx: DelegateContext, prefix: string): Promise<DelegateRunResult> {
+  private async execute(spec: DelegateTaskSpec, p: RunPath, folder: string | undefined, benv: BackendEnv, ctx: DelegateContext, prefix: string, pos: { index: number; total: number }): Promise<DelegateRunResult> {
     const { config, host } = this.deps;
     const ac = new AbortController();
     const key = `code:${randomUUID()}`;
@@ -324,8 +327,16 @@ export class Orchestrator {
     if (ctx.signal?.aborted) ac.abort();
     else ctx.signal?.addEventListener('abort', onParentAbort, { once: true });
     const agent = ctx.conversationKey.startsWith('agent:') ? ctx.conversationKey.slice('agent:'.length) : undefined;
-    const onProgress = ctx.onProgress ? (line: string): void => ctx.onProgress!(`(${prefix} on ${benv.label}: ${line})\n`) : undefined;
-    onProgress?.(p === 'code' ? `starting in ${folder}` : 'starting');
+    const sub = (state: 'start' | 'progress') => ({ index: pos.index, total: pos.total, path: p, backend: benv.label, folder, state });
+    const onProgress = ctx.onProgress || ctx.onActivity
+      ? (line: string): void => {
+          ctx.onActivity?.({ kind: 'subtask', text: `${prefix}: ${line}`, subtask: sub('progress') });
+          ctx.onProgress?.(`(${prefix} on ${benv.label}: ${line})\n`);
+        }
+      : undefined;
+    const startLine = p === 'code' ? `starting in ${folder}` : 'starting';
+    ctx.onActivity?.({ kind: 'subtask', text: `${prefix} on ${benv.label}: ${startLine}`, subtask: sub('start') });
+    ctx.onProgress?.(`(${prefix} on ${benv.label}: ${startLine})\n`);
     let r: DelegateRunResult;
     try {
       r =
@@ -408,7 +419,7 @@ export class Orchestrator {
 
     const prefix = total > 1 ? `subtask ${index + 1}/${total}` : p === 'code' ? 'claude_code' : 'claude_cli';
     const attempt = (env: BackendEnv): Promise<DelegateRunResult> => {
-      const go = (): Promise<DelegateRunResult> => this.codeThrottle().run(() => this.execute(spec, p, folder, env, ctx, prefix));
+      const go = (): Promise<DelegateRunResult> => this.codeThrottle().run(() => this.execute(spec, p, folder, env, ctx, prefix, { index, total }));
       if (p !== 'code' || !folder) return go();
       // Code subtasks in the same repo (or, outside git, the same folder) run one after another,
       // queued before taking a throttle slot, so their edits and changed-file lists can't mix.
@@ -432,6 +443,7 @@ export class Orchestrator {
     if (pick.auto && benv.backend !== 'claude' && (!r.ok || r.incomplete) && !r.stopped && !config.privacyMode && claudeOk) {
       const cenv = backendEnv(config, 'claude', { model: spec.model });
       if (!('error' in cenv)) {
+        ctx.onActivity?.({ kind: 'retry', text: `${prefix}: ${benv.label} could not finish, retrying on ${cenv.label}` });
         ctx.onProgress?.(`(${prefix}: ${benv.label} could not finish, retrying on ${cenv.label})\n`);
         logger.info({ index, from: benv.label }, 'delegate: escalating subtask to Claude');
         escalatedFrom = benv.label;
@@ -462,20 +474,42 @@ export class Orchestrator {
     const list = (tasks ?? []).filter((t) => t && typeof t.task === 'string' && t.task.trim()).slice(0, MAX_SUBTASKS);
     if (!list.length) return [];
     const statuses = await availableBackends(this.deps.config);
-    if (list.length > 1) ctx.onProgress?.(`(delegating ${list.length} subtasks in parallel, up to ${this.deps.config.codeMaxParallel} at a time)\n`);
+    if (list.length > 1) {
+      const line = `delegating ${list.length} subtasks in parallel, up to ${this.deps.config.codeMaxParallel} at a time`;
+      ctx.onActivity?.({ kind: 'note', text: line.charAt(0).toUpperCase() + line.slice(1) });
+      ctx.onProgress?.(`(${line})\n`);
+    }
     return Promise.all(
       list.map((spec, i) =>
-        this.runOne(spec, i, list.length, ctx, statuses, force).catch((err): SubtaskResult => {
-          logger.warn({ err: String(err) }, 'delegate: subtask crashed');
-          return { index: i, task: spec.task, path: force ?? 'cli', ok: false, summary: `Internal error: ${String(err)}`, filesChanged: [], costUsd: 0, backend: '-', durationMs: 0, label: '-' };
-        }),
+        this.runOne(spec, i, list.length, ctx, statuses, force)
+          .catch((err): SubtaskResult => {
+            logger.warn({ err: String(err) }, 'delegate: subtask crashed');
+            return { index: i, task: spec.task, path: force ?? 'cli', ok: false, summary: `Internal error: ${String(err)}`, filesChanged: [], costUsd: 0, backend: '-', durationMs: 0, label: '-' };
+          })
+          .then((r) => {
+            // Every subtask (refused and crashed ones too) ends with one 'done' event for the report.
+            if (ctx.onActivity) {
+              const ok = !!r.ok && !r.incomplete && !r.refused;
+              const prefix = list.length > 1 ? `subtask ${r.index + 1}/${list.length}` : r.path === 'code' ? 'claude_code' : 'claude_cli';
+              const outcome = r.refused ? 'refused' : ok ? 'done' : 'finished with problems';
+              ctx.onActivity({
+                kind: 'subtask',
+                text: `${prefix}: ${outcome}${r.label && r.label !== '-' ? ` on ${r.label}` : ''}`,
+                subtask: { index: r.index, total: list.length, path: r.path, backend: r.label, folder: r.folder, state: 'done', ok, filesChanged: r.filesChanged, costUsd: r.costUsd, ms: r.durationMs, ...(r.escalatedFrom ? { escalatedFrom: r.escalatedFrom } : {}) },
+              });
+            }
+            return r;
+          }),
       ),
     );
   }
 
   /** delegate() plus one aggregated reply: per subtask the path, backend, model, outcome, files, cost. */
   async delegateText(tasks: DelegateTaskSpec[], ctx: DelegateContext, force?: RunPath): Promise<string> {
-    if (tasks && tasks.length > MAX_SUBTASKS) ctx.onProgress?.(`(only the first ${MAX_SUBTASKS} subtasks are run)\n`);
+    if (tasks && tasks.length > MAX_SUBTASKS) {
+      ctx.onActivity?.({ kind: 'note', text: `Only the first ${MAX_SUBTASKS} subtasks are run` });
+      ctx.onProgress?.(`(only the first ${MAX_SUBTASKS} subtasks are run)\n`);
+    }
     const results = await this.delegate(tasks, ctx, force);
     if (!results.length) return 'Nothing to delegate: give at least one non-empty task.';
     return formatResults(results);

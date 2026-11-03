@@ -35,6 +35,7 @@ import { fetchXchangeRates, xchangeTable } from '../core/xchange.js';
 import { butlerAvailable, scanApps, scanNetwork, scanSystem, driverReport, scanDuplicates, latestHealthReport, healthTaskInstalled, installHealthTask, runHealthTaskNow, readButlerConfig, writeButlerConfig } from '../core/butler.js';
 import type { AgentStore } from '../core/agents.js';
 import type { DelegateTaskSpec, DelegateContext, RunPath } from '../core/code/orchestrator.js';
+import type { ActivityEvent } from '../core/activity.js';
 
 /** Live conversation context, captured per agent turn so tools deliver to the right place. */
 export interface ToolContext {
@@ -43,6 +44,8 @@ export interface ToolContext {
   chatId: string;
   /** Streams status lines into the chat (delegated subtasks report progress through it). */
   onProgress?: (chunk: string) => void;
+  /** Records structured work feedback for the turn (subtasks, load_code_model progress). */
+  onActivity?: (ev: ActivityEvent) => void;
 }
 
 export interface ToolDeps {
@@ -430,7 +433,7 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
   );
   // ── Claude Code delegation (src/core/code/orchestrator.ts) ──
   const backendEnum = z.enum(['auto', 'claude', 'free', 'local']);
-  const delegateCtx: DelegateContext = { conversationKey: ctx.conversationKey, channel: ctx.channel, chatId: ctx.chatId, onProgress: ctx.onProgress };
+  const delegateCtx: DelegateContext = { conversationKey: ctx.conversationKey, channel: ctx.channel, chatId: ctx.chatId, onProgress: ctx.onProgress, onActivity: ctx.onActivity };
   const runDelegate = async (tasks: DelegateTaskSpec[], force?: RunPath) => {
     if (!deps.delegate) return text('Delegation is not available in this build.');
     try {
@@ -491,7 +494,13 @@ export function buildToolServers(ctx: ToolContext, deps: ToolDeps): Record<strin
     async (args) => {
       if (!deps.loadCodeModel) return text('Loading a code model is not available in this build.');
       try {
-        return text(await deps.loadCodeModel(args.model, ctx.onProgress ? (line) => ctx.onProgress!(`(load_code_model: ${line})\n`) : undefined));
+        const onLine = ctx.onProgress || ctx.onActivity
+          ? (line: string): void => {
+              ctx.onActivity?.({ kind: 'note', text: `load_code_model: ${line}` });
+              ctx.onProgress?.(`(load_code_model: ${line})\n`);
+            }
+          : undefined;
+        return text(await deps.loadCodeModel(args.model, onLine));
       } catch (e) {
         return text('Loading the model failed: ' + String(e));
       }

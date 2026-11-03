@@ -1,4 +1,4 @@
-import type { Channel, InboundMessage } from './types.js';
+import type { Channel, InboundMessage, TurnHooks } from './types.js';
 import { conversationKey } from './types.js';
 import type { Engine } from '../core/engine.js';
 import { logger } from '../logger.js';
@@ -91,7 +91,7 @@ export class ChannelManager {
   async startAll(): Promise<void> {
     for (const channel of this.channels.values()) {
       try {
-        await channel.start((msg, onProgress) => this.handle(msg, onProgress));
+        await channel.start((msg, onProgress, hooks) => this.handle(msg, onProgress, hooks));
         this.started.add(channel.name);
         logger.info({ channel: channel.name }, 'channel started');
       } catch (err) {
@@ -102,7 +102,7 @@ export class ChannelManager {
     }
   }
 
-  private async handle(msg: InboundMessage, onProgress?: (chunk: string) => void): Promise<string> {
+  private async handle(msg: InboundMessage, onProgress?: (chunk: string) => void, hooks?: TurnHooks): Promise<string> {
     const bridged = this.isBridged(msg);
     const key = bridged ? MAIN_KEY : conversationKey(msg);
     if (bridged) {
@@ -122,8 +122,11 @@ export class ChannelManager {
       model: msg.model,
       images: msg.images,
       onProgress,
+      onActivity: hooks?.onActivity,
+      cancelSignal: hooks?.signal,
     });
     logger.info({ key, costUsd: result.costUsd, isError: result.isError }, 'replied');
+    if (result.report) hooks?.onReport?.(result.report);
     // Record the turn per channel for the Messages client (real inbound/outbound history).
     this.recordMsg(msg.channel, msg.chatId, msg.from, 'in', msg.text);
     this.recordMsg(msg.channel, msg.chatId, undefined, 'out', result.reply);

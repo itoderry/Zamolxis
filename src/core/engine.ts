@@ -29,6 +29,7 @@ import { PermissionStore, summarizeToolInput, type PermissionPrompter, type Prom
 import { haConfigured, fetchHaInventory } from '../tools/homeassistant.js';
 import type { CodeHost, DelegateTaskSpec, DelegateContext, RunPath } from './code/orchestrator.js';
 import { loadCodeModel } from './code/localCodeModel.js';
+import { TurnTracker, toolDetail, type Activity, type ActivityEvent, type TurnReport } from './activity.js';
 
 /** The delegation orchestrator as the engine sees it (late-bound; see src/core/code/orchestrator.ts). */
 export interface Delegator {
@@ -134,6 +135,13 @@ export interface RunRequest {
   chatId?: string;
   /** Streamed assistant text chunks, for channels that support live typing. */
   onProgress?: (chunk: string) => void;
+  /** Structured work feedback (model, tool calls, subtasks, retries), for channels that show it.
+   *  When set, status lines go here instead of being pasted into the streamed reply text. */
+  onActivity?: (ev: Activity) => void;
+  /** Aborting it stops the turn (the web UI's Stop). */
+  cancelSignal?: AbortSignal;
+  /** Internal: this turn's activity tracker (set by run()). */
+  turn?: TurnTracker;
   /** Routing override: 'local' forces on-device, 'claude' forces the subscription, 'freecloud'
    *  rotates free providers, a provider id forces that provider, 'auto'/undefined follows config. */
   route?: string;
@@ -165,6 +173,8 @@ export type McpServerBuilder = (ctx: {
   chatId: string;
   /** Streams status lines into the chat (e.g. delegated subtask progress). */
   onProgress?: (chunk: string) => void;
+  /** Records structured work feedback for the turn (delegated subtasks, load_code_model). */
+  onActivity?: (ev: ActivityEvent) => void;
 }) => Record<string, McpServerConfig>;
 
 export interface RunResult {
@@ -179,6 +189,8 @@ export interface RunResult {
   modelToken?: string;
   /** Internal: capabilities (tool/skill names) this turn used, for auto-ban tracking. */
   usedCaps?: string[];
+  /** What the turn did (steps, tools, tokens, cost, subtasks), built by run(). */
+  report?: TurnReport;
 }
 
 export interface EngineDeps {
@@ -505,6 +517,22 @@ function extractLeakedToolCall(content: string): { name: string; args: Record<st
   return null;
 }
 
+/** Outcome of one OpenAI-compatible tool-use loop (local Ollama or a cloud provider). */
+interface ToolLoopResult {
+  failed: boolean;
+  exhausted: boolean;
+  finalText: string;
+  inTok: number;
+  outTok: number;
+  searched: boolean;
+  usedTools: string[];
+  /** HTTP status of a failed call (0/undefined = network error or timeout). */
+  status?: number;
+  errorBody?: string;
+  /** Rate-limit headers of the failed response (e.g. a per-model limit of 0). */
+  errorHeaders?: RateHeaders;
+}
+
 export class Engine implements CodeHost {
   /** Set after construction (scheduler/skills depend on the engine, so this breaks the cycle). */
   public buildMcpServers?: McpServerBuilder;
@@ -676,7 +704,13 @@ export class Engine implements CodeHost {
     const perm = await this.decideToolUse(LOAD_CODE_MODEL_MCP, model ? { model } : {}, ctx);
     if (perm.behavior !== 'allow') return `Not loading the model: ${perm.message || 'permission denied'}.`;
     try {
-      const r = await loadCodeModel(this.deps.config, { model, onProgress: ctx.onProgress ? (line) => ctx.onProgress!(`(load_code_model: ${line})\n`) : undefined });
+      const onProgress = ctx.onProgress || ctx.onActivity
+        ? (line: string): void => {
+            ctx.onActivity?.({ kind: 'note', text: `load_code_model: ${line}` });
+            ctx.onProgress?.(`(load_code_model: ${line})\n`);
+          }
+        : undefined;
+      const r = await loadCodeModel(this.deps.config, { model, onProgress });
       return r.message;
     } catch (err) {
       return `Loading the model failed: ${String(err)}`;
@@ -690,8 +724,11 @@ export class Engine implements CodeHost {
   /** What the LAST turn in this conversation actually used (model token + capabilities it invoked),
    *  so an immediate "escalate" can auto-ban that model from the skill it just botched. */
   private readonly lastUseByKey = new Map<string, { model: string; caps: string[] }>();
-  /** In-flight Claude turns keyed by conversationKey, so an agent's run can be aborted by Stop. */
+  /** In-flight turns (Claude, local and provider tool loops) keyed by conversationKey, so an
+   *  agent's run can be aborted by Stop. */
   private readonly inFlight = new Map<string, AbortController>();
+  /** Running (or queued) turns per conversation, so cancelTurn can stop them. */
+  private readonly turns = new Map<string, Set<TurnTracker>>();
   /** Agents paused for THIS session by the startup restore policy (NOT persisted, unlike `stopped`),
    *  so flipping the agentRestore setting + restarting brings them back. */
   private readonly sessionPaused = new Set<string>();
@@ -865,6 +902,7 @@ export class Engine implements CodeHost {
       via: r.via,
       origin: opts?.origin ?? (opts?.force ? 'manual' : 'schedule'),
       reply: r.reply,
+      report: r.report,
     });
     return { ...r, agent: def.name };
   }
@@ -922,7 +960,7 @@ export class Engine implements CodeHost {
     const suspended = this.deps.setAgentSchedulesEnabled?.(def.name, !stop) ?? 0;
     if (stop) {
       try {
-        this.inFlight.get(`agent:${def.name}`)?.abort();
+        this.cancelTurn(`agent:${def.name}`);
       } catch {
         /* best-effort */
       }
@@ -1205,7 +1243,55 @@ export class Engine implements CodeHost {
     return `Sent to agent "${target.name}"; it will act on it.`;
   }
 
+  /** Stop the running (and queued) turns of a conversation: the web UI's Stop, an agent's Stop. */
+  cancelTurn(conversationKey: string): boolean {
+    let hit = false;
+    for (const t of this.turns.get(conversationKey) ?? []) {
+      t.stop();
+      hit = true;
+    }
+    const ac = this.inFlight.get(conversationKey);
+    if (ac) {
+      ac.abort();
+      hit = true;
+    }
+    return hit;
+  }
+
+  /** A status line: an activity event, and for channels without activity the old "(…)" line in
+   *  the streamed reply text. */
+  private status(req: RunRequest, ev: ActivityEvent, legacy?: string): void {
+    req.turn?.emit(ev);
+    if (!req.onActivity && legacy) req.onProgress?.(legacy);
+  }
+
+  /** The result of a turn the user stopped. */
+  private stoppedResult(): RunResult {
+    return { reply: 'Stopped.', sessionId: '', costUsd: 0, isError: true, errorKind: 'stopped' };
+  }
+
+  /** Run one turn, tracking its activity and attaching the finish report to the result. */
   async run(req: RunRequest): Promise<RunResult> {
+    const key = req.conversationKey;
+    const turn = new TurnTracker(req.onActivity);
+    let set = this.turns.get(key);
+    if (!set) this.turns.set(key, (set = new Set()));
+    set.add(turn);
+    const onCancel = (): void => turn.stop();
+    if (req.cancelSignal?.aborted) turn.stop();
+    else req.cancelSignal?.addEventListener('abort', onCancel, { once: true });
+    try {
+      const r = await this.runTurn({ ...req, turn });
+      r.report = turn.finish(r);
+      return r;
+    } finally {
+      req.cancelSignal?.removeEventListener('abort', onCancel);
+      set.delete(turn);
+      if (!set.size && this.turns.get(key) === set) this.turns.delete(key);
+    }
+  }
+
+  private async runTurn(req: RunRequest): Promise<RunResult> {
     const key = req.conversationKey;
     const { config } = this.deps;
 
@@ -1218,7 +1304,7 @@ export class Engine implements CodeHost {
 
     // ── /hasync: (re)build the Home Assistant device-map skill using the smartest model. ──
     if (/^\/ha[-_ ]?(sync|map|scan|devices)\b/i.test(req.text.trim())) {
-      req.onProgress?.('(scanning Home Assistant and asking the smart model to build your device map…)\n\n');
+      this.status(req, { kind: 'note', text: 'Scanning Home Assistant and asking the smart model to build your device map' }, '(scanning Home Assistant and asking the smart model to build your device map…)\n\n');
       const r = await this.buildHaDeviceMap();
       return { reply: r.summary, sessionId: '', costUsd: 0, isError: !r.ok, via: 'Home Assistant' };
     }
@@ -1274,15 +1360,23 @@ export class Engine implements CodeHost {
           `Their original request was:\n"${prev.text}"\n\nThe earlier (rejected) answer was:\n"${prev.reply.slice(0, 1500)}"\n\nCarry out the original request properly now.`,
       };
       logger.info({ key, route: effReq.route, target: esc.targetLabel || 'smartest' }, 'user-requested escalation');
+      req.turn?.setEscalated(`asked by the user -> ${esc.targetLabel || 'the smartest model'}`);
     }
 
     const prior = this.tails.get(key) ?? Promise.resolve();
     // Wait for the previous turn IN THIS CONVERSATION to finish (so resuming the
     // same session can't overlap), then run through the global throttle. Different
     // conversations have independent tails, so they still run concurrently.
+    // A turn stopped while it waited never starts.
     const result = prior
       .catch(() => {})
-      .then(() => this.deps.throttle.run(() => this.runInner(effReq)));
+      .then(() =>
+        this.deps.throttle.run(() => {
+          if (req.turn?.stopped) return Promise.resolve(this.stoppedResult());
+          req.turn?.emit({ kind: 'start', text: effReq.escalated || (prev && esc.escalate) ? 'Escalating' : 'Thinking' });
+          return this.runInner(effReq);
+        }),
+      );
     // Remember this turn (keyed to the ORIGINAL request text) so a follow-up
     // "wrong"/"escalate" re-targets the same request.
     void result.then(
@@ -1418,20 +1512,7 @@ export class Engine implements CodeHost {
   }
 
   /** OpenAI-compatible tool-use loop (local Ollama or a free cloud provider). */
-  private async toolLoop(o: { url: string; model: string; apiKey?: string; system: string; userText: string; tools: LocalToolset; history?: Array<{ role: string; content: string }>; numCtx?: number; keepAlive?: string; temp?: number; images?: string[]; abort?: AbortController }): Promise<{
-    failed: boolean;
-    exhausted: boolean;
-    finalText: string;
-    inTok: number;
-    outTok: number;
-    searched: boolean;
-    usedTools: string[];
-    /** HTTP status of a failed call (0/undefined = network error or timeout). */
-    status?: number;
-    errorBody?: string;
-    /** Rate-limit headers of the failed response (e.g. a per-model limit of 0). */
-    errorHeaders?: RateHeaders;
-  }> {
+  private async toolLoop(o: { url: string; model: string; apiKey?: string; system: string; userText: string; tools: LocalToolset; history?: Array<{ role: string; content: string }>; numCtx?: number; keepAlive?: string; temp?: number; images?: string[]; abort?: AbortController; turn?: TurnTracker }): Promise<ToolLoopResult> {
     // System, then the prior conversation (so a model that didn't answer earlier turns still
     // knows what was discussed), then this turn's user message.
     // The current user turn carries images as multimodal content blocks when present (vision providers).
@@ -1474,6 +1555,7 @@ export class Engine implements CodeHost {
         };
         inTok += data.usage?.prompt_tokens ?? 0;
         outTok += data.usage?.completion_tokens ?? 0;
+        o.turn?.addUsage(data.usage?.prompt_tokens ?? 0, data.usage?.completion_tokens ?? 0);
         const m = data.choices?.[0]?.message;
         let calls = m?.tool_calls ?? [];
         if (!calls.length) {
@@ -1500,7 +1582,15 @@ export class Engine implements CodeHost {
             } catch {
               /* malformed args */
             }
-            const out = await o.tools.exec(tc.function.name, args);
+            const tid = o.turn?.toolStart(tc.function.name || 'tool', toolDetail(tc.function.name, args, summarizeToolInput));
+            let out: string;
+            try {
+              out = await o.tools.exec(tc.function.name, args);
+            } catch (err) {
+              if (tid) o.turn?.toolEnd(tid, false);
+              throw err;
+            }
+            if (tid) o.turn?.toolEnd(tid, !/^(BANNED$|That tool is not available)/.test(out));
             // TokenJuice: cap oversized output (keeps head+tail, full text saved to disk)
             // instead of a blunt head-only slice.
             messages.push({ role: 'tool', tool_call_id: tc.id, content: compressText(out, { toolName: tc.function.name }) });
@@ -1562,7 +1652,20 @@ export class Engine implements CodeHost {
   private delegateCtx(req: RunRequest, signal?: AbortSignal): DelegateContext {
     const channel = req.channel ?? req.conversationKey.split(':')[0] ?? 'cli';
     const chatId = req.chatId ?? req.conversationKey.split(':').slice(1).join(':') ?? req.conversationKey;
-    return { conversationKey: req.conversationKey, channel, chatId, onProgress: req.onProgress, signal };
+    // A channel that shows activity gets the subtask lines as events, not as reply text.
+    return { conversationKey: req.conversationKey, channel, chatId, onProgress: req.onActivity ? undefined : req.onProgress, onActivity: req.turn ? (ev) => req.turn!.emit(ev) : undefined, signal };
+  }
+
+  /** Register a tool-loop tier's controller for Stop (agent Stop via inFlight, chat Stop via the
+   *  turn). Returns the cleanup fn. */
+  private trackTier(req: RunRequest, ac: AbortController): () => void {
+    const key = req.conversationKey;
+    this.inFlight.set(key, ac);
+    const unbind = req.turn?.bind(ac);
+    return () => {
+      unbind?.();
+      if (this.inFlight.get(key) === ac) this.inFlight.delete(key);
+    };
   }
 
   /** Answer with the on-device model via the shared tool loop (no subscription used). */
@@ -1574,7 +1677,16 @@ export class Engine implements CodeHost {
     const history = req.freshContext ? [] : this.recentHistory(req.conversationKey);
     // Agent executions run at temperature 0 for determinism (no fabrication / no chit-chat drift).
     const temp = req.agentJob ? 0 : this.deps.config.localTemp;
-    const r = await this.toolLoop({ url: `${lm.url}/chat/completions`, model: lm.model, system, userText: req.text, tools, history, numCtx: this.deps.config.localContext, keepAlive: this.deps.config.localKeepAlive, temp, abort });
+    const label = `Local (${lm.model})`;
+    req.turn?.emit({ kind: 'model', text: `Asking ${label}`, model: label });
+    const untrack = this.trackTier(req, abort);
+    let r: ToolLoopResult;
+    try {
+      r = await this.toolLoop({ url: `${lm.url}/chat/completions`, model: lm.model, system, userText: req.text, tools, history, numCtx: this.deps.config.localContext, keepAlive: this.deps.config.localKeepAlive, temp, abort, turn: req.turn });
+    } finally {
+      untrack();
+    }
+    if (req.turn?.stopped) return { escalate: false, result: this.stoppedResult() };
     if (!r.failed) this.deps.usage?.recordEngine({ [`local:${lm.model}`]: { inputTokens: r.inTok, outputTokens: r.outTok, costUSD: 0 } }, 0);
     const out = this.finishAssistantTurn(req, allowEscalate, r, /* isLocal */ true);
     if (out.result) { out.result.via = `Local (${lm.model})`; out.result.modelToken = 'local'; }
@@ -1592,31 +1704,44 @@ export class Engine implements CodeHost {
     const { system, tools } = this.buildAssistant(allowEscalate, req.text, { job: req.agentJob, tools: req.agentTools }, { bannedCaps, forcedSkill: req.forcedSkill, delegateCtx: this.delegateCtx(req, abort.signal) });
     const history = req.freshContext ? [] : this.recentHistory(req.conversationKey);
     let model = providerModel(p);
-    const call = (m: string) => this.toolLoop({ url: `${base}/chat/completions`, model: m, apiKey: key, system, userText: req.text, tools, history, temp: req.agentJob ? 0 : undefined, images: p.vision ? req.images : undefined, abort });
-    let r = await call(model);
-    // Health: a failing provider is cooled down so the rotation stops picking it first. A briefly
-    // overloaded provider is retried a couple of times (3 s, 6 s) first. A retired model, or one
-    // not on the user's plan, is replaced automatically (tested), and this request is retried once
-    // on the new one. Never when tools already ran (a redo could repeat their side effects).
-    if (r.failed && r.status) {
-      let kind = markProviderFailure(p.id, r.status, r.errorBody, undefined, model, r.errorHeaders);
-      for (const wait of OVERLOAD_RETRY_DELAYS_MS) {
-        if (kind !== 'overloaded' || r.usedTools.length || abort.signal.aborted) break;
-        await new Promise((res) => setTimeout(res, wait));
-        if (abort.signal.aborted) break;
-        r = await call(model);
-        if (!r.failed || !r.status) break;
-        kind = markProviderFailure(p.id, r.status, r.errorBody, undefined, model, r.errorHeaders);
-      }
-      if (r.failed && r.status && (kind === 'model-gone' || kind === 'model-blocked') && !r.usedTools.length && !abort.signal.aborted) {
-        const fixed = await autoCorrectModel(p, { failedModel: model, why: kind === 'model-blocked' ? 'blocked' : 'gone' });
-        if (fixed && fixed.model !== model && !abort.signal.aborted) {
-          model = fixed.model;
-          r = await call(model); // retried once only: a second failure is returned as is
-          if (r.failed && r.status) markProviderFailure(p.id, r.status, r.errorBody, undefined, model, r.errorHeaders);
+    const call = (m: string) => {
+      const label = `${p.label} (${m})`;
+      req.turn?.emit({ kind: 'model', text: `Asking ${label}`, model: label });
+      return this.toolLoop({ url: `${base}/chat/completions`, model: m, apiKey: key, system, userText: req.text, tools, history, temp: req.agentJob ? 0 : undefined, images: p.vision ? req.images : undefined, abort, turn: req.turn });
+    };
+    const untrack = this.trackTier(req, abort);
+    let r: ToolLoopResult;
+    try {
+      r = await call(model);
+      // Health: a failing provider is cooled down so the rotation stops picking it first. A briefly
+      // overloaded provider is retried a couple of times (3 s, 6 s) first. A retired model, or one
+      // not on the user's plan, is replaced automatically (tested), and this request is retried once
+      // on the new one. Never when tools already ran (a redo could repeat their side effects).
+      if (r.failed && r.status) {
+        let kind = markProviderFailure(p.id, r.status, r.errorBody, undefined, model, r.errorHeaders);
+        for (const wait of OVERLOAD_RETRY_DELAYS_MS) {
+          if (kind !== 'overloaded' || r.usedTools.length || abort.signal.aborted) break;
+          req.turn?.emit({ kind: 'retry', text: `${p.label} is busy, retrying in ${Math.round(wait / 1000)} s` });
+          await new Promise((res) => setTimeout(res, wait));
+          if (abort.signal.aborted) break;
+          r = await call(model);
+          if (!r.failed || !r.status) break;
+          kind = markProviderFailure(p.id, r.status, r.errorBody, undefined, model, r.errorHeaders);
+        }
+        if (r.failed && r.status && (kind === 'model-gone' || kind === 'model-blocked') && !r.usedTools.length && !abort.signal.aborted) {
+          const fixed = await autoCorrectModel(p, { failedModel: model, why: kind === 'model-blocked' ? 'blocked' : 'gone' });
+          if (fixed && fixed.model !== model && !abort.signal.aborted) {
+            req.turn?.emit({ kind: 'retry', text: `${p.label}: ${model} is unavailable, switching to ${fixed.model}` });
+            model = fixed.model;
+            r = await call(model); // retried once only: a second failure is returned as is
+            if (r.failed && r.status) markProviderFailure(p.id, r.status, r.errorBody, undefined, model, r.errorHeaders);
+          }
         }
       }
+    } finally {
+      untrack();
     }
+    if (req.turn?.stopped) return { escalate: false, result: this.stoppedResult() };
     if (!r.failed) {
       markProviderOk(p.id);
       recordProviderUse(p.id); // only successful calls count toward the daily quota
@@ -1646,6 +1771,7 @@ export class Engine implements CodeHost {
       const r = await this.answerProvider(req, p, lastProvider ? allowEscalate : true);
       if (!r.escalate && r.result) return r;
       logger.info({ provider: p.id }, 'free provider could not handle it — trying the next');
+      if (!lastProvider) req.turn?.emit({ kind: 'retry', text: `${p.label} could not answer, trying ${pool[i + 1]!.label}` });
     }
     return { escalate: true };
   }
@@ -1666,6 +1792,13 @@ export class Engine implements CodeHost {
     const p = providerById(tier);
     if (p) return this.answerProvider(req, p, allowEscalate);
     return { escalate: true }; // unknown token (e.g. 'claude' is handled separately)
+  }
+
+  /** A routing-chain tier as the activity line names it. */
+  private tierLabel(tier: string): string {
+    if (tier === 'local') return this.deps.config.localModel ? `Local (${this.deps.config.localModel.model})` : 'Local';
+    if (tier === 'freecloud') return 'free providers';
+    return providerById(tier)?.label ?? tier;
   }
 
   /** Order cheap tiers free → paid → local (local last; it's the least reliable). Reorders the
@@ -1758,9 +1891,13 @@ export class Engine implements CodeHost {
     // tier handing off to the next when it can't cope. Claude is the final fallback
     // ONLY if it's in the chain (so "local only" / "local + free" work with no Claude).
     const plan = this.planRoute(req);
+    if (plan.tiers.length > 1 || (plan.tiers.length && plan.claude)) {
+      req.turn?.emit({ kind: 'note', text: `Route: ${[...plan.tiers.map((t) => this.tierLabel(t)), ...(plan.claude ? ['Claude'] : [])].join(' -> ')}` });
+    }
     for (let i = 0; i < plan.tiers.length; i++) {
       const isLast = i === plan.tiers.length - 1 && !plan.claude;
       const r = await this.attemptTier(plan.tiers[i]!, req, /* allowEscalate */ !isLast);
+      if (req.turn?.stopped) return this.stoppedResult();
       if (!r.escalate && r.result) {
         // Profile capture runs for ANY tier that answers (not just Claude), so durable
         // facts about the user are recorded even when local/free-cloud handled the turn.
@@ -1774,6 +1911,9 @@ export class Engine implements CodeHost {
         return r.result;
       }
       logger.info({ key: req.conversationKey, tier: plan.tiers[i] }, 'routing tier handed off');
+      // (the hand-off to Claude is announced below)
+      const next = plan.tiers[i + 1] ? this.tierLabel(plan.tiers[i + 1]!) : undefined;
+      if (next) req.turn?.emit({ kind: 'retry', text: `${req.turn.lastModel || this.tierLabel(plan.tiers[i]!)} handed off to ${next}` });
     }
     if (!plan.claude) {
       return {
@@ -1784,7 +1924,12 @@ export class Engine implements CodeHost {
         errorKind: 'no_backend',
       };
     }
-    if (plan.tiers.length) req.onProgress?.(`(handed to ${config.smartModel || config.model || 'Claude'}…)\n\n`);
+    if (plan.tiers.length) {
+      const to = config.smartModel || config.model || 'Claude';
+      req.turn?.setEscalated(`${req.turn.lastModel || plan.tiers.map((t) => this.tierLabel(t)).join(', ')} -> ${to}`);
+      this.status(req, { kind: 'retry', text: `Handed to ${to}` }, `(handed to ${to}…)\n\n`);
+    }
+    if (req.turn?.stopped) return this.stoppedResult();
     // If lighter tiers were tried first, this turn needed more — give it the strong model.
     const escalatedFromLocal = plan.tiers.length > 0;
     const escalated = escalatedFromLocal || req.escalated === true;
@@ -1841,7 +1986,13 @@ export class Engine implements CodeHost {
 
     const channel = req.channel ?? req.conversationKey.split(':')[0] ?? 'cli';
     const chatId = req.chatId ?? req.conversationKey.split(':').slice(1).join(':') ?? req.conversationKey;
-    const dynamicServers = this.buildMcpServers?.({ conversationKey: req.conversationKey, channel, chatId, onProgress: req.onProgress });
+    const dynamicServers = this.buildMcpServers?.({
+      conversationKey: req.conversationKey,
+      channel,
+      chatId,
+      onProgress: req.onActivity ? undefined : req.onProgress,
+      onActivity: req.turn ? (ev) => req.turn!.emit(ev) : undefined,
+    });
     const mcpServers = { ...this.deps.mcpServers, ...dynamicServers };
 
     // Per-turn wall-clock guard: if a turn hangs (e.g. a wedged child process),
@@ -1851,6 +2002,7 @@ export class Engine implements CodeHost {
     const timeout = setTimeout(() => abortController.abort(), config.turnTimeoutMs);
     // Register so an agent's Stop can abort its in-flight turn (keyed by conversationKey, e.g. "agent:jimmy").
     this.inFlight.set(req.conversationKey, abortController);
+    const unbindTurn = req.turn?.bind(abortController);
 
     // Model selection. Priority: explicit per-chat override > escalation (use the
     // SMARTEST model, since the local model just failed at this) > fast model for
@@ -1962,8 +2114,22 @@ export class Engine implements CodeHost {
               // that `claude login` writes isn't readable by this spawned engine).
               const src = (msg as { apiKeySource?: string }).apiKeySource;
               logger.info({ apiKeySource: src ?? 'unknown', model: chosenModel, hasOauthToken: Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN) }, 'engine auth source');
+              const initModel = (msg as { model?: string }).model || chosenModel;
+              const label = `Claude${initModel ? ` (${initModel})` : ''}`;
+              req.turn?.emit({ kind: 'model', text: `Asking ${label}`, model: label });
             }
             break;
+          case 'user': {
+            // Tool results close the matching tool step (with its time and outcome).
+            const content = (msg as { message?: { content?: unknown } }).message?.content;
+            if (req.turn && Array.isArray(content)) {
+              for (const b of content) {
+                const blk = b as { type?: string; tool_use_id?: string; is_error?: boolean };
+                if (blk?.type === 'tool_result' && typeof blk.tool_use_id === 'string') req.turn.toolEnd(blk.tool_use_id, blk.is_error !== true);
+              }
+            }
+            break;
+          }
           case 'assistant': {
             if (msg.error) {
               isError = true;
@@ -1973,8 +2139,10 @@ export class Engine implements CodeHost {
             const content = (msg as { message?: { content?: unknown } }).message?.content;
             if (Array.isArray(content)) {
               for (const b of content) {
-                const blk = b as { type?: string; name?: string; input?: { scope?: string; action?: string } };
+                const blk = b as { type?: string; id?: string; name?: string; input?: { scope?: string; action?: string } };
                 if (blk?.type === 'tool_use' && typeof blk.name === 'string') {
+                  const input = blk.input as Record<string, unknown> | undefined;
+                  req.turn?.toolStart(blk.name, toolDetail(blk.name, input, summarizeToolInput), blk.id, input);
                   if (/(^|_)learn$/.test(blk.name)) learnedThisTurn = true;
                   if (/(^|_)memory$/.test(blk.name) && blk.input?.scope === 'profile' && (blk.input.action === 'add' || blk.input.action === 'replace')) profileWroteThisTurn = true;
                 }
@@ -1994,6 +2162,16 @@ export class Engine implements CodeHost {
             sessionId = msg.session_id;
             costUsd = msg.total_cost_usd;
             this.deps.usage?.recordEngine(msg.modelUsage, msg.total_cost_usd);
+            if (req.turn) {
+              // Input counts the prompt-cache reads and writes too: that is what the model read.
+              let tin = 0;
+              let tout = 0;
+              for (const u of Object.values(msg.modelUsage ?? {})) {
+                tin += (u.inputTokens || 0) + (u.cacheReadInputTokens || 0) + (u.cacheCreationInputTokens || 0);
+                tout += u.outputTokens || 0;
+              }
+              req.turn.addUsage(tin, tout, msg.total_cost_usd || 0);
+            }
             if (msg.subtype === 'success') {
               reply = msg.result;
             } else {
@@ -2011,6 +2189,7 @@ export class Engine implements CodeHost {
       logger.error({ err: es, conversationKey: req.conversationKey }, 'engine run failed');
       const auth = /\b401\b|authenticat/i.test(es);
       const aborted = /abort/i.test(es) || abortController.signal.aborted;
+      if (aborted && req.turn?.stopped) return { ...this.stoppedResult(), sessionId, costUsd };
       const reply = auth
         ? AUTH_EXPIRED_MSG
         : aborted
@@ -2019,8 +2198,10 @@ export class Engine implements CodeHost {
       return { reply, sessionId, costUsd, isError: true, errorKind: auth ? 'auth' : aborted ? 'timeout' : 'exception' };
     } finally {
       clearTimeout(timeout);
+      unbindTurn?.();
       if (this.inFlight.get(req.conversationKey) === abortController) this.inFlight.delete(req.conversationKey);
     }
+    if (req.turn?.stopped && isError) return { ...this.stoppedResult(), sessionId, costUsd };
 
     // Surface an expired/invalid subscription login as a clear, actionable
     // message instead of a cryptic error result.
