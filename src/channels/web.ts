@@ -542,9 +542,19 @@ export class WebChannel implements Channel {
     if (route === 'transcribe' && req.method === 'POST') {
       readBody(15 * 1024 * 1024, (wav) => {
         if (!isPcmWav(wav)) return this.json(res, 400, { error: 'expected a PCM WAV body' });
+        // 16 kHz mono 16-bit: (bytes - 44-byte header) / 32000 = seconds of audio.
+        const seconds = Math.max(0, (wav.length - 44) / 32000);
         this.whisper.transcribe(wav)
-          .then((r) => this.json(res, 200, r))
-          .catch((err) => this.json(res, 503, { error: String((err as Error).message || err), whisper: this.whisper.status() }));
+          .then((r) => {
+            // One line per utterance (local log only) so dictation problems can be traced: how long,
+            // how fast, which language, and what Whisper made of it.
+            logger.info({ seconds: Math.round(seconds * 10) / 10, ms: r.ms, device: r.device, lang: r.lang, chars: r.text.length, text: r.text.slice(0, 120) }, 'voice: transcribed');
+            this.json(res, 200, r);
+          })
+          .catch((err) => {
+            logger.warn({ seconds: Math.round(seconds * 10) / 10, err: String((err as Error).message || err).slice(0, 300) }, 'voice: transcription failed');
+            this.json(res, 503, { error: String((err as Error).message || err), whisper: this.whisper.status() });
+          });
       });
       return;
     }

@@ -12,6 +12,13 @@
   delegated Code jobs (SDK and CLI); a full model id picked by the user is kept. The SDK is updated
   to 0.3.314 (Claude Code 2.1.314). When a model newer than the bundled Claude Code appears, the
   refused model is skipped from then on and the turn reruns once on the next newest of the family.
+- **Voice: the instruction after "zam" is no longer lost.** After the wake word the microphone was
+  muted while the "Yes?" answer was being prepared, up to 125 s, and a cold Kokoro start takes
+  several seconds, so what was said right after "zam" (including "execute") was thrown away and
+  nothing was sent. Now the microphone is muted only while the answer is actually playing, and the
+  "Yes?" is skipped when it is ready more than 2.5 s after the wake word or the user is already
+  talking. Each transcribed utterance is logged (`voice: transcribed`: length, time, device,
+  language and the start of the text) so a dictation that did not send can be traced.
 - **Voice: no more "speech recognition is falling behind".** When large-v3 did not fit on the GPU
   (Claude Voice or another program holding the VRAM), whisper-server fell back to large-v3 on the
   CPU, about 45 s per clip, so utterances queued up past the limit; and it stayed on the CPU until
