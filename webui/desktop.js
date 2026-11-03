@@ -32,6 +32,7 @@
     stock: "<svg viewBox='0 0 24 24' fill='none' stroke='#2e9e3f' stroke-width='1.7'><path d='M3 17l5-5 3 3 7-8' stroke-linecap='round' stroke-linejoin='round'/><path d='M15 4h5v5' stroke-linecap='round' stroke-linejoin='round'/></svg>",
     vault: "<svg viewBox='0 0 24 24' fill='none' stroke='#7b5cff' stroke-width='1.6'><circle cx='7' cy='6' r='2'/><circle cx='17' cy='9' r='2'/><circle cx='10' cy='18' r='2'/><path d='M8.6 7l6.6 1.5M15.6 10.6l-4.8 5.6M8.2 16.6l1-8' stroke-linecap='round'/></svg>",
     plan: "<svg viewBox='0 0 24 24' fill='none' stroke='#e08a2b' stroke-width='1.6'><rect x='4' y='3' width='16' height='18' rx='2'/><path d='M8 8l1.2 1.2L11.5 7M8 14l1.2 1.2L11.5 13M14 8h3M14 14h3' stroke-linecap='round' stroke-linejoin='round'/></svg>",
+    mic: "<svg viewBox='0 0 24 24' fill='none' stroke='#d13438' stroke-width='1.7' stroke-linecap='round'><rect x='9' y='3' width='6' height='11' rx='3' fill='#f6d5d6'/><path d='M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7'/></svg>",
     chat: "<svg viewBox='0 0 24 24' fill='none' stroke='#0a8acb' stroke-width='1.6'><path d='M4 5h16v11H9l-4 3.5V16H4z'/><path d='M8 9h8M8 12h5'/></svg>",
     mail: "<svg viewBox='0 0 24 24' fill='none' stroke='#0a72c4' stroke-width='1.6'><rect x='3' y='5' width='18' height='14' rx='2'/><path d='M3.5 6.5l8.5 6 8.5-6'/></svg>",
     cal: "<svg viewBox='0 0 24 24' fill='none' stroke='#c0392b' stroke-width='1.6'><rect x='3' y='4.5' width='18' height='16' rx='2'/><path d='M3 9h18M8 3v3M16 3v3'/><rect x='6.5' y='12' width='3' height='3' rx='.4' fill='#c0392b' stroke='none'/></svg>",
@@ -60,6 +61,7 @@
   function $(sel, root) { return (root || document).querySelector(sel); }
   function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
   function api(path, opts) { return fetch(path, opts).then(function (r) { return r.json(); }); }
+  function fmtBytes(n) { n = Number(n) || 0; return n >= 1073741824 ? (n / 1073741824).toFixed(2) + ' GB' : (n / 1048576).toFixed(1) + ' MB'; }
   function uuid() { return (crypto && crypto.randomUUID) ? crypto.randomUUID() : 'c' + Date.now() + Math.random().toString(16).slice(2); }
   // Escape HTML, then turn http(s):// and root-relative /api/ URLs into clickable links.
   // Used for bot replies so Outlook-open, Jira browse, and watched-site links are clickable.
@@ -188,17 +190,95 @@
     document.documentElement.lang = langChoice();
   }
 
-  // ---------- Voice: speak (TTS) + listen (STT) + wake word, via the browser Web Speech API ----------
+  // ---------- Voice: one switch point for speech in and out ----------
+  // Speech engine (Settings -> Voice): 'browser' = the Web Speech API (as before), 'claudevoice' = the
+  // Claude Voice system: this page captures the mic (AudioWorklet, 16 kHz), cuts utterances by level
+  // (webui/voice.js) and the server transcribes each one with local whisper.cpp + Claude Voice's
+  // models (POST /api/voice/transcribe). Replies are spoken by the browser or by Kokoro
+  // (POST /api/voice/tts). Wake word, stop and cancel phrases use Claude Voice's matching rules.
+  var ZV = window.ZxVoice || null;
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   function voiceSupported() { return !!SR; }
   function ttsSupported() { return 'speechSynthesis' in window; }
   function vGet(k) { return localStorage.getItem(k) === '1'; }
   function vSet(k, on) { localStorage.setItem(k, on ? '1' : '0'); }
   function voiceLang() { return ({ en: 'en-US', es: 'es-ES', fr: 'fr-FR', de: 'de-DE', ro: 'ro-RO', it: 'it-IT' })[langChoice()] || 'en-US'; }
-  function speak(textRaw) {
-    if (!vGet('zx_voice_speak') || !ttsSupported() || !textRaw) return;
-    try { speechSynthesis.cancel(); var u = new SpeechSynthesisUtterance(String(textRaw).slice(0, 700)); u.lang = voiceLang(); speechSynthesis.speak(u); } catch (e) {}
+  var VC = null;            // client voice config from GET /api/voice/status (null until loaded)
+  function voiceCfg() {
+    return VC || { engine: 'browser', wakeEnabled: vGet('zx_voice_wake'), wakeName: 'zam', wakeAliases: ['sam', 'zum', 'zahm', 'zom'], wakePhrases: ['hello zam', 'hi zam', 'hey zam'],
+      stopPhrases: ['execute', 'execute it', 'go ahead zam'], cancelPhrases: ['cancel', 'never mind', 'forget it'], matchRatio: 0.8, nameAloneAtStart: true, stopMustEnd: true,
+      timeoutS: 120, mic: {}, tts: vGet('zx_voice_speak') ? 'browser' : 'off', responses: { wake: 'Yes?', stop: '', cancel: 'Cancelled.' } };
   }
+  function localCaptureSupported() { return !!(ZV && navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.AudioWorkletNode); }
+  function sttEngine() { return voiceCfg().engine === 'claudevoice' && localCaptureSupported() ? 'claudevoice' : 'browser'; }
+  function micAvailable() { return sttEngine() === 'claudevoice' ? true : voiceSupported(); }
+  function ttsMode() { return voiceCfg().tts || 'off'; }
+  function loadVoiceCfg() {
+    return api('/api/voice/status').then(function (d) {
+      if (d && d.client) {
+        VC = d.client;
+        // Before the Voice tab is first saved, the old Appearance toggles still apply.
+        if (!d.saved) { if (vGet('zx_voice_wake')) VC.wakeEnabled = true; if (vGet('zx_voice_speak')) VC.tts = 'browser'; }
+      }
+      vr.wake = !!voiceCfg().wakeEnabled && micAvailable();
+      vrSync();
+      return d;
+    }).catch(function () { vr.wake = !!voiceCfg().wakeEnabled && micAvailable(); vrSync(); return null; });
+  }
+
+  // Input is muted while a reply is spoken and for 0.5 s after (Claude Voice ignores its own voice).
+  var speakingUntil = 0, ttsAudio = null;
+  function isSpeaking() { return Date.now() < speakingUntil; }
+  function stopSpeaking() {
+    if (ttsAudio) { try { ttsAudio.pause(); } catch (e) {} ttsAudio = null; }
+    try { if (ttsSupported()) speechSynthesis.cancel(); } catch (e) {}
+    speakingUntil = Date.now() + 500;
+  }
+  function playWav(blob) {
+    var url = URL.createObjectURL(blob), a = new Audio(url);
+    ttsAudio = a; speakingUntil = Date.now() + 125000;
+    a.onloadedmetadata = function () { if (ttsAudio === a && isFinite(a.duration)) speakingUntil = Date.now() + a.duration * 1000 + 1500; };
+    function done() { if (ttsAudio === a) { ttsAudio = null; speakingUntil = Date.now() + 500; } URL.revokeObjectURL(url); }
+    a.onended = done; a.onerror = done;
+    return a.play().catch(function () { done(); });
+  }
+  function speakBrowser(text) {
+    if (!ttsSupported()) return;
+    try {
+      speechSynthesis.cancel();
+      var said = String(text).slice(0, 700), u = new SpeechSynthesisUtterance(said); u.lang = voiceLang();
+      // Chrome sometimes never fires onend: cap the mute by the text length (~13 chars/s).
+      speakingUntil = Date.now() + Math.min(70000, 3000 + said.length * 80);
+      u.onend = u.onerror = function () { speakingUntil = Date.now() + 500; };
+      speechSynthesis.speak(u);
+    } catch (e) { speakingUntil = Date.now() + 500; }
+  }
+  // opts (Settings "Test voice"): {mode, voice, speed} instead of the saved choice.
+  function speak(textRaw, opts) {
+    var mode = (opts && opts.mode) || ttsMode();
+    if (!textRaw || mode === 'off') return;
+    stopSpeaking();
+    if (mode === 'kokoro') {
+      speakingUntil = Date.now() + 125000;
+      var body = { text: String(textRaw) };
+      if (opts && opts.voice) body.voice = opts.voice;
+      if (opts && opts.speed) body.speed = opts.speed;
+      fetch('/api/voice/tts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+        .then(function (r) { if (!r.ok) return r.json().then(function (d) { throw new Error((d && d.error) || ('HTTP ' + r.status)); }); return r.blob(); })
+        .then(playWav)
+        .catch(function (err) { speakingUntil = Date.now() + 500; voiceError(T('Kokoro voice failed'), err); });
+      return;
+    }
+    speakBrowser(textRaw);
+  }
+  var _lastVoiceErr = 0;
+  function voiceError(title, err) {
+    if (Date.now() - _lastVoiceErr < 20000) return;
+    _lastVoiceErr = Date.now();
+    showToast(title, String((err && err.message) || err || ''));
+  }
+
+  // Browser engine, one phrase (push-to-talk): today's behaviour.
   function listenOnce(onText, onEnd) {
     if (!voiceSupported()) return null;
     var r = new SR(); r.lang = voiceLang(); r.interimResults = true; r.continuous = false; r.maxAlternatives = 1;
@@ -209,24 +289,190 @@
     try { r.start(); } catch (e) {}
     return r;
   }
-  var wakeRec = null, wakeFired = 0;
-  function startWake() {
-    if (!voiceSupported() || !vGet('zx_voice_wake') || wakeRec) return;
-    var r = new SR(); r.lang = voiceLang(); r.continuous = true; r.interimResults = true; wakeRec = r;
-    r.onresult = function (e) {
-      var t = ''; for (var i = e.resultIndex; i < e.results.length; i++) t += e.results[i][0].transcript;
-      if (/\b(zamolxis|hey zam|ok zam|hey claude)\b/i.test(t) && Date.now() - wakeFired > 3500) { wakeFired = Date.now(); onWake(); }
-    };
-    r.onend = function () { wakeRec = null; if (vGet('zx_voice_wake')) setTimeout(startWake, 600); };
-    r.onerror = function () { wakeRec = null; };
-    try { r.start(); } catch (e) { wakeRec = null; }
+
+  // ---- voice router: who gets the next utterance (push-to-talk > dictation > wake word) ----
+  var vr = { ptt: null, dict: null, wake: false };
+  function pageFocused() { return document.visibilityState === 'visible' && document.hasFocus(); }
+  // Wake-word listening runs only while a Zamolxis window has focus; an explicit dictation or
+  // push-to-talk keeps running until it ends.
+  function vrWanted() { return !!(vr.ptt || vr.dict || (vr.wake && pageFocused())); }
+  function vrSync() {
+    if (sttEngine() === 'claudevoice') {
+      browserRecStop();
+      if (vrWanted()) capStart(); else capStop();
+    } else {
+      capStop();
+      if (vr.ptt) return; // listenOnce owns the browser recognizer
+      if (vr.dict || (vr.wake && pageFocused())) browserRecStart(); else browserRecStop();
+    }
   }
-  function stopWakeRec() { if (wakeRec) { try { wakeRec.abort(); } catch (e) {} wakeRec = null; } }
-  function onWake() {
-    stopWakeRec();
-    var w = launchApp('zamolxis');
-    speak('Yes?');
-    setTimeout(function () { if (w && w._voiceCapture) w._voiceCapture(); else if (vGet('zx_voice_wake')) startWake(); }, 800);
+  function vrDispatch(text) {
+    text = String(text || '').trim();
+    if (!text) return;
+    if (vr.ptt) return vr.ptt.onText(text);
+    if (vr.dict) return vr.dict.onText(text);
+    if (vr.wake && pageFocused()) wakeCheck(text);
+  }
+  function vrSpeechStart() { if (vr.ptt && vr.ptt.onSpeech) vr.ptt.onSpeech(); if (vr.dict && vr.dict.onSpeech) vr.dict.onSpeech(); }
+  window.addEventListener('focus', function () { vrSync(); });
+  window.addEventListener('blur', function () { setTimeout(vrSync, 0); });
+  document.addEventListener('visibilitychange', function () { vrSync(); });
+
+  // Browser engine, continuous (wake word + dictation): each final result is one utterance.
+  var browserRec = null;
+  function browserRecStart() {
+    if (!voiceSupported() || browserRec) return;
+    var r = new SR(); r.lang = voiceLang(); r.continuous = true; r.interimResults = false; browserRec = r;
+    r.onresult = function (e) {
+      for (var i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal && !isSpeaking()) vrDispatch(e.results[i][0].transcript);
+    };
+    r.onspeechstart = vrSpeechStart;
+    r.onend = function () { if (browserRec === r) { browserRec = null; setTimeout(vrSync, 600); } };
+    r.onerror = function (e) {
+      var code = e && e.error;
+      if (code === 'not-allowed' || code === 'service-not-allowed' || code === 'audio-capture') {
+        voiceError(T('Microphone unavailable'), code);
+        vr.wake = false;
+        if (vr.dict) vr.dict.end();
+      }
+    };
+    try { r.start(); } catch (e) { browserRec = null; }
+  }
+  function browserRecStop() { var r = browserRec; browserRec = null; if (r) { try { r.abort(); } catch (e) {} } }
+
+  // Claude Voice engine: mic -> worklet (16 kHz frames) -> segmenter -> WAV -> /api/voice/transcribe.
+  var cap = null, capStarting = null, lastNoiseFloor = 0, txChain = Promise.resolve(), txInflight = 0;
+  function capStart() {
+    if (cap || capStarting) return;
+    var m = voiceCfg().mic || {};
+    capStarting = navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } }).then(function (stream) {
+      var AC = window.AudioContext || window.webkitAudioContext, ctx = null, src = null;
+      // A 16 kHz context lets the browser resample; a browser that refuses a mic at another rate gets
+      // its default rate and the worklet resamples.
+      try { ctx = new AC({ sampleRate: 16000 }); src = ctx.createMediaStreamSource(stream); } catch (e) { try { if (ctx) ctx.close(); } catch (e2) {} ctx = new AC(); src = null; }
+      return ctx.audioWorklet.addModule('/ui/voice-worklet.js').then(function () {
+        if (!src) src = ctx.createMediaStreamSource(stream);
+        var node = new AudioWorkletNode(ctx, 'zx-capture', { processorOptions: { targetRate: 16000, frame: 480 } });
+        var sink = ctx.createGain(); sink.gain.value = 0;
+        src.connect(node); node.connect(sink); sink.connect(ctx.destination);
+        var seg = new ZV.Segmenter({ silenceMs: m.silenceMs, minSpeechMs: m.minSpeechMs, maxUtteranceS: m.maxUtteranceS, preRollMs: m.preRollMs, speechRatio: m.speechRatio, minRms: m.minRms,
+          noiseFloor: lastNoiseFloor, onUtterance: onUtterance, onSpeech: vrSpeechStart });
+        var me = { stream: stream, ctx: ctx, node: node, seg: seg };
+        node.port.onmessage = function (e) {
+          if (cap !== me) return;
+          if (isSpeaking()) { seg.reset(); return; }
+          seg.push(e.data);
+          if (!seg.calibrating) lastNoiseFloor = seg.noiseFloor;
+        };
+        cap = me;
+        if (ctx.state === 'suspended') ctx.resume().catch(function () {});
+        if (!vrWanted()) capStop();
+      }).catch(function (err) { stream.getTracks().forEach(function (t) { t.stop(); }); try { ctx.close(); } catch (e) {} throw err; });
+    }).catch(function (err) {
+      voiceError(T('Microphone unavailable'), err);
+      if (vr.ptt) vr.ptt.abort();
+      if (vr.dict) vr.dict.end();
+      vr.wake = false;
+    }).then(function () { capStarting = null; if (!cap && vrWanted()) setTimeout(vrSync, 0); });
+  }
+  function capStop() {
+    var c = cap; cap = null;
+    if (!c) return;
+    try { c.stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+    try { c.node.port.onmessage = null; c.ctx.close(); } catch (e) {}
+  }
+  // A context made without a click may start suspended: the next click wakes it.
+  document.addEventListener('pointerdown', function () { if (cap && cap.ctx.state === 'suspended') cap.ctx.resume().catch(function () {}); }, true);
+  function capFlush() { if (cap) cap.seg.flush(); }
+  function onUtterance(samples) {
+    if (txInflight >= 4) { voiceError(T('Speech recognition is falling behind'), T('An utterance was skipped; try again in a moment.')); return; }
+    var wav = ZV.encodeWav(samples, 16000);
+    txInflight++; markVoiceBusy();
+    txChain = txChain.then(function () {
+      return fetch('/api/voice/transcribe', { method: 'POST', headers: { 'content-type': 'audio/wav' }, body: wav })
+        .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error((d && d.error) || ('HTTP ' + r.status)); return d; }); });
+    }).then(function (d) { txInflight--; markVoiceBusy(); vrDispatch(d && d.text); }, function (err) {
+      txInflight--; markVoiceBusy();
+      voiceError(T('Speech recognition failed'), err);
+      if (vr.ptt) vr.ptt.abort();
+    });
+  }
+  function whenTranscribed(cb) { txChain.then(cb, cb); }
+  function markVoiceBusy() { Array.prototype.forEach.call(document.querySelectorAll('.chat-mic.rec, .chat-dict'), function (b) { b.classList.toggle('busy', txInflight > 0); }); }
+
+  // Wake word heard while idle: dictate into a NEW chat window (the text after it starts the story).
+  var wakeFired = 0;
+  function wakeCheck(text) {
+    if (!ZV || vr.dict || Date.now() - wakeFired < 1500) return;
+    var m = ZV.matchWake(text, voiceCfg());
+    if (!m) return;
+    wakeFired = Date.now();
+    startDictation(m.rest);
+  }
+  // Dictate: open a new chat window and dictate into it (wake word, Dictate shortcut, command bar, desktop menu).
+  function startDictation(initial) {
+    if (!ZV || !micAvailable()) { showToast(T('Voice input is not available'), T('Choose a speech engine in Settings -> Voice.')); return; }
+    if (vr.dict && vr.dict.win && !vr.dict.win.closed) { focusWin(vr.dict.win); return; }
+    var w = launchApp('chat:' + uuid());
+    if (!w || !w._startDictation) return;
+    var c = voiceCfg();
+    if (!initial && c.responses && c.responses.wake && ttsMode() !== 'off') speak(c.responses.wake);
+    w._startDictation(initial || '');
+  }
+
+  // Microphone button of a chat window. Browser engine: one phrase, sent (as before). Claude Voice
+  // engine: click to start, click again (or say a stop phrase, or pause) to finish and send; a
+  // cancel phrase discards.
+  function appendSpoken(ta, piece) {
+    if (!piece) return;
+    var cur = ta.value.replace(/\s+$/, '');
+    ta.value = cur ? cur + ' ' + ZV.continueCase(cur, piece) : piece;
+  }
+  function attachMic(mic, ta, doSend) {
+    function startLocal() {
+      if (vr.ptt) { if (vr.ptt.mic === mic) vr.ptt.finish(true); return; }
+      var c = voiceCfg(), heard = false, ended = false, timer = null;
+      function arm(ms, fn) { clearTimeout(timer); timer = setTimeout(fn, ms); }
+      var s = {
+        mic: mic,
+        onSpeech: function () { heard = true; clearTimeout(timer); },
+        onText: function (text) {
+          if (!mic.isConnected) { s.end(); return; }
+          var r = ZV.dictationStep(text, c);
+          if (r.action === 'cancel') { ta.value = ''; s.end(); return; }
+          if (r.action === 'send') { appendSpoken(ta, r.piece); s.end(); if (ta.value.trim()) doSend(); return; }
+          if (r.action === 'append') appendSpoken(ta, r.piece);
+          arm(2500, function () { s.finish(true); });   // a pause after speaking ends it
+        },
+        finish: function (send) {
+          if (ended) return;
+          capFlush();
+          whenTranscribed(function () { if (ended) return; s.end(); if (send && mic.isConnected && ta.value.trim()) doSend(); });
+        },
+        abort: function () { s.end(); },
+        end: function () { if (ended) return; ended = true; clearTimeout(timer); if (vr.ptt === s) vr.ptt = null; mic.classList.remove('rec', 'busy'); vrSync(); }
+      };
+      if (vr.dict) vr.dict.end();
+      vr.ptt = s; mic.classList.add('rec');
+      arm(10000, function () { if (!heard) s.end(); });   // nothing said within 10 s
+      (function watch() { if (ended) return; if (!mic.isConnected) { s.end(); return; } setTimeout(watch, 1000); })();
+      vrSync();
+    }
+    function startBrowser() {
+      if (vr.ptt) return;
+      browserRecStop();
+      vr.ptt = { mic: mic, onText: function () {}, abort: function () {} };
+      mic.classList.add('rec');
+      var rec = listenOnce(function (t) { ta.value = t; }, function (f) { vr.ptt = null; mic.classList.remove('rec'); if (f) { ta.value = f; doSend(); } vrSync(); });
+      if (!rec) { vr.ptt = null; mic.classList.remove('rec'); vrSync(); }
+    }
+    function click() {
+      if (sttEngine() === 'claudevoice') return startLocal();
+      if (!voiceSupported()) { showToast(T('Voice input is not available'), T('Choose a speech engine in Settings -> Voice.')); return; }
+      startBrowser();
+    }
+    mic.addEventListener('click', click);
+    return click;
   }
 
   // ---------- Proactive notifications (toasts + browser Notification + optional voice) ----------
@@ -526,6 +772,7 @@
       { id: 'zamolxis', name: AGENT_NAME, iconSvg: ICON.zamolxis, kind: 'builtin', cat: 'System' },
       { id: 'settings', name: T('Settings'), iconSvg: ICON.settings, kind: 'builtin', cat: 'System' },
       { id: 'newagent', name: T('New Agent'), iconSvg: ICON.newagent, kind: 'builtin', cat: 'System' },
+      { id: 'dictate', name: T('Dictate'), iconSvg: ICON.mic, kind: 'builtin', cat: 'System' },
       { id: 'help', name: T('Help'), iconSvg: ICON.help, kind: 'builtin', cat: 'System' }
     ];
   }
@@ -582,6 +829,14 @@
         .catch(function () { showToast('Launch failed', ''); });
       return null;
     }
+    // Dictate: no window of its own; it opens a new chat window and dictates into it.
+    if (appId === 'dictate') { startDictation(''); return null; }
+    // A chat window of its own conversation (opened by Dictate / the wake word), one per conversation id.
+    if (appId.indexOf('chat:') === 0) {
+      if (openByApp[appId] && wins[openByApp[appId]]) { focusWin(wins[openByApp[appId]]); return wins[openByApp[appId]]; }
+      var chatCid = appId.slice(5).replace(/[^\w-]/g, '').slice(0, 64) || uuid();
+      return openWindow({ appId: appId, title: T('Chat'), iconSvg: ICON.chat, w: 460, h: 620, onMount: function (b, w) { buildChat(b, w, chatCid, { route: true }); } }, appId, geom);
+    }
     var app = appById(appId);
     if (!app) return null;
     // singleton: focus if already open
@@ -616,6 +871,9 @@
     }
     else if (app.kind === 'agent') spec = { appId: appId, title: app.name, iconSvg: app.iconSvg || agentIconSvg(app.name), w: 520, h: 560, onMount: function (b, w) { mountAgent(b, w, app.agent); } };
     if (!spec) return null;
+    return openWindow(spec, appId, geom);
+  }
+  function openWindow(spec, appId, geom) {
     var w = makeWindow(spec);
     w._iconSvg = spec.iconSvg; w._appTitle = spec.title;
     openByApp[appId] = w.id;
@@ -714,7 +972,7 @@
     var ta = el('textarea'); ta.placeholder = (opts && opts.placeholder ? opts.placeholder : T('Message') + ' ' + AGENT_NAME) + '...';
     var send = el('button'); send.textContent = T('Send');
     var mic = null;
-    if (voiceSupported() && opts && opts.route) { mic = el('button', 'chat-mic'); mic.textContent = '🎤'; mic.title = T('Speak'); }
+    if (localCaptureSupported() || voiceSupported()) { mic = el('button', 'chat-mic'); mic.textContent = '🎤'; mic.title = T('Speak'); }
     inputRow.appendChild(attach); if (mic) inputRow.appendChild(mic); inputRow.appendChild(ta); inputRow.appendChild(send);
     wrap.appendChild(bar); wrap.appendChild(log); wrap.appendChild(chips); wrap.appendChild(inputRow);
     body.appendChild(wrap); body.appendChild(fileIn);
@@ -845,11 +1103,7 @@
         histIdx++; if (histIdx >= inHist.length) { histIdx = -1; ta.value = histDraft || ''; } else ta.value = inHist[histIdx]; e.preventDefault();
       }
     });
-    if (mic) {
-      function startPTT() { stopWakeRec(); mic.classList.add('rec'); listenOnce(function (t) { ta.value = t; }, function (f) { mic.classList.remove('rec'); if (f) { ta.value = f; doSend(); } if (vGet('zx_voice_wake')) startWake(); }); }
-      mic.addEventListener('click', startPTT);
-      win._voiceCapture = startPTT;
-    }
+    if (mic) win._voiceCapture = attachMic(mic, ta, doSend);
     if (win.setMenus) win.setMenus([
       { label: T('File'), items: [ { label: T('Clear conversation'), action: function () { if (confirm(T('Clear conversation') + '?')) { log.innerHTML = ''; try { localStorage.removeItem(logKey); } catch (e) {} api('/api/forget', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cid: cid }) }).catch(function () {}); } } } ] },
       { label: T('Help'), items: [ { label: T('Help & Guide'), action: function () { launchApp('help'); } } ] }
@@ -865,6 +1119,51 @@
         if (sock && sock.readyState === WebSocket.OPEN) doSend();
         else if (tries++ < 40) setTimeout(attempt, 100);
       })();
+    };
+    // Dictation into this chat (wake word / Dictate open a new chat and call this): every utterance is
+    // added to the input; a stop phrase sends it, a cancel phrase discards it, and after the dictation
+    // timeout without speech it stops listening and leaves the text in the input, unsent.
+    win._startDictation = function (initial) {
+      if (!ZV) return;
+      var c = voiceCfg(), timer = null, ended = false;
+      var banner = el('div', 'chat-dict');
+      var lbl = el('span', 'cd-txt');
+      lbl.textContent = '● ' + T('Dictating') + ' · ' + Tf('say "{s}" to send, "{c}" to discard', { s: (c.stopPhrases || [''])[0], c: (c.cancelPhrases || [''])[0] });
+      var bSend = el('button', 'btn', T('Send')), bStop = el('button', 'btn ghost', T('Stop')), bDrop = el('button', 'btn ghost', T('Discard'));
+      banner.appendChild(lbl); banner.appendChild(bSend); banner.appendChild(bStop); banner.appendChild(bDrop);
+      wrap.insertBefore(banner, inputRow);
+      function arm() { clearTimeout(timer); timer = setTimeout(function () { sess.end(); }, (c.timeoutS || 120) * 1000); }
+      function sendNow() { sess.end(); if (ta.value.trim()) win.sendChat(ta.value); }
+      var sess = {
+        win: win,
+        onSpeech: arm,
+        onText: function (text) {
+          arm();
+          var r = ZV.dictationStep(text, c);
+          if (r.action === 'wake') return;
+          if (r.action === 'cancel') { ta.value = ''; sess.end(); if (c.responses && c.responses.cancel) speak(c.responses.cancel); return; }
+          appendSpoken(ta, r.piece);
+          if (r.action === 'send') sendNow();
+        },
+        end: function () {
+          if (ended) return; ended = true; clearTimeout(timer);
+          if (vr.dict === sess) vr.dict = null;
+          banner.remove(); vrSync();
+        }
+      };
+      bSend.addEventListener('click', function () { capFlush(); whenTranscribed(sendNow); });
+      bStop.addEventListener('click', function () { sess.end(); ta.focus(); });
+      bDrop.addEventListener('click', function () { ta.value = ''; sess.end(); });
+      win.cleanup.push(function () { sess.end(); });
+      if (vr.ptt) vr.ptt.abort();
+      vr.dict = sess; arm();
+      if (initial) {
+        // "zam, <story> ... <stop phrase>" in one breath
+        var r0 = ZV.dictationStep(initial, c, { rest: true });
+        appendSpoken(ta, r0.piece);
+        if (r0.action === 'send') { sendNow(); return; }
+      }
+      vrSync();
     };
   }
 
@@ -883,11 +1182,12 @@
     var nav = el('div', 'set-nav');
     var pane = el('div', 'set-pane');
     wrap.appendChild(nav); wrap.appendChild(pane); body.appendChild(wrap);
-    var tabs = [['appearance', T('Appearance')], ['engine', T('Engine')], ['code', T('Code')], ['providers', T('Providers')], ['channels', T('Channels')], ['integrations', T('Integrations')], ['skills', T('Skills')], ['agents', T('Sub-agents')], ['permissions', T('Permissions')], ['system', T('System')]];
+    var tabs = [['appearance', T('Appearance')], ['voice', T('Voice')], ['engine', T('Engine')], ['code', T('Code')], ['providers', T('Providers')], ['channels', T('Channels')], ['integrations', T('Integrations')], ['skills', T('Skills')], ['agents', T('Sub-agents')], ['permissions', T('Permissions')], ['system', T('System')]];
     function renderNav() { nav.innerHTML = ''; tabs.forEach(function (t) { var b = el('button', state.tab === t[0] ? 'active' : null, t[1]); b.addEventListener('click', function () { state.tab = t[0]; renderNav(); renderTab(); }); nav.appendChild(b); }); }
     function renderTab() {
       pane.innerHTML = '';
       if (state.tab === 'appearance') tabAppearance(pane);
+      else if (state.tab === 'voice') tabVoice(pane);
       else if (state.tab === 'engine') tabEngine(pane);
       else if (state.tab === 'code') tabCode(pane);
       else if (state.tab === 'providers') tabProviders(pane);
@@ -934,20 +1234,141 @@
     });
     f3.appendChild(seg3); pane.appendChild(f3);
 
-    if (voiceSupported() || ttsSupported()) {
-      var fv = el('div', 'field');
-      fv.appendChild(el('label', null, T('Voice')));
-      fv.appendChild(el('div', 'hint', T('Talk to Zamolxis and hear replies (uses your browser speech engine).')));
-      function vrow(key, label, onChange) {
-        var row = el('div'); row.style.cssText = 'display:flex;align-items:center;gap:8px;margin:5px 0';
-        var tg = el('button', 'switch' + (vGet(key) ? ' on' : ''), "<span class='knob'></span>");
-        tg.addEventListener('click', function () { var on = !tg.classList.contains('on'); tg.classList.toggle('on', on); vSet(key, on); if (onChange) onChange(on); });
-        row.appendChild(tg); row.appendChild(el('span', 'hint', label)); return row;
+    // Voice moved to its own tab (Settings -> Voice).
+  }
+
+  // Settings -> Voice: speech engine (browser / Claude Voice local Whisper), wake word, stop/cancel
+  // phrases, spoken replies (browser / Kokoro). Saved as live settings (`voice` in settings.json);
+  // defaults come from the Claude Voice app's own config, read-only.
+  function tabVoice(pane) {
+    pane.appendChild(el('div', 'hint', T('Loading...')));
+    Promise.all([api('/api/voice/status'), api('/api/voice/voices').catch(function () { return { voices: [] }; })]).then(function (res) {
+      var st = res[0] || {}, voices = (res[1] && res[1].voices) || [];
+      var s = st.settings || {}, cv = st.claudeVoice || {};
+      pane.innerHTML = '';
+      function list(a) { return (a || []).join(', '); }
+      function sw(on) { var b = el('button', 'switch' + (on ? ' on' : ''), "<span class='knob'></span>"); b.addEventListener('click', function () { b.classList.toggle('on'); }); return b; }
+      function isOn(b) { return b.classList.contains('on'); }
+      function segOf(opts, cur, onPick) {
+        var g = el('div', 'seg'); g._val = cur;
+        opts.forEach(function (o) {
+          var b = el('button', o[0] === cur ? 'active' : null, o[1]);
+          b.addEventListener('click', function () { g._val = o[0]; [].forEach.call(g.children, function (x) { x.classList.remove('active'); }); b.classList.add('active'); if (onPick) onPick(o[0]); });
+          g.appendChild(b);
+        });
+        return g;
       }
-      if (ttsSupported()) fv.appendChild(vrow('zx_voice_speak', T('Speak replies')));
-      if (voiceSupported()) fv.appendChild(vrow('zx_voice_wake', T('Wake word ("Zamolxis")'), function (on) { if (on) startWake(); else stopWakeRec(); }));
-      pane.appendChild(fv);
-    }
+      function selOf(opts, cur) { var sl = el('select', 'inp'); sl.style.width = '100%'; opts.forEach(function (o) { var op = el('option'); op.value = o[0]; op.textContent = o[1]; sl.appendChild(op); }); if (cur && !opts.some(function (o) { return o[0] === cur; })) { var op = el('option'); op.value = cur; op.textContent = cur + ' (' + T('not found') + ')'; sl.appendChild(op); } sl.value = cur; return sl; }
+      function swRow(b, label) { var r = el('div'); r.style.cssText = 'display:flex;align-items:center;gap:8px'; r.appendChild(b); r.appendChild(el('span', 'hint', label)); return r; }
+
+      // ---- status ----
+      var stat = el('div', 'voice-status');
+      function paintStatus(d) {
+        d = d || st;
+        var w = d.whisper || {}, k = d.kokoro || {}, c = d.claudeVoice || {}, cur = (d.settings || {}).engine;
+        var lines = [];
+        lines.push([T('Active speech engine'), (cur === 'claudevoice' ? T('Claude Voice (local Whisper)') : T('Browser')) + (cur === 'claudevoice' && !localCaptureSupported() ? ' · ' + T('this browser cannot capture audio, using the browser engine') : '')]);
+        lines.push([T('Claude Voice engine'), (c.ok ? '✓ ' : '✗ ') + (c.reason || '')]);
+        lines.push(['whisper-server', w.state + (w.state === 'running' ? ' · ' + w.model + ' · ' + (w.device === 'gpu' ? 'GPU' : 'CPU') + ' · 127.0.0.1:' + w.port : '') + (w.binReady ? '' : ' · ' + T('not set up yet')) + (w.note ? ' · ' + w.note : '') + (w.lastError ? ' · ' + T('error') + ': ' + w.lastError : '') + (w.preparing ? ' · ' + (w.prepareMessage || T('working...')) : (w.prepareMessage && !w.binReady ? ' · ' + w.prepareMessage : ''))]);
+        var rt = w.runtime || {};
+        lines.push([T('whisper runtime'), (rt.summary || T('not set up')) + (rt.dir ? ' · ' + rt.dir : '') + (rt.freeBytes != null ? ' · ' + fmtBytes(rt.freeBytes) + ' ' + T('free on that drive') : '')]);
+        lines.push([T('Unload'), Tf('after {n} idle minutes (frees the GPU memory)', { n: w.idleMinutes || s.idleMinutes })]);
+        lines.push(['Kokoro', (k.pythonFound ? '✓ ' + T('Python venv found') : '✗ ' + T('Python venv missing') + ': ' + (k.python || '')) + (k.modelFound ? ' · ✓ ' + T('voice model found') : ' · ✗ ' + T('voice model missing')) + (k.running ? ' · ' + T('running') : '') + (k.lastError ? ' · ' + k.lastError : '')]);
+        lines.push([T('Claude Voice settings'), c.configFound ? (T('read from') + ' ' + c.configPath) : (T('not found, using its defaults') + (c.configError ? ' (' + c.configError + ')' : ''))]);
+        stat.innerHTML = '';
+        lines.forEach(function (l) { var r = el('div'); var b = el('b'); b.textContent = l[0] + ': '; r.appendChild(b); r.appendChild(document.createTextNode(l[1])); stat.appendChild(r); });
+        // Setup choices: link (no disk), extract from the zip (when linking is not possible), CPU-only, download.
+        function setupBtn(label, body) {
+          var pb = el('button', 'btn ghost'); pb.textContent = label; pb.style.margin = '6px 6px 0 0';
+          pb.addEventListener('click', function () {
+            pb.disabled = true; pb.textContent = T('Working...');
+            api('/api/voice/prepare', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+              .then(function () { refresh(); }).catch(function () { pb.disabled = false; pb.textContent = label; });
+          });
+          stat.appendChild(pb);
+        }
+        if (!w.preparing && w.state !== 'running' && w.state !== 'starting') {
+          var rtr = w.runtime || {};
+          if (!rtr.ready) {
+            if (w.zipFound) {
+              setupBtn(T('Set up whisper-server (link Claude Voice files, no extra disk)'), {});
+              if (w.prepareMessage && /extract/i.test(w.prepareMessage) && !w.prepareNeedsSpace) setupBtn(T('Extract from the zip (about 1.2 GB)'), { allowExtract: true });
+              if (w.prepareMessage && /extract|space/i.test(w.prepareMessage)) setupBtn(T('CPU-only setup') + (w.cpuOnlyBytes ? ' (' + fmtBytes(w.cpuOnlyBytes) + ')' : ''), { cpuOnly: true, allowExtract: true });
+            } else {
+              setupBtn(T('Download whisper.cpp b5454 (about 685 MB)'), { download: true });
+            }
+          } else if (rtr.orphanedBytes) {
+            setupBtn(T('Re-link to Claude Voice (frees') + ' ' + fmtBytes(rtr.orphanedBytes) + ')', { force: true });
+          } else if (rtr.cpuOnly && w.zipFound) {
+            setupBtn(T('Add GPU support (link Claude Voice CUDA files)'), { cpuOnly: false });
+          }
+        }
+      }
+      function refresh() { api('/api/voice/status').then(function (d) { if (d) { st = d; paintStatus(d); } }).catch(function () {}); }
+      paintStatus(st);
+      var poll = setInterval(function () { if (!pane.isConnected || !stat.isConnected) { clearInterval(poll); return; } refresh(); }, 4000);
+      pane.appendChild(fld(T('Status'), stat));
+
+      // ---- speech to text ----
+      var engine = segOf([['browser', T('Browser')], ['claudevoice', T('Claude Voice (local Whisper)')]], s.engine);
+      pane.appendChild(fld(T('Speech engine'), engine, T('Claude Voice: your microphone audio is transcribed on this PC by whisper.cpp with the Claude Voice app\'s models; nothing leaves the machine. Browser: the browser\'s speech service (Chrome and Edge send the audio to their vendor).')));
+      var models = (cv.models || []).map(function (m) { return [m, m]; });
+      var model = selOf(models.length ? models : [[s.model, s.model]], s.model);
+      var langs = inp(list(s.languages)); langs.placeholder = 'en, ro, fr';
+      var translate = sw(s.translate);
+      var device = selOf([['auto', T('GPU when it fits, else CPU')], ['cpu', T('CPU only')]], s.device);
+      var idle = inp(s.idleMinutes); idle.type = 'number'; idle.min = '1';
+      pane.appendChild(fld(T('Whisper model'), model, Tf('From {d}. large-v3 is the most accurate and needs about 3 GB of GPU memory; it loads on first use.', { d: cv.modelsDir || '' })));
+      var r2 = el('div', 'row2'); var c1 = el('div'); c1.style.flex = '1'; c1.appendChild(fld(T('Languages'), langs, T('Spoken languages, comma separated (blank = any).'))); var c2 = el('div'); c2.style.flex = '1'; c2.appendChild(fld(T('Device'), device)); r2.appendChild(c1); r2.appendChild(c2); pane.appendChild(r2);
+      pane.appendChild(fld(T('Translate to English'), swRow(translate, T('Write what you say in English, whatever language you speak.'))));
+      pane.appendChild(fld(T('Unload after (idle minutes)'), idle));
+
+      // ---- wake word, stop, cancel ----
+      var wake = sw(s.wakeEnabled);
+      var wname = inp(s.wakeName);
+      var walias = inp(list(s.wakeAliases));
+      var stops = inp(list(s.stopPhrases));
+      var cancels = inp(list(s.cancelPhrases));
+      pane.appendChild(fld(T('Wake word'), swRow(wake, T('Say the name to dictate a new prompt into a new chat window. Listens only while a Zamolxis window has focus.'))));
+      var r3 = el('div', 'row2'); var c3 = el('div'); c3.style.flex = '1'; c3.appendChild(fld(T('Name'), wname)); var c4 = el('div'); c4.style.flex = '2'; c4.appendChild(fld(T('Also accept (misheard forms)'), walias)); r3.appendChild(c3); r3.appendChild(c4); pane.appendChild(r3);
+      pane.appendChild(fld(T('Stop phrases (send)'), stops, T('Said at the end of the dictation, they send it. Comma separated.')));
+      pane.appendChild(fld(T('Cancel phrases (discard)'), cancels, T('Said on their own, they throw the dictation away.')));
+
+      // ---- spoken replies ----
+      var tts = segOf([['off', T('Off')], ['browser', T('Browser')], ['kokoro', 'Kokoro']], s.tts);
+      var kv = selOf(voices.length ? voices.map(function (v) { return [v.id, v.id + ' · ' + v.label]; }) : [[s.kokoroVoice, s.kokoroVoice]], s.kokoroVoice);
+      var kspeed = inp(s.kokoroSpeed); kspeed.type = 'number'; kspeed.min = '0.5'; kspeed.max = '2'; kspeed.step = '0.05';
+      var test = el('button', 'btn ghost', T('Test voice'));
+      test.addEventListener('click', function () {
+        speak(T('Hello, I am') + ' ' + AGENT_NAME + '. ' + T('This is how my replies will sound.'), { mode: tts._val === 'off' ? 'browser' : tts._val, voice: kv.value, speed: Number(kspeed.value) || 1 });
+      });
+      pane.appendChild(fld(T('Spoken replies'), tts, T('Kokoro uses the same offline neural voices as Claude Voice. The microphone is muted while a reply is spoken.')));
+      var r4 = el('div', 'row2'); var c5 = el('div'); c5.style.flex = '2'; c5.appendChild(fld(T('Kokoro voice'), kv)); var c6 = el('div'); c6.style.flex = '1'; c6.appendChild(fld(T('Speed'), kspeed)); r4.appendChild(c5); r4.appendChild(c6); pane.appendChild(r4);
+      var tr = el('div'); tr.appendChild(test); pane.appendChild(tr);
+
+      // ---- save ----
+      var status = el('span', 'hint'); var save = el('button', 'btn', T('Save')); var useCv = el('button', 'btn ghost', T('Use Claude Voice settings'));
+      useCv.title = T('Fill the fields with the Claude Voice app\'s settings (its config file is only read, never changed). Then Save.');
+      useCv.addEventListener('click', function () {
+        var d = st.defaults || {};
+        if (d.model) model.value = d.model;
+        langs.value = list(d.languages); translate.classList.toggle('on', !!d.translate); device.value = d.device || 'auto';
+        stops.value = list(d.stopPhrases); cancels.value = list(d.cancelPhrases);
+        if (d.kokoroVoice) kv.value = d.kokoroVoice; kspeed.value = d.kokoroSpeed || 1;
+        status.textContent = T('Filled from Claude Voice. Save to apply.');
+      });
+      var sr = el('div', 'save-row'); sr.appendChild(save); sr.appendChild(useCv); sr.appendChild(status); pane.appendChild(sr);
+      save.addEventListener('click', function () {
+        save.disabled = true; status.textContent = T('Saving...');
+        var patch = { engine: engine._val, model: model.value, languages: langs.value, translate: isOn(translate), device: device.value, idleMinutes: Number(idle.value) || 5,
+          wakeEnabled: isOn(wake), wakeName: wname.value, wakeAliases: walias.value, stopPhrases: stops.value, cancelPhrases: cancels.value,
+          tts: tts._val, kokoroVoice: kv.value, kokoroSpeed: Number(kspeed.value) || 1 };
+        postSettings({ voice: patch })
+          .then(function () { save.disabled = false; status.textContent = T('Saved.'); return loadVoiceCfg(); })
+          .then(function (d) { if (d) { st = d; paintStatus(d); } })
+          .catch(function () { save.disabled = false; status.textContent = T('Failed.'); });
+      });
+    }).catch(function () { pane.innerHTML = ''; pane.appendChild(el('div', 'empty', T('Could not load settings.'))); });
   }
 
   function tabEngine(pane) {
@@ -4231,6 +4652,8 @@
     var row = el('div', 'chat-input');
     var ta = el('textarea'); ta.placeholder = T('Message') + ' ' + (agent.label || agent.name) + '...';
     var send = el('button'); send.textContent = T('Send');
+    var mic = (localCaptureSupported() || voiceSupported()) ? el('button', 'chat-mic') : null;
+    if (mic) { mic.textContent = '🎤'; mic.title = T('Speak'); row.appendChild(mic); }
     row.appendChild(ta); row.appendChild(send);
     chat.appendChild(log); chat.appendChild(row); content.appendChild(chat);
     function addMsg(who, text, cls, via, persist) { var m = el('div', 'msg ' + cls); m.appendChild(el('div', 'who', who + (via ? ' · via ' + via : ''))); var c = el('div'); setMsgBody(c, text, cls); m.appendChild(c); log.appendChild(m); log.scrollTop = log.scrollHeight; if (persist !== false) pushChatLog(logKey, { who: who, text: text, cls: cls, via: via }); return m; }
@@ -4255,6 +4678,7 @@
     }
     send.addEventListener('click', doSend);
     ta.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } });
+    if (mic) attachMic(mic, ta, doSend);
     setTimeout(function () { ta.focus(); }, 50);
   }
 
@@ -4425,6 +4849,7 @@
       deskMenu.appendChild(item);
     }
     menuItem(T('Command bar') + '  (Ctrl+Space)', openCmdBar);
+    menuItem(T('Dictate a new chat'), function () { startDictation(''); });
     menuItem(T('Auto-arrange icons'), autoArrangeIcons);
     document.body.appendChild(deskMenu);
     // Clamp to the viewport so it never opens off-screen.
@@ -4475,6 +4900,8 @@
       matches = matches.slice(0, 8);
       var items = [];
       if (q) items.push({ type: 'ask', name: T('Ask') + ' ' + AGENT_NAME + ': ' + q, iconSvg: ICON.zamolxis, hint: T('chat'), run: function () { askZamolxis(q); } });
+      var dict = T('Dictate a new chat');
+      if (!ql || dict.toLowerCase().indexOf(ql) >= 0 || 'dictate'.indexOf(ql) === 0 || 'voice'.indexOf(ql) === 0) items.push({ type: 'action', name: dict, iconSvg: ICON.mic, hint: T('action'), run: function () { startDictation(''); } });
       var arrange = T('Auto-arrange icons');
       if (!ql || arrange.toLowerCase().indexOf(ql) >= 0 || 'arrange icons'.indexOf(ql) >= 0) items.push({ type: 'action', name: arrange, iconSvg: ICON.zamolxis, hint: T('action'), run: autoArrangeIcons });
       matches.forEach(function (a) {
@@ -4528,7 +4955,7 @@
   applyStaticI18n();
   if (window.matchMedia) { try { window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () { if (modeChoice() === 'auto') applyMode(); }); } catch (e) {} }
   tickClock(); setInterval(tickClock, 10000);
-  if (vGet('zx_voice_wake')) setTimeout(startWake, 1200);
+  loadVoiceCfg(); // speech engine, wake word ("zam", only while focused) and spoken replies from Settings -> Voice
   // Auto-open/raise the Canvas when the agent pushes new content (baseline the first poll so a
   // pre-existing canvas doesn't pop on every reload).
   // Baseline the canvas version ONCE at load (so a pre-existing canvas from a past session
@@ -4549,7 +4976,7 @@
         if (!_notifPrimed) return;
         showToast(n.title, n.body, n.kind);
         try { if (window.Notification && Notification.permission === 'granted') new Notification(n.title, { body: n.body }); } catch (e) {}
-        if (vGet('zx_voice_speak')) speak(n.title + '. ' + n.body);
+        if (ttsMode() !== 'off') speak(n.title + '. ' + n.body);
       });
       _notifPrimed = true;
     }).catch(function () {});

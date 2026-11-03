@@ -79,6 +79,41 @@ zam help          # this help summary
 
 ---
 
+## 3b. Voice
+
+**Settings -> Voice** chooses how Zamolxis listens and speaks.
+- **Speech engine.** *Claude Voice (local Whisper)* uses the Claude Voice app's engine and models:
+  your speech is transcribed on this PC by whisper.cpp (large-v3 by default). The first time it is
+  used Zamolxis sets up whisper-server in one folder shared by all its data dirs
+  (`%LOCALAPPDATA%\Zamolxis\whisper-runtime`, or `ZAMOLXIS_WHISPER_DIR`): only whisper-server.exe
+  (under 1 MB) is taken from Claude Voice's release zip, and its DLLs are hard links to the Claude
+  Voice install, so it takes no extra disk. When links are not possible (another drive, a different
+  Claude Voice build) the tab offers to extract them from the zip (about 1.2 GB, or about 10 MB for a
+  CPU-only setup) and checks the free space first; if the zip is missing it offers to download it
+  (about 685 MB). The status line shows the mode in use and the disk it takes. The model loads in a
+  few seconds and unloads after 5 idle minutes. If the GPU is full (Claude
+  Voice uses it too) it says so and runs on CPU, which is slower. *Browser* is the browser's own
+  speech service (Chrome and Edge send the audio to their vendor).
+- **Wake word.** Turn it on and say **"zam"** ("hey zam", "hello zam") while a Zamolxis window has
+  focus: a new chat window opens and what you say is written into it. Finish with a stop phrase
+  (**"execute"**, "go ahead zam") to send it, or say **"cancel"** / "never mind" to throw it away.
+  After 2 minutes without speech it stops listening and leaves the text unsent. Zamolxis listens
+  for the wake word only while it has focus. The name, the misheard forms it accepts, and the stop
+  and cancel phrases are editable.
+- **Dictate.** The **Dictate** desktop icon, "Dictate a new chat" in the command bar (Ctrl+Space)
+  or the desktop right-click menu do the same without the wake word.
+- **Microphone button.** Every chat window (main, new chats, agent chats) has one. With Claude
+  Voice: click, talk, then click again or pause to send; a stop phrase sends at once, a cancel
+  phrase clears the box. With the browser engine it takes one phrase and sends it.
+- **Spoken replies.** Off, Browser, or **Kokoro** (Claude Voice's neural voices: pick a voice and
+  speed, **Test voice**). The microphone is muted while a reply is spoken.
+- **Use Claude Voice settings** fills the model, languages, translation, phrases and voice from
+  `%APPDATA%\ClaudeVoice\config.json` (read only; Zamolxis never changes Claude Voice's files).
+  The status line shows the active engine, whisper-server (running, model, GPU or CPU, port) and
+  whether Claude Voice's Python and Kokoro model were found.
+
+---
+
 ## 4. How answers are routed (the ladder)
 
 Every message stops at the first tier that can handle it: **Calculator** (pure math, no model) → **free cloud** → **paid** (only if you added one) → **local** (last resort) → **Claude** (escalation / hard tasks only). Reorder or trim tiers in **Providers**. Claude runs on your flat subscription; heavy days don't cost extra.

@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
 import { setProviderModels, setProviderModelsAuto, setKeylessProviders } from './core/providers.js';
+import { sanitizeVoiceOverrides, setVoiceDataDir, type VoiceOverrides } from './core/voice/claudeVoiceConfig.js';
 
 /** Extra (read-only) skill roots: explicit via ZAMOLXIS_EXTRA_SKILLS_DIRS (`;`/`,`-separated),
  *  plus auto-detected Hermes installs. Scanned recursively for SKILL.md by the SkillsManager. */
@@ -124,6 +125,8 @@ const ConfigSchema = z.object({
   providerModelsAuto: z.array(z.string()),
   /** keyOptional providers (e.g. ovh) the user allowed to run WITHOUT a key (anonymous). Opt-in. */
   keylessProviders: z.array(z.string()),
+  /** Settings -> Voice choices (overrides on top of the Claude Voice app's defaults; see core/voice). */
+  voice: z.custom<VoiceOverrides>((v) => !!v && typeof v === 'object' && !Array.isArray(v)),
 
   /** Permission posture for the autonomous agent. */
   permissionMode: z.enum(['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk']),
@@ -247,6 +250,7 @@ export function loadConfig(): ZamolxisConfig {
     providerModels: {},
     providerModelsAuto: [],
     keylessProviders: [],
+    voice: {},
     // 'default' = interactive: Zamolxis asks before using a resource (like Claude Code) and
     // remembers grants per chat/skill/agent. Set acceptEdits/bypassPermissions to skip asking.
     // Headless runs (scheduled agents, messaging channels) have no prompter and are never blocked.
@@ -368,6 +372,7 @@ export function applyPersistedSettings(config: ZamolxisConfig): void {
       }
       if (Array.isArray(s.providerModelsAuto)) config.providerModelsAuto = s.providerModelsAuto.filter((x: unknown): x is string => typeof x === 'string' && !!config.providerModels[x]);
       if (Array.isArray(s.keylessProviders)) config.keylessProviders = s.keylessProviders.filter((x: unknown): x is string => typeof x === 'string');
+      if (s.voice && typeof s.voice === 'object') config.voice = sanitizeVoiceOverrides(s.voice);
 
       if (s.channels && argvChannels === null) {
         for (const k of Object.keys(config.channels) as Array<keyof typeof config.channels>) {
@@ -399,6 +404,10 @@ export function applyPersistedSettings(config: ZamolxisConfig): void {
   } catch {
     /* malformed settings.json — ignore, use env/defaults */
   }
+
+  // Per-instance voice state (the whisper-server pid file) lives under <dataDir>/voice; the
+  // whisper-server runtime itself is shared by all data dirs (core/voice/whisperRuntime.ts).
+  setVoiceDataDir(config.dataDir);
 
   // The provider registry reads its model overrides from here (live updates go through settings).
   setProviderModels(config.providerModels);

@@ -43,9 +43,31 @@ import { PROXY_SECRET, MIN_CODE_CONTEXT, availableBackends, codeLocalModel } fro
 import { allowedFolders } from '../core/code/orchestrator.js';
 import { resolveClaude, claudeVersion } from '../core/code/cliRunner.js';
 import { detectHardware, startOllamaPull, ollamaPulls, codeModelAdvice, loadCodeModel, checkDisk, CODE_MODEL_CATALOG } from '../core/code/localCodeModel.js';
+import { WhisperServer } from '../core/voice/whisperServer.js';
+import { KokoroSidecar } from '../core/voice/kokoroSidecar.js';
+import { claudeVoicePaths, claudeVoiceDefaults, claudeVoiceEngineAvailability, effectiveVoiceSettings, listWhisperModels, loadClaudeVoiceConfig, voiceClientConfig } from '../core/voice/claudeVoiceConfig.js';
 import { logger } from '../logger.js';
 
 const LOOPBACK = ['127.0.0.1', 'localhost', '::1'];
+
+/** A RIFF/WAVE body whose fmt chunk is PCM (1) or float (3), mono or stereo, with a data chunk. */
+function isPcmWav(b: Buffer): boolean {
+  if (b.length < 44 || b.toString('ascii', 0, 4) !== 'RIFF' || b.toString('ascii', 8, 12) !== 'WAVE') return false;
+  let off = 12, fmtOk = false;
+  while (off + 8 <= b.length) {
+    const id = b.toString('ascii', off, off + 4);
+    const len = b.readUInt32LE(off + 4);
+    if (id === 'fmt ') {
+      if (off + 8 + 16 > b.length) return false;
+      const fmt = b.readUInt16LE(off + 8), ch = b.readUInt16LE(off + 10), rate = b.readUInt32LE(off + 12);
+      fmtOk = (fmt === 1 || fmt === 3 || fmt === 0xfffe) && ch >= 1 && ch <= 2 && rate >= 8000 && rate <= 48000;
+    } else if (id === 'data') {
+      return fmtOk && len > 0;
+    }
+    off += 8 + len + (len & 1);
+  }
+  return false;
+}
 
 // ── Filesystem API for the desktop apps (File Manager, editors, media/doc viewers). ──
 // Gives the same reach as the OS file explorer: the whole filesystem (all drives on Windows,
@@ -244,6 +266,10 @@ export class WebChannel implements Channel {
   private readonly sockets = new Map<string, WebSocket>();
   // Live SSH/SFTP sessions for the SFTP Client app, keyed by an opaque id (idle-reaped).
   private readonly sftpSessions = new Map<string, { conn: { end(): void }; sftp: Record<string, (...a: unknown[]) => unknown>; last: number }>();
+
+  // Settings -> Voice: local Whisper (whisper-server) and Kokoro TTS sidecars, started on first use.
+  private readonly whisper = new WhisperServer(() => effectiveVoiceSettings(this.config.voice));
+  private readonly kokoro = new KokoroSidecar(() => effectiveVoiceSettings(this.config.voice));
 
   private _vault?: MemoryVault;
   /** Lazily built Obsidian-style memory vault (null when no memory manager is wired). */
@@ -464,6 +490,98 @@ export class WebChannel implements Channel {
   private json(res: http.ServerResponse, code: number, body: unknown): void {
     res.writeHead(code, { 'content-type': 'application/json' });
     res.end(JSON.stringify(body));
+  }
+
+  /** Voice endpoints (Settings -> Voice and every chat's microphone). Audio and text stay on this
+   *  PC: whisper-server and the Kokoro sidecar listen on 127.0.0.1 only.
+   *  - GET  /api/voice/status      engine availability, sidecar state, effective + client settings
+   *  - POST /api/voice/transcribe  body = one 16 kHz mono WAV utterance (15 MB max) -> {text, lang}
+   *  - POST /api/voice/tts         {text, voice?, speed?} -> audio/wav (Kokoro)
+   *  - GET  /api/voice/voices      Kokoro voices
+   *  - POST /api/voice/prepare     {cpuOnly?, allowExtract?, force?, download?} set up the shared
+   *                                whisper-server runtime (hard links to Claude Voice, or the zip) */
+  private onVoice(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
+    const route = url.pathname.slice('/api/voice/'.length);
+    const readBody = (max: number, cb: (buf: Buffer) => void) => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      let tooBig = false;
+      req.on('data', (c: Buffer) => {
+        if (tooBig) return;
+        size += c.length;
+        if (size > max) {
+          tooBig = true;
+          chunks.length = 0;
+          // Answer first, then drop the connection (destroying at once would lose the 413).
+          res.once('finish', () => req.destroy());
+          res.setHeader('connection', 'close');
+          this.json(res, 413, { error: `too large (${Math.max(1, Math.round(max / 1048576))} MB max)` });
+          return;
+        }
+        chunks.push(c);
+      });
+      req.on('error', () => { tooBig = true; });
+      req.on('end', () => { if (!tooBig) cb(Buffer.concat(chunks)); });
+    };
+    if (route === 'status' && req.method === 'GET') {
+      const cv = loadClaudeVoiceConfig();
+      const p = claudeVoicePaths();
+      return this.json(res, 200, {
+        settings: effectiveVoiceSettings(this.config.voice),
+        client: voiceClientConfig(this.config.voice),
+        defaults: claudeVoiceDefaults(effectiveVoiceSettings(this.config.voice).wakeName),
+        saved: Object.keys(this.config.voice ?? {}).length > 0,
+        claudeVoice: { ...claudeVoiceEngineAvailability(), configFound: cv.found, configPath: cv.path, configError: cv.error ?? null, modelsDir: p.modelsDir, models: listWhisperModels(), repo: p.repo },
+        whisper: this.whisper.status(),
+        kokoro: this.kokoro.status(),
+      });
+    }
+    if (route === 'transcribe' && req.method === 'POST') {
+      readBody(15 * 1024 * 1024, (wav) => {
+        if (!isPcmWav(wav)) return this.json(res, 400, { error: 'expected a PCM WAV body' });
+        this.whisper.transcribe(wav)
+          .then((r) => this.json(res, 200, r))
+          .catch((err) => this.json(res, 503, { error: String((err as Error).message || err), whisper: this.whisper.status() }));
+      });
+      return;
+    }
+    if (route === 'tts' && req.method === 'POST') {
+      readBody(200_000, (buf) => {
+        let o: { text?: unknown; voice?: unknown; speed?: unknown };
+        try { o = JSON.parse(buf.toString('utf8') || '{}'); } catch { return this.json(res, 400, { error: 'bad json' }); }
+        const text = String(o.text ?? '').slice(0, 20_000);
+        if (!text.trim()) return this.json(res, 400, { error: 'no text' });
+        const voice = typeof o.voice === 'string' && /^[a-z]{2}_[a-z0-9_]{1,30}$/i.test(o.voice) ? o.voice : undefined;
+        const speed = typeof o.speed === 'number' && o.speed >= 0.5 && o.speed <= 2 ? o.speed : undefined;
+        this.kokoro.synth(text, voice, speed)
+          .then((wav) => { res.writeHead(200, { 'content-type': 'audio/wav', 'content-length': wav.length, 'cache-control': 'no-store' }); res.end(wav); })
+          .catch((err) => this.json(res, 503, { error: String((err as Error).message || err) }));
+      });
+      return;
+    }
+    if (route === 'voices' && req.method === 'GET') {
+      this.kokoro.voices()
+        .then((voices) => this.json(res, 200, { voices }))
+        .catch((err) => this.json(res, 503, { error: String((err as Error).message || err), voices: [] }));
+      return;
+    }
+    if (route === 'prepare' && req.method === 'POST') {
+      readBody(10_000, (buf) => {
+        let o: { download?: unknown; cpuOnly?: unknown; allowExtract?: unknown; force?: unknown } = {};
+        try { o = JSON.parse(buf.toString('utf8') || '{}'); } catch { /* defaults */ }
+        const run = this.whisper.prepare({
+          download: o.download === true, cpuOnly: o.cpuOnly === true ? true : o.cpuOnly === false ? false : undefined,
+          allowExtract: o.allowExtract === true, force: o.force === true,
+        });
+        // A download takes minutes: answer at once and let the status poll show progress.
+        void Promise.race([run, new Promise<null>((r) => setTimeout(() => r(null), 20_000))]).then((r) => {
+          if (r) return this.json(res, r.ok ? 200 : 400, { ...r, whisper: this.whisper.status() });
+          return this.json(res, 202, { ok: true, started: true, whisper: this.whisper.status() });
+        });
+      });
+      return;
+    }
+    return this.json(res, 404, { error: 'unknown voice endpoint' });
   }
 
   /** The interactive "duties" panel on John the Butler's page: the user ticks which maintenance
@@ -1062,6 +1180,10 @@ ${dutiesPanel}
         logger.warn({ err: String(err) }, 'web update spawn failed');
       }
       return;
+    }
+    if (url.pathname.startsWith('/api/voice/')) {
+      if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
+      return this.onVoice(req, res, url);
     }
     if (url.pathname === '/api/upload' && req.method === 'POST') {
       if (!this.authOk(req)) return this.json(res, 401, { error: 'unauthorized' });
@@ -2328,6 +2450,8 @@ $out | ConvertTo-Json -Compress`, 40000));
     }
     this.wss?.close();
     this.sockets.clear();
+    this.whisper.stop('shutdown');
+    this.kokoro.stop();
     await new Promise<void>((resolve) => {
       if (!this.server) return resolve();
       this.server.closeAllConnections?.();
