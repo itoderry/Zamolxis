@@ -2044,7 +2044,7 @@
   function tabIntegrations(pane) {
     pane.appendChild(el('div', 'hint', T('Loading...')));
     var GROUPS = [
-      { group: 'jira', title: 'Jira', blurb: 'Connect Jira so the Jira tools and agents (Jira Sentinel, Jira Watcher) can read and create issues. Create an API token at id.atlassian.com/manage-profile/security/api-tokens.' },
+      { group: 'jira', title: 'Jira', blurb: 'Connect Jira so the Jira tools can read and create issues. Create an API token at id.atlassian.com/manage-profile/security/api-tokens.' },
       { group: 'search', title: 'Web search keys (optional)', blurb: 'Optional higher-quality search providers. Web search already works without a key via DuckDuckGo.' },
       { group: 'plugins', title: 'Plugins (optional)', blurb: 'Paid extras: OpenAI enables image generation and the cross-provider router.' }
     ];

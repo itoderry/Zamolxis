@@ -2,6 +2,11 @@
 
 ## Unreleased (0.3.x)
 
+- **Fewer built-in agents.** The pre-made work agents are gone: Jira Sentinel, Jira Watcher, Scrum
+  Sentinel, Standup Synth, Release Scribe, Chief of Staff, Meeting Prep, Meeting Actions, Support Triage,
+  Review Radar, Inbox Triage, PR Reviewer and Research Analyst, with their run pre-checks. Mail Sentinel,
+  News Brief, Desktop Automation and John the Butler remain. The Jira and Outlook tools are unchanged,
+  so an agent you create can still use them.
 - **Multi-line memory entries are kept whole** (reported by @mattabate). A memory,
   profile or learning entry is stored as one "- " bullet line and read back by those lines only, so
   text with a line break lost everything after its first line while the tool still answered

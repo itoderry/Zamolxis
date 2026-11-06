@@ -148,11 +148,11 @@ async function main(): Promise<void> {
   // Pre-made agents (seeded once per name; the user can edit, reschedule, stop, or delete them
   // like any other agent and they are NOT re-imposed). Cron schedules are seeded only together
   // with the agent's first creation, so a deleted schedule stays deleted.
-  // Only the two heaviest-reasoning agents start on the top Claude tier; everything else runs on
+  // Only the heaviest-reasoning agent starts on the top Claude tier; everything else runs on
   // Sonnet, which is plenty for routine watch/triage work and a fraction of the token cost. New
   // agents are seeded PAUSED so a fresh install doesn't quietly burn the model budget — the user
   // turns on the ones they actually want from the Sub-agents panel.
-  const TOP_TIER = new Set(['research-analyst', 'pr-reviewer', 'desktop-automation']);
+  const TOP_TIER = new Set(['desktop-automation']);
   for (const pre of PREMADE_AGENTS) {
     try {
       // Already present: just make sure it is tagged as pre-made (idempotent; tags installs seeded
@@ -182,8 +182,8 @@ async function main(): Promise<void> {
     const pathmod = await import('node:path');
     const usageMarker = pathmod.join(config.dataDir, '.premade-usage-v1');
     if (!fsmod.existsSync(usageMarker)) {
-      const keepTopTier = new Set(['research-analyst', 'pr-reviewer', 'desktop-automation']);
-      const recadence: Record<string, string> = { 'jira-watcher': '0 8-17 * * 1-5', 'meeting-prep': '0 */3 * * 1-5' };
+      const keepTopTier = new Set(['desktop-automation']);
+      const recadence: Record<string, string> = {};
       for (const pre of PREMADE_AGENTS) {
         const a = agentStore.get(pre.name);
         if (!a) continue;
