@@ -2,6 +2,14 @@
 
 ## Unreleased (0.3.x)
 
+- **Multi-line memory entries are kept whole** (reported by @mattabate). A memory,
+  profile or learning entry is stored as one "- " bullet line and read back by those lines only, so
+  text with a line break lost everything after its first line while the tool still answered
+  "Saved"; a continuation line starting with "- " became a separate entry. `docAdd` and `docReplace`
+  now join the lines before the size check and the write: wrapped lines with a space, bulleted lines
+  with "; " (so a list stays readable), with a leading bullet marker dropped and blank lines ignored.
+  The reply says when lines were joined. `node scripts/test-memory.mjs` checks memory, profile and
+  learnings.
 - **"Open Word" / "Open Excel" really open them, and failed tools are no longer reported as done.**
   Three things stacked up: Windows Defender's Controlled Folder Access blocks node.exe from writing to
   Documents, so `open_in_word` / `open_in_excel` / `open_in_powerpoint` could not create their files;

@@ -12,6 +12,28 @@ const MEMORY_MAX = Number(process.env.ZAMOLXIS_MEMORY_MAX_CHARS ?? 2000);
 const USER_MAX = Number(process.env.ZAMOLXIS_USER_MAX_CHARS ?? 1500);
 const LEARNINGS_MAX = Number(process.env.ZAMOLXIS_LEARNINGS_MAX_CHARS ?? 3000);
 
+/**
+ * One stored entry is one "- " bullet line, and reading keeps only those lines, so a line break
+ * inside an entry used to drop everything after it (while the tool still answered "Saved").
+ * Join the lines instead: a line that was itself a bullet is joined with "; " (a list stays a
+ * list), any other line with a space (wrapped text). A bullet marker on the first line is dropped,
+ * since the file adds its own. `joined` = how many lines were folded in.
+ */
+function oneLine(raw: string): { text: string; joined: number } {
+  const lines = String(raw ?? '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  let text = '';
+  lines.forEach((line, i) => {
+    const bullet = /^[-*•]\s+/.test(line);
+    const body = line.replace(/^[-*•]\s+/, '');
+    text = i === 0 ? body : text + (bullet ? (/[:;,]$/.test(text) ? ' ' : '; ') : ' ') + body;
+  });
+  return { text, joined: Math.max(0, lines.length - 1) };
+}
+const joinedNote = (n: number): string => (n ? ` (joined ${n + 1} lines into one entry)` : '');
+
 const USER_HEADER = '# About the user';
 // Seeded as just the header: the agent fills this in (scope="profile") as it learns
 // about the user; a placeholder "- ..." would otherwise count as a real profile entry.
@@ -229,7 +251,7 @@ export class MemoryManager {
     return entries.map((e) => `- ${e}`).join('\n').length;
   }
   private docAdd(file: string, header: string | null, max: number, label: string, text: string): { ok: boolean; message: string } {
-    const t = text.trim();
+    const { text: t, joined } = oneLine(text);
     if (!t) return { ok: false, message: 'Nothing to save (empty).' };
     const entries = this.docList(file);
     if (entries.some((e) => e === t)) return { ok: true, message: 'Already recorded.' };
@@ -238,20 +260,22 @@ export class MemoryManager {
       return { ok: false, message: `${label} is ${this.docUsage(file, max).pct}% full (cap ${max} chars). Consolidate or remove stale entries first (action "list" then "remove"/"replace").` };
     }
     this.docWrite(file, header, entries);
-    return { ok: true, message: `Saved. ${label} now ${this.docUsage(file, max).pct}% full.` };
+    return { ok: true, message: `Saved${joinedNote(joined)}. ${label} now ${this.docUsage(file, max).pct}% full.` };
   }
   private docReplace(file: string, header: string | null, max: number, label: string, find: string, text: string): { ok: boolean; message: string } {
     const entries = this.docList(file);
     const idx = entries.findIndex((e) => e.includes(find));
     if (idx < 0) return { ok: false, message: `No ${label.toLowerCase()} entry matching "${find}".` };
+    const { text: t, joined } = oneLine(text);
+    if (!t) return { ok: false, message: 'Nothing to save (empty).' };
     const old = entries[idx]!;
-    entries[idx] = text.trim();
+    entries[idx] = t;
     if (this.bodyLen(entries) > max) {
       entries[idx] = old;
       return { ok: false, message: `That would exceed the ${max}-char cap. Shorten it or remove another entry first.` };
     }
     this.docWrite(file, header, entries);
-    return { ok: true, message: `Updated. ${label} now ${this.docUsage(file, max).pct}% full.` };
+    return { ok: true, message: `Updated${joinedNote(joined)}. ${label} now ${this.docUsage(file, max).pct}% full.` };
   }
   private docRemove(file: string, header: string | null, max: number, label: string, find: string): { ok: boolean; message: string } {
     const entries = this.docList(file);
