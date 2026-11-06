@@ -53,7 +53,7 @@ const CRED_FIELDS: Array<{ key: string; label: string; group: string; secret: bo
   { key: 'CLOUDFLARE_API_TOKEN', label: 'Cloudflare API token (Workers AI permission; free daily Neurons)', group: 'providers', secret: true },
   { key: 'CLOUDFLARE_ACCOUNT_ID', label: 'Cloudflare Account ID (for Workers AI)', group: 'providers', secret: false },
   { key: 'PERPLEXITY_API_KEY', label: 'Perplexity Sonar key (PAID: search-grounded; not a free tier)', group: 'providers', secret: true },
-  // Jira Cloud (Settings → Integrations → Jira): used by the jira_* tools, Jira Sentinel and Jira Watcher.
+  // Jira Cloud (Settings → Integrations → Jira): used by the jira_* tools.
   { key: 'JIRA_BASE_URL', label: 'Jira base URL (https://your-domain.atlassian.net)', group: 'jira', secret: false },
   { key: 'JIRA_EMAIL', label: 'Jira account email', group: 'jira', secret: false },
   { key: 'JIRA_API_TOKEN', label: 'Jira API token (id.atlassian.com/manage-profile/security/api-tokens)', group: 'jira', secret: true },

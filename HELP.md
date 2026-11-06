@@ -124,7 +124,7 @@ Every message stops at the first tier that can handle it: **Calculator** (pure m
 
 ## 5. Sub-agents
 
-The **pre-made agents** (Mail Sentinel, Jira Sentinel, Jira Watcher, News Brief, Chief of Staff, ...) are seeded once and run **headless by default**: each has its own schedule and an activity feed, and you flip the **Chat window** toggle in its app if you want to talk to one directly.
+The **pre-made agents** (Mail Sentinel, News Brief, Desktop Automation, John the Butler) are seeded once and run **headless by default**: each has its own schedule and an activity feed, and you flip the **Chat window** toggle in its app if you want to talk to one directly.
 
 Create one with **+ new agent** (or Zamolxis makes one itself mid-job). Each agent row has: **run · job · analyze · schedule · stop/resume · delete**, plus a **fix** link when it's inactive.
 
@@ -171,4 +171,4 @@ Persistent files (in your data dir): **LAWS.md** (inviolable safety rules, appli
 
 **Slack** runs in Socket Mode (no public URL). Quick path: create an app at api.slack.com/apps → enable Socket Mode (gives the `xapp-` App-Level token, scope `connections:write`) → add bot scopes `app_mentions:read`, `chat:write`, `im:history`, `im:read`, `im:write` → subscribe to events `app_mention` + `message.im` → Install to Workspace (gives the `xoxb-` Bot token). Paste `SLACK_BOT_TOKEN` (xoxb-) and `SLACK_APP_TOKEN` (xapp-) in Settings → Channels → Slack, enable the Slack channel, restart. Then DM the bot or `/invite @Zamolxis` to a channel and @-mention it. Ask Zamolxis **"connect slack"** to be walked through it (the connect-slack skill).
 
-**Jira** is configured in Settings → Integrations → Jira (base URL, account email, API token from id.atlassian.com, optional default project key); the Jira tools and the Jira Sentinel / Jira Watcher agents use it.
+**Jira** is configured in Settings → Integrations → Jira (base URL, account email, API token from id.atlassian.com, optional default project key); the Jira tools use it.
